@@ -183,7 +183,12 @@ impl SimulateWindow {
                   // Pair
                   let token0 = pool.currency0();
                   let token1 = pool.currency1();
-                  let pair = format!("{} - {}", token0.symbol(), token1.symbol());
+                  // Named: a pool's two tickers are read out one letter at a time.
+                  let pair = format!(
+                     "{} - {}",
+                     currency_for_speech(token0).name,
+                     currency_for_speech(token1).name
+                  );
                   let text = RichText::new(pair).size(theme.typography.normal);
                   ui.label(text);
 

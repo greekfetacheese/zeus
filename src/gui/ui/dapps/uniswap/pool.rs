@@ -9,7 +9,9 @@ use egui::{
 use crate::assets::icons::Icons;
 use crate::core::{PoolManagerHandle, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{name_alert, name_picker, name_text, next_widget_id};
+use crate::gui::ui::common::{
+   currency_for_speech, name_alert, name_picker, name_text, next_widget_id,
+};
 use crate::utils::truncate_symbol_or_name;
 use egui_elements::{
    Button, ChipRole, ComboBox, Label, Modal, SecureTextEdit, Spinner, Theme, Toast,
@@ -97,6 +99,9 @@ const DYNAMIC_FEE_FLAG: u32 = 0x80_0000;
 struct PoolRow {
    token0: String,
    token1: String,
+   /// The pair said in the tokens' own names, which is what a reader hears over the two tickers
+   /// the cell draws.
+   pair_for_speech: String,
    icon0: egui::Image<'static>,
    icon1: egui::Image<'static>,
    protocol: &'static str,
@@ -307,6 +312,11 @@ impl PoolsUi {
          .map(|(token0, token1, protocol, fee)| PoolRow {
             token0: truncate_symbol_or_name(token0.symbol(), 10),
             token1: truncate_symbol_or_name(token1.symbol(), 10),
+            pair_for_speech: format!(
+               "{} / {}",
+               currency_for_speech(&token0).name,
+               currency_for_speech(&token1).name
+            ),
             icon0: icons.currency_icon_x32(&token0, tint),
             icon1: icons.currency_icon_x32(&token1, tint),
             protocol,
@@ -497,11 +507,7 @@ impl PoolsUi {
 
                      // The cell draws the pair as three separate words, which reads as three
                      // unrelated items: the row says the pair once and the pieces leave the tree.
-                     name_text(
-                        ui,
-                        &pair.response,
-                        format!("{} / {}", row.token0, row.token1),
-                     );
+                     name_text(ui, &pair.response, &row.pair_for_speech);
 
                      for id in [pair.inner.0, pair.inner.1, pair.inner.2] {
                         ui.ctx().accesskit_node_builder(id, |node| node.set_hidden());
@@ -850,6 +856,11 @@ fn build_rows(
             PoolRow {
                token0: truncate_symbol_or_name(token0.symbol(), 10),
                token1: truncate_symbol_or_name(token1.symbol(), 10),
+               pair_for_speech: format!(
+                  "{} / {}",
+                  currency_for_speech(token0).name,
+                  currency_for_speech(token1).name
+               ),
                icon0: icons.currency_icon_x32(token0, tint),
                icon1: icons.currency_icon_x32(token1, tint),
                protocol: protocol_str(pool),
@@ -1225,10 +1236,11 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
       }
    };
 
+   // The name this pool goes by in words, for anything that says it out loud.
    let label = format!(
       "{}/{}",
-      truncate_symbol_or_name(pool.currency0().symbol(), 10),
-      truncate_symbol_or_name(pool.currency1().symbol(), 10)
+      currency_for_speech(pool.currency0()).name,
+      currency_for_speech(pool.currency1()).name
    );
 
    let currencies = [pool.currency0().clone(), pool.currency1().clone()];

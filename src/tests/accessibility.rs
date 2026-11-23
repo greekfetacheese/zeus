@@ -5848,9 +5848,9 @@ fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
 }
 
 /// The fee row says the amount once. Its title names the figure beside it, and the figure is drawn
-/// in the words a reader needs ("about", not the tilde the other rows use) — nothing in the row is
-/// named over its own glyphs, which is how the fee came out twice on a reader that reads a label's
-/// name and its text.
+/// in the words a reader needs ("about", not the tilde the other rows use) — the token's name, not
+/// the ticker. A plain label keeps its glyphs in the tree under it, so a name written over them
+/// would be said as well: this row draws the words it is read in.
 #[test]
 fn the_fee_is_said_once() {
    let (ctx, handle, theme, icons, appearance) = prompt_harness();
@@ -5874,7 +5874,7 @@ fn the_fee_is_said_once() {
 
    let spoken = spoken_text(&nodes);
    let titles = spoken.iter().filter(|text| **text == "Network fee").count();
-   let figures = spoken.iter().filter(|text| text.starts_with("0.00 ETH, about $")).count();
+   let figures = spoken.iter().filter(|text| text.starts_with("0.00 Ethereum, about $")).count();
 
    assert_eq!(
       titles, 1,
@@ -5895,7 +5895,7 @@ fn the_fee_is_said_once() {
       .iter()
       .find(|(_, node)| {
          node.role() == Role::Label
-            && node.value().is_some_and(|text| text.starts_with("0.00 ETH, about $"))
+            && node.value().is_some_and(|text| text.starts_with("0.00 Ethereum, about $"))
       })
       .expect("the figure must be a label of its own");
 
@@ -10172,8 +10172,9 @@ fn a_corrected_slippage_is_said() {
    );
 }
 
-/// One seeded row: the pair cell is one node named after both tokens with the three words it draws
-/// left out of the reading, while the protocol, fee and header cells say their own text.
+/// One seeded row: the pair cell is one node named after both tokens — by name, not by the tickers
+/// it draws — with the three words it draws left out of the reading, while the protocol, fee and
+/// header cells say their own text.
 #[test]
 fn the_pools_table_names_each_row_once() {
    let (ctx, mut gui, zeus) = main_window();
@@ -10189,7 +10190,7 @@ fn the_pools_table_names_each_row_once() {
    let spoken = drawn_names(&nodes);
 
    assert!(
-      spoken.contains(&"WETH / USDC"),
+      spoken.contains(&"Wrapped Ether / USD Coin"),
       "the pair cell must be one node named after both tokens: {spoken:?}"
    );
 
@@ -13917,5 +13918,61 @@ fn a_reader_window_never_minimizes_into_the_tray() {
    assert!(
       !minimize_hides_window(false, false),
       "the preference off is the preference off"
+   );
+}
+/// A label that paints its own galley has nothing under it in the tree, so a name written on it is
+/// the only string a reader gets. A plain `ui.label` owns a `TextRun` child holding the same
+/// words it draws, so naming one over its glyphs says the line twice — once in the name, once in
+/// the text under it. That is the rule the amount lines follow: an `egui-elements` label is named
+/// over its ticker, a plain one is drawn in the words a reader needs.
+#[test]
+fn a_named_label_is_read_once_only_when_it_paints_its_own_galley() {
+   let ctx = Context::default();
+
+   let nodes = frame_nodes(&ctx, Vec::new(), |ui| {
+      let plain = ui.label(egui::RichText::new("0.00 ETH"));
+      crate::gui::ui::common::name_text(ui, &plain, "0.00 Ethereum");
+
+      let themed = egui_elements::Label::new(egui::RichText::new("0.50 USDC"), None);
+      let response = ui.add(themed);
+      crate::gui::ui::common::name_text(ui, &response, "0.50 USD Coin");
+   });
+
+   let named = |text: &str| {
+      nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Label && node.label() == Some(text))
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| {
+            panic!(
+               "the label must be named by the words it was given: {:?}",
+               drawn_names(&nodes)
+            )
+         })
+   };
+
+   let plain = named("0.00 Ethereum");
+   let under: Vec<&str> = plain
+      .children()
+      .iter()
+      .filter_map(|child| nodes.iter().find(|(id, _)| id == child))
+      .filter(|(_, node)| !node.is_hidden())
+      .filter_map(|(_, node)| node.value())
+      .collect();
+
+   assert_eq!(
+      under,
+      vec!["0.00 ETH"],
+      "a plain label still carries the glyphs it drew, which a reader would hear as well"
+   );
+
+   let themed = named("0.50 USD Coin");
+
+   assert!(
+      themed
+         .children()
+         .iter()
+         .all(|child| nodes.iter().any(|(id, node)| id == child && node.is_hidden())),
+      "a themed label paints its own galley, so the name is the only string under it"
    );
 }

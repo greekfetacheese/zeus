@@ -14,7 +14,7 @@ use crate::core::{
    NftApprovalTarget, NftApprovalValue, NftBalanceChange, ZeusContext,
 };
 use crate::gui::ui::common::address::{address_for_speech, name_address};
-use crate::gui::ui::common::name_text;
+use crate::gui::ui::common::{name_text, token_for_speech};
 use crate::utils::truncate_address;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -60,9 +60,11 @@ pub fn tx_cost(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          // Drawn in the words a reader needs to hear: the title beside it says what the figure is,
-         // and the figure says "about" where the other rows draw a tilde. Nothing here is named
-         // over its own glyphs, so the row is read once, in the words the eye reads.
-         let text = format!("{cost:.10} {}, about ${usd}", eth.symbol);
+         // and the figure says "about" where the other rows draw a tilde. The token is drawn by
+         // name too, because this label is a plain one: its glyphs stay in the tree under it, and
+         // a name written over them would be said as well.
+         let name = token_for_speech(&eth.name, &eth.symbol).name;
+         let text = format!("{cost:.10} {name}, about ${usd}");
          ui.label(RichText::new(text).size(theme.typography.large));
       });
    });
@@ -85,10 +87,12 @@ pub fn value(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
+         // Drawn by name: a plain label's glyphs are nodes of their own, so a name written over
+         // them would be read as well as the ticker.
          let text = format!(
             "{:.12} {} ~ ${:5}",
             value.abbreviated(),
-            eth.symbol(),
+            token_for_speech(eth.name(), eth.symbol()).name,
             value_usd.abbreviated()
          );
          ui.label(RichText::new(text).size(theme.typography.large));
@@ -360,7 +364,13 @@ pub fn approval_change_row(
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         ui.add(MultiLabel::new(vec![token_label, arrow_label]));
+         // The line draws the ticker; a reader hears the token behind it.
+         let response = ui.add(MultiLabel::new(vec![token_label, arrow_label]));
+         name_text(
+            ui,
+            &response,
+            token_for_speech(change.token.name(), change.token.symbol()).name,
+         );
 
          ui.add_space(6.0);
 

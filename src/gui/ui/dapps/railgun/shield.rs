@@ -1301,7 +1301,7 @@ impl ShieldUi {
                ui.horizontal(|ui| {
                   ui.add(
                      Label::new(
-                        RichText::new(format!("Try {suggested} {symbol} instead"))
+                        RichText::new(format!("Try {suggested} {} instead", spoken.name))
                            .size(theme.typography.normal),
                         None,
                      )
@@ -1366,8 +1366,9 @@ impl ShieldUi {
                ui.add(
                   Label::new(
                      RichText::new(format!(
-                        "This withdrawal would take {:.0}% of the entire {symbol} pool.",
-                        share * 100.0
+                        "This withdrawal would take {:.0}% of the entire {} pool.",
+                        share * 100.0,
+                        spoken.name
                      ))
                      .size(theme.typography.small)
                      .color(theme.colors.warning),

@@ -9,7 +9,7 @@ use crate::gui::{
       chain_label,
       common::{
          address::{drawn_and_spoken, name_address},
-         name_text, spoken_wallet_name,
+         currency_for_speech, name_text, spoken_wallet_name,
       },
       show_with_fade,
       tx::spent_note_window::{SpentHistoryRow, spent_age},
@@ -923,8 +923,14 @@ pub(crate) struct PrivateAssetDisplay {
 }
 
 impl PrivateAssetDisplay {
-   pub(crate) fn symbol(&self) -> &str {
-      &self.symbol
+   /// The words a reader hears for this asset: the token's name, or the collection an NFT note
+   /// belongs to. A ticker is read out one letter at a time, and an amount is worth nothing without
+   /// the thing it is an amount of.
+   pub(crate) fn token_name(&self) -> String {
+      match self.currency.as_ref() {
+         Some(currency) => currency_for_speech(currency).name,
+         None => self.symbol.clone(),
+      }
    }
 
    pub(crate) fn currency(&self) -> Option<&Currency> {
@@ -1012,13 +1018,13 @@ fn private_action(
 
    let display = ctx.read(|c| private_asset_display(c, chain, entry.asset));
    let amount = display.amount_text(entry.amount, 5);
-   let symbol = display.symbol();
+   let name = display.token_name();
 
    match entry.kind {
-      PrivateHistoryKind::Unshield => format!("Unshield {amount} {symbol}"),
-      PrivateHistoryKind::Send => format!("Transfer {amount} {symbol}"),
-      PrivateHistoryKind::Spend => format!("Sent {amount} {symbol}"),
-      PrivateHistoryKind::Receive => format!("Received {amount} {symbol}"),
+      PrivateHistoryKind::Unshield => format!("Unshield {amount} {name}"),
+      PrivateHistoryKind::Send => format!("Transfer {amount} {name}"),
+      PrivateHistoryKind::Spend => format!("Sent {amount} {name}"),
+      PrivateHistoryKind::Receive => format!("Received {amount} {name}"),
       PrivateHistoryKind::Merge => "Merged notes".to_string(),
       _ => "Unknown".to_string(),
    }

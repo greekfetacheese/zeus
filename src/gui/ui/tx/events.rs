@@ -729,8 +729,19 @@ fn shield_event_ui(
                   .size(theme.typography.large);
                let label2 = Label::new(text, None).interactive(false);
 
+               // The line draws the ticker; a reader hears the token behind it.
                let multi_label = MultiLabel::new(vec![label1, label2]);
-               ui.add(multi_label);
+               let response = ui.add(multi_label);
+               name_text(
+                  ui,
+                  &response,
+                  format!(
+                     "{:.10} {} ~ ${:.10}",
+                     amount.abbreviated(),
+                     token_for_speech(&token.name, &token.symbol).name,
+                     amount_usd.abbreviated()
+                  ),
+               );
             });
          } else if let AssetId::Erc721(collection, token_id)
          | AssetId::Erc1155(collection, token_id) = &params.asset
@@ -781,8 +792,19 @@ fn shield_event_ui(
 
             let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
             let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+            // The line draws the ticker; a reader hears the token behind it.
             let multi_label = MultiLabel::new(vec![label1, label2]);
-            ui.add(multi_label);
+            let response = ui.add(multi_label);
+            name_text(
+               ui,
+               &response,
+               format!(
+                  "{:.10} {} ~ ${:.10}",
+                  fee.abbreviated(),
+                  token_for_speech(&token.name, &token.symbol).name,
+                  fee_usd.abbreviated()
+               ),
+            );
          });
       });
    }
@@ -843,8 +865,19 @@ fn unshield_event_ui(
                   .size(theme.typography.large);
                let label2 = Label::new(text, None).interactive(false);
 
+               // The line draws the ticker; a reader hears the token behind it.
                let multi_label = MultiLabel::new(vec![label1, label2]);
-               ui.add(multi_label);
+               let response = ui.add(multi_label);
+               name_text(
+                  ui,
+                  &response,
+                  format!(
+                     "{:.10} {} ~ ${:.10}",
+                     amount.abbreviated(),
+                     token_for_speech(&token.name, &token.symbol).name,
+                     amount_usd.abbreviated()
+                  ),
+               );
             });
          } else if matches!(
             params.token_data.tokenType,
@@ -897,8 +930,19 @@ fn unshield_event_ui(
 
             let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
             let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+            // The line draws the ticker; a reader hears the token behind it.
             let multi_label = MultiLabel::new(vec![label1, label2]);
-            ui.add(multi_label);
+            let response = ui.add(multi_label);
+            name_text(
+               ui,
+               &response,
+               format!(
+                  "{:.10} {} ~ ${:.10}",
+                  fee.abbreviated(),
+                  token_for_speech(&token.name, &token.symbol).name,
+                  fee_usd.abbreviated()
+               ),
+            );
          });
       });
    }
@@ -929,8 +973,19 @@ fn unshield_event_ui(
 
                let label1 = Label::new(fee_rich_text, Some(icon)).interactive(false);
                let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
+               // The line draws the ticker; a reader hears the token behind it.
                let multi_label = MultiLabel::new(vec![label1, label2]);
-               ui.add(multi_label);
+               let response = ui.add(multi_label);
+               name_text(
+                  ui,
+                  &response,
+                  format!(
+                     "{:.10} {} ~ ${:.10}",
+                     bf_fee.abbreviated(),
+                     token_for_speech(&token.name, &token.symbol).name,
+                     bf_fee_usd.abbreviated()
+                  ),
+               );
             });
          });
       } else {
@@ -997,8 +1052,19 @@ fn private_transfer_event_ui(
                   .size(theme.typography.large);
                let label2 = Label::new(text, None).interactive(false);
 
+               // The line draws the ticker; a reader hears the token behind it.
                let multi_label = MultiLabel::new(vec![label1, label2]);
-               ui.add(multi_label);
+               let response = ui.add(multi_label);
+               name_text(
+                  ui,
+                  &response,
+                  format!(
+                     "{:.10} {} ~ ${:.10}",
+                     amount.abbreviated(),
+                     token_for_speech(&token.name, &token.symbol).name,
+                     amount_usd.abbreviated()
+                  ),
+               );
             });
          } else if let AssetId::Erc721(collection, token_id)
          | AssetId::Erc1155(collection, token_id) = &params.asset
@@ -1305,7 +1371,19 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
             RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.typography.large);
          let label = Label::new(text, None).interactive(false);
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.add(label);
+            let response = ui.add(label);
+
+            // The line draws the ticker; a reader hears the token behind it.
+            name_text(
+               ui,
+               &response,
+               format!(
+                  "{:.10} {} {}",
+                  amount.abbreviated(),
+                  currency_for_speech(currency).name,
+                  amount_usd
+               ),
+            );
          });
       });
    }

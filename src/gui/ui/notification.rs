@@ -6,7 +6,7 @@ use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::address::{
    SpokenAddress, drawn_and_spoken, name_address, transfer_for_speech,
 };
-use crate::gui::ui::common::chain_label;
+use crate::gui::ui::common::{chain_label, currency_for_speech, name_text, token_for_speech};
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::TimeStamp;
 use egui::{Align2, Order, ProgressBar, Response, RichText, TextWrapMode, Ui, Window, vec2};
@@ -388,7 +388,19 @@ impl Notification {
 
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
 
-         ui.add(multi_label);
+         // The line draws two tickers; a reader hears the tokens behind them.
+         let response = ui.add(multi_label);
+         name_text(
+            ui,
+            &response,
+            format!(
+               "{} {} to {} {}",
+               amount_in,
+               currency_for_speech(&params.input_currency).name,
+               amount_out,
+               currency_for_speech(&params.output_currency).name
+            ),
+         );
       });
    }
 
@@ -432,7 +444,20 @@ impl Notification {
             .interactive(false);
 
          let multi_label = MultiLabel::new(vec![label_in, label_arrow, label_out]);
-         ui.add(multi_label);
+         let response = ui.add(multi_label);
+         name_text(
+            ui,
+            &response,
+            format!(
+               "{} {} on {} to {} {} on {}",
+               amount_in,
+               currency_for_speech(&params.input_currency).name,
+               from_chain,
+               amount_out,
+               currency_for_speech(&params.output_currency).name,
+               to_chain
+            ),
+         );
 
          let chain_in = RichText::new(&from_chain).size(theme.typography.large);
          let chain_in_icon = icons.chain_icon(params.origin_chain, tint);
@@ -484,7 +509,18 @@ impl Notification {
             .interactive(false);
 
          let multi_label = MultiLabel::new(vec![label1, arrow_label, label2]);
-         ui.add(multi_label);
+         let response = ui.add(multi_label);
+         name_text(
+            ui,
+            &response,
+            format!(
+               "{} {} to {} {}",
+               eth_wrapped,
+               currency_for_speech(&native).name,
+               weth_received,
+               currency_for_speech(&weth).name
+            ),
+         );
       });
    }
 
@@ -517,7 +553,18 @@ impl Notification {
             .wrap_mode(TextWrapMode::Extend)
             .interactive(false);
          let multi_label = MultiLabel::new(vec![label1, arrow_label, label2]);
-         ui.add(multi_label);
+         let response = ui.add(multi_label);
+         name_text(
+            ui,
+            &response,
+            format!(
+               "{} {} to {} {}",
+               weth_unwrapped,
+               currency_for_speech(&weth).name,
+               eth_received,
+               currency_for_speech(&native).name
+            ),
+         );
       });
    }
 
@@ -547,7 +594,18 @@ impl Notification {
 
          let label =
             Label::new(text, Some(icon)).wrap_mode(TextWrapMode::Extend).interactive(false);
-         ui.add(label);
+         let response = ui.add(label);
+
+         // The line draws the ticker; a reader hears the token behind it.
+         name_text(
+            ui,
+            &response,
+            format!(
+               "{} {}",
+               amount,
+               currency_for_speech(currency).name
+            ),
+         );
 
          let (from_label, from_spoken) = address_text(ctx, chain, params.sender, theme);
 
@@ -738,7 +796,22 @@ impl Notification {
 
          let label =
             Label::new(text, Some(icon)).wrap_mode(TextWrapMode::Extend).interactive(false);
-         ui.add(label);
+         let response = ui.add(label);
+
+         // The line draws the ticker; a reader hears the token behind it.
+         let name = token_for_speech(&params.token.name, &params.token.symbol).name;
+         let spoken = match amount_usd {
+            Some(amount_usd) => {
+               format!(
+                  "{} {} ~ ${}",
+                  amount,
+                  name,
+                  format_amount(amount_usd)
+               )
+            }
+            None => format!("{amount} {name}"),
+         };
+         name_text(ui, &response, spoken);
       });
    }
 

@@ -18,7 +18,10 @@ use zeus_railgun::{
 
 use crate::{
    core::ZeusContext,
-   gui::{SHARED_GUI, ui::dapps::railgun::transfer::private_merge_notes},
+   gui::{
+      SHARED_GUI,
+      ui::{common::currency_for_speech, dapps::railgun::transfer::private_merge_notes},
+   },
 };
 
 const EXPLAIN: &str = "\
@@ -150,9 +153,12 @@ impl MergeNotesWindow {
                );
 
                ui.label(
-                  RichText::new(format!("Token: {}", self.currency.symbol()))
-                     .size(theme.typography.normal)
-                     .strong(),
+                  RichText::new(format!(
+                     "Token: {}",
+                     currency_for_speech(&self.currency).name
+                  ))
+                  .size(theme.typography.normal)
+                  .strong(),
                );
 
                match &self.state {

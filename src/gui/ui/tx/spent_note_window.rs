@@ -237,16 +237,18 @@ fn format_amount(
    let display = private_asset_display(ctx, chain, asset);
    let text = display.amount_text(amount, 10);
 
+   // Named, not tickered: the amount is worth nothing without the thing it is an amount of, and a
+   // ticker is read out one letter at a time.
    match (display.value(amount), display.currency()) {
       (Some(value), Some(currency)) => {
          let usd = ctx.get_currency_value_for_amount(value.f64(), currency);
          format!(
             "{text} {} ~ ${:.10}",
-            display.symbol(),
+            display.token_name(),
             usd.abbreviated()
          )
       }
-      _ => format!("{text} {}", display.symbol()),
+      _ => format!("{text} {}", display.token_name()),
    }
 }
 
