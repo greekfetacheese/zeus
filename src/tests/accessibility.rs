@@ -2874,6 +2874,41 @@ fn a_themed_label_is_named_with_its_sentence() {
    );
 }
 
+/// A label says one thing. The glyphs it draws are text runs under the same node, and Windows reads
+/// a label's text as well as its name: a row named "Network fee, …" also said the drawn
+/// "0.00 ETH ~ $0.00", so the fee came out as a figure and then as a sentence.
+#[test]
+fn a_named_label_does_not_read_its_glyphs_too() {
+   let ctx = Context::default();
+
+   let nodes = frame_nodes(&ctx, Vec::new(), |ui| {
+      let label = ui.label("0.00 ETH ~ $0.00");
+      crate::gui::ui::common::name_text(ui, &label, "Network fee, 0.00 ETH, about $0.00");
+   });
+
+   let (_, fee) = nodes
+      .iter()
+      .find(|(_, node)| node.value() == Some("Network fee, 0.00 ETH, about $0.00"))
+      .expect("the label must be named with its sentence");
+
+   let text: Vec<&str> = fee
+      .children()
+      .iter()
+      .filter(|id| nodes.iter().any(|(node_id, node)| node_id == *id && !node.is_hidden()))
+      .filter_map(|id| {
+         nodes
+            .iter()
+            .find(|(node_id, _)| node_id == id)
+            .and_then(|(_, node)| node.value())
+      })
+      .collect();
+
+   assert!(
+      text.is_empty(),
+      "the drawn spelling must not be read next to the name: {text:?}"
+   );
+}
+
 /// A notice panel draws its title and hint with plain labels, and a plain label already carries its
 /// text into the tree. This pins that the dapp panels' prose is reachable without being rewritten,
 /// and fails loudly if a future egui stops emitting it.

@@ -307,6 +307,11 @@ pub fn name_picker(ui: &Ui, id: Id, caption: &str, value: &str) {
 /// thing it was given. A widget that made no node of its own is given a label node here, so the
 /// drawn text is never the only thing a reader gets; one that did keeps the role it has and only
 /// takes the words.
+///
+/// The glyphs a label draws stay in its text runs, and a consumer that reads a label's text as well
+/// as its name — the Windows one does — heard the same row twice, as a figure and then as a
+/// sentence. The drawn text is covered for a label (see [`cover_drawn_text`]), so the sentence is
+/// the one thing the node says.
 pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
    let text = text.into();
    let egui_ctx = ui.ctx();
@@ -316,13 +321,55 @@ pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
       response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), name));
    }
 
+   let mut is_label = false;
    egui_ctx.accesskit_node_builder(response.id, |node| {
-      if node.role() == Role::Label {
+      is_label = node.role() == Role::Label;
+
+      if is_label {
          node.set_value(text.clone());
       }
 
       node.set_label(text.clone());
    });
+
+   if is_label {
+      cover_drawn_text(ui, response);
+   }
+}
+
+/// How many runs this looks for on one label: a wrapped paragraph is a handful of rows, and a row
+/// is split into a new run every 255 characters.
+const MAX_TEXT_RUNS: usize = 12;
+
+/// Hide the glyphs a label draws, which the name on the same node has already said.
+///
+/// egui registers the drawn text of a label as one `Role::TextRun` per row — and per 255
+/// characters of that row — under ids derived from the widget's own. A name replaces the glyphs for
+/// one consumer and not the other: the Windows adapter exposes those runs as the label's text as
+/// well as its name, so a row named "Network fee, …" also said the drawn "0.00 ETH ~ $0.00", and
+/// the fee came out twice, as a figure and then as a sentence.
+fn cover_drawn_text(ui: &Ui, response: &Response) {
+   let egui_ctx = ui.ctx();
+
+   for row in 0..MAX_TEXT_RUNS {
+      let mut drawn = false;
+
+      for chunk in 0..MAX_TEXT_RUNS {
+         let run = response.id.with(row).with(chunk);
+
+         // This row was not drawn: the rows are contiguous, so the scan is over.
+         if !egui_ctx.has_accesskit_node(run) {
+            break;
+         }
+
+         drawn = true;
+         egui_ctx.accesskit_node_builder(run, |node| node.set_hidden());
+      }
+
+      if !drawn {
+         break;
+      }
+   }
 }
 
 /// A plate that is one clickable row to a reader: the frame, its contents, and the node behind them.
