@@ -32,8 +32,9 @@ use crate::gui::ui::settings::SettingsPage;
 use crate::gui::ui::shortcuts::{Action as ShortcutAction, Binding, Chord};
 use crate::gui::ui::sign_msg_window::SignMsgWindow;
 use crate::gui::ui::tx::{
-   FeeSelection, TxConfirmationWindow, TxWindow, events::DecodedEvents, show_analysis_buttons,
-   show_calldata_modal, show_tx_diffs_modal, show_tx_options_modal,
+   FeeSelection, TxConfirmationWindow, TxWindow, confrim_window::PromptSheet,
+   events::DecodedEvents, show_analysis_buttons, show_calldata_modal, show_tx_diffs_modal,
+   show_tx_options_modal, tx_window::DetailsSheet,
 };
 use crate::gui::ui::wallet::import::{ImportWallet, ImportWalletType};
 use crate::gui::{GUI, LockScreen, Page};
@@ -5685,6 +5686,93 @@ fn escape_rejects_the_confirmation_and_closes_it() {
    );
 }
 
+/// The dialogs a window's tree is made of, by the headings they are named with.
+fn dialogs(nodes: &[(NodeId, Node)]) -> Vec<String> {
+   nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Dialog)
+      .filter_map(|(_, node)| node.label())
+      .map(str::to_string)
+      .collect()
+}
+
+/// The first Escape belongs to the sheet drawn over the prompt: it closes the events, the
+/// calldata, the state changes or the options and leaves the transaction still waiting for an
+/// answer. A prompt that went with the sheet rejected a transaction the reader never got to read.
+#[test]
+fn an_escape_closes_the_sheet_and_not_the_confirmation() {
+   for (sheet, title) in [
+      (PromptSheet::Events, "Decoded Events"),
+      (PromptSheet::Calldata, "Calldata"),
+      (PromptSheet::StateChanges, "State Changes"),
+      (PromptSheet::Options, "Transaction Options"),
+   ] {
+      let (ctx, handle, theme, icons, appearance) = prompt_harness();
+      let mut window = TxConfirmationWindow::for_test(
+         &handle,
+         TransactionAnalysis::dummy_with_diffs(),
+         "",
+         false,
+         None,
+      )
+      .with_sheet(sheet);
+
+      let nodes = render_confirmation(
+         &ctx,
+         &handle,
+         &mut window,
+         &theme,
+         &icons,
+         &appearance,
+         Vec::new(),
+      );
+
+      assert!(
+         dialogs(&nodes).iter().any(|name| name == title),
+         "the {title} sheet must be drawn over the prompt before the key is sent: {:?}",
+         dialogs(&nodes),
+      );
+
+      render_confirmation(
+         &ctx,
+         &handle,
+         &mut window,
+         &theme,
+         &icons,
+         &appearance,
+         vec![key_press(Key::Escape)],
+      );
+
+      assert!(
+         window.is_open(),
+         "the Escape that closed the {title} sheet must not close the prompt"
+      );
+      assert_eq!(
+         window.take_confirmed_or_rejected(),
+         None,
+         "a sheet that closes answers nothing: the transaction is still awaiting its answer"
+      );
+
+      // The frame the key lands in still paints the sheet it closed: the tree is read one frame
+      // later, where the sheet is gone.
+      let nodes = render_confirmation(
+         &ctx,
+         &handle,
+         &mut window,
+         &theme,
+         &icons,
+         &appearance,
+         Vec::new(),
+      );
+
+      assert!(
+         !dialogs(&nodes).iter().any(|name| name == title),
+         "Escape must close the {title} sheet: {:?}",
+         dialogs(&nodes),
+      );
+   }
+}
+
 /// The countdown lives in the button's description, never its name: a reader hears "Confirm"
 /// throughout, the wait while it runs, and one sentence when it ends.
 #[test]
@@ -6609,6 +6697,54 @@ fn escape_closes_the_transaction_details_window() {
       !window.is_open(),
       "Escape must close the transaction details window"
    );
+}
+
+/// The same key owns the same sheet here: Escape closes the events, the calldata or the state
+/// changes and leaves the window it was opened from. The sheet is the one dialog that is there
+/// before the key and gone after it, which is how this reads without naming every heading the
+/// window's sheets resolve to.
+#[test]
+fn an_escape_closes_a_details_sheet_and_not_the_window() {
+   let (ctx, handle, theme, icons, _appearance) = prompt_harness();
+
+   for sheet in [
+      DetailsSheet::Events,
+      DetailsSheet::Calldata,
+      DetailsSheet::StateChanges,
+   ] {
+      let mut window =
+         TxWindow::for_test(Some(TransactionRich::dummy_clear_signed()), false).with_sheet(sheet);
+
+      let nodes = render_modal(&ctx, Vec::new(), |ui| {
+         handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      });
+
+      assert_eq!(
+         dialogs(&nodes).len(),
+         2,
+         "the sheet must be drawn over the window before the key is sent: {:?}",
+         dialogs(&nodes),
+      );
+
+      render_modal(&ctx, vec![key_press(Key::Escape)], |ui| {
+         handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      });
+
+      assert!(
+         window.is_open(),
+         "the Escape that closed the sheet must not close the details window"
+      );
+
+      let nodes = render_modal(&ctx, Vec::new(), |ui| {
+         handle.write(|zeus| window.show(zeus, &theme, icons.clone(), ui));
+      });
+
+      assert_eq!(
+         dialogs(&nodes),
+         vec!["Transaction Details".to_string()],
+         "Escape must close the sheet and leave the window behind it"
+      );
+   }
 }
 
 /// A failed transaction says so in the error colour and in nothing else: the same sentence is an

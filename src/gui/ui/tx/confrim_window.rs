@@ -450,6 +450,17 @@ impl TxConfirmationWindow {
       }
    }
 
+   /// Whether one of the window's own sheets is drawn over it.
+   ///
+   /// Every sheet — the decoded events, the calldata, the state changes, the options — is a
+   /// `Modal`, and a `Modal` answers Escape for itself whether or not it is closable. The window
+   /// reads the same key as its way out, so it has to know when a press belongs to a sheet above
+   /// it: a dismissal would otherwise reject the transaction the reader only asked to stop
+   /// reading about.
+   fn a_sheet_is_open(&self) -> bool {
+      self.decoded_events.is_open() || self.show_calldata || self.show_diffs || self.show_tx_options
+   }
+
    pub fn show(
       &mut self,
       ctx: &mut ZeusContext,
@@ -467,6 +478,9 @@ impl TxConfirmationWindow {
       let id = Id::unique("tx_confirmation_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = self.heading(theme);
+      // Read before the sheets are shown: the frame that closes one writes its flag back, and
+      // this is the state the key was pressed in.
+      let sheet_is_open = self.a_sheet_is_open();
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
@@ -475,11 +489,15 @@ impl TxConfirmationWindow {
          .header_separator(false)
          .center_header(true)
          .closable(false)
+         // The key is read in the body and answered as a rejection; the modal's own use of it
+         // is off exactly when a sheet is the one that should answer it.
+         .close_on_escape(!sheet_is_open)
          .frame(frame)
          .show(ui.ctx(), |ui| {
             // Escape is the window's own way out: `closable(false)` keeps the close button
-            // from taking focus, so the key has to be read here and answered as a rejection.
-            escape = ui.input(|input| input.key_pressed(Key::Escape));
+            // from taking focus, so the key has to be read here and answered as a rejection —
+            // unless a sheet is drawn above it, which owns the key for that frame.
+            escape = !sheet_is_open && ui.input(|input| input.key_pressed(Key::Escape));
 
             // The action comes first for a reader: a zero-size heading at the top of the body,
             // focused once when the window opens and never again — a prompt must not keep
@@ -1076,6 +1094,30 @@ impl TxConfirmationWindow {
 
       window
    }
+
+   /// The window with one of its sheets standing open, the way the button that opens it leaves
+   /// it: the flags are private to this module, so this is how a test outside it hands the
+   /// keyboard to a sheet.
+   #[cfg(test)]
+   pub(crate) fn with_sheet(mut self, sheet: PromptSheet) -> Self {
+      match sheet {
+         PromptSheet::Events => self.decoded_events.open(),
+         PromptSheet::Calldata => self.show_calldata = true,
+         PromptSheet::StateChanges => self.show_diffs = true,
+         PromptSheet::Options => self.show_tx_options = true,
+      }
+      self
+   }
+}
+
+/// Which of the confirmation window's sheets a test stands open over it.
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(crate) enum PromptSheet {
+   Events,
+   Calldata,
+   StateChanges,
+   Options,
 }
 
 #[cfg(test)]

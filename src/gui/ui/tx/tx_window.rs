@@ -127,6 +127,16 @@ impl TxWindow {
       });
    }
 
+   /// Whether one of the window's own sheets is drawn over it.
+   ///
+   /// The decoded events, the calldata and the state changes are each a `Modal`, and a `Modal`
+   /// answers Escape for itself whether or not it is closable. The window reads the same key as
+   /// its way out, so it has to know when a press belongs to a sheet above it: a dismissal would
+   /// otherwise close the details the reader was still looking at.
+   fn a_sheet_is_open(&self) -> bool {
+      self.decoded_events.is_open() || self.show_calldata || self.show_diffs
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
@@ -137,11 +147,17 @@ impl TxWindow {
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
       let mut escape = false;
+      // Read before the sheets are shown: the frame that closes one writes its flag back, and
+      // this is the state the key was pressed in.
+      let sheet_is_open = self.a_sheet_is_open();
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
          .closable(false)
+         // The key is read in the body and answered as a close; the modal's own use of it is off
+         // exactly when a sheet is the one that should answer it.
+         .close_on_escape(!sheet_is_open)
          .heading(title)
          .header_separator(false)
          .center_header(true)
@@ -149,8 +165,9 @@ impl TxWindow {
          .show(ui.ctx(), |ui| {
             // Escape is the window's own way out: `closable(false)` keeps the close button
             // from taking focus, and the backdrop is ignored with it, so the key is read
-            // here and answered as a close.
-            escape = ui.input(|input| input.key_pressed(Key::Escape));
+            // here and answered as a close — unless a sheet is drawn above it, which owns the
+            // key for that frame.
+            escape = !sheet_is_open && ui.input(|input| input.key_pressed(Key::Escape));
 
             // A reader lands inside the window: the modal's title is in its header, which is
             // walked past, so a zero-size heading at the top of the body is the node the focus
@@ -499,4 +516,26 @@ impl TxWindow {
 
       window
    }
+
+   /// The window with one of its sheets standing open, the way the button that opens it leaves
+   /// it: the flags are private to this module, so this is how a test outside it hands the
+   /// keyboard to a sheet.
+   #[cfg(test)]
+   pub(crate) fn with_sheet(mut self, sheet: DetailsSheet) -> Self {
+      match sheet {
+         DetailsSheet::Events => self.decoded_events.open(),
+         DetailsSheet::Calldata => self.show_calldata = true,
+         DetailsSheet::StateChanges => self.show_diffs = true,
+      }
+      self
+   }
+}
+
+/// Which of the details window's sheets a test stands open over it.
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(crate) enum DetailsSheet {
+   Events,
+   Calldata,
+   StateChanges,
 }
