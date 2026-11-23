@@ -32,6 +32,16 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 
 const CHILD_VALUE_TTL: Duration = Duration::from_secs(1);
 
+/// The wallets one page holds: what the dialog shows without scrolling.
+///
+/// egui places no row the table's viewport cannot show, and a row that is never placed cannot take
+/// the keyboard, so a page holds the rows it shows and every one of them is reachable.
+const WALLETS_PER_PAGE: usize = 5;
+
+/// How many wallets one `Generate` press derives. It is not the page size: a short page is a
+/// reading choice, and deriving five at a time would only make discovery slower.
+const GENERATE_BATCH: usize = 10;
+
 struct ChildValueCache {
    chains: Vec<u64>,
    total_value: f64,
@@ -58,7 +68,6 @@ pub struct DiscoverChildWallets {
    index_to_add: u32,
    wallet_name: String,
    pub current_page: usize,
-   items_per_page: usize,
    size: (f32, f32),
    child_value_cache: HashMap<Address, ChildValueCache>,
    /// The one sentence the flow wants said. A dialog cannot announce from inside its own draw, so
@@ -87,7 +96,6 @@ impl DiscoverChildWallets {
          index_to_add: 0,
          wallet_name: String::new(),
          current_page: 0,
-         items_per_page: 10,
          size: (600.0, 450.0),
          child_value_cache: HashMap::new(),
          notice: None,
@@ -207,13 +215,7 @@ impl DiscoverChildWallets {
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-
-            // The dialog is the list, and egui places no row the table's viewport cannot show: a
-            // row that is never placed cannot take the keyboard, so a page of ten would stop at
-            // the fourth wallet. It opens as tall as the window allows, which is what puts every
-            // row of the page on the Tab path.
-            let height = (ui.ctx().content_rect().height() - 120.0).clamp(self.size.1, 800.0);
-            ui.set_height(height);
+            ui.set_height(self.size.1);
             ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
             ui.spacing_mut().button_padding = theme.button_padding;
 
@@ -236,16 +238,11 @@ impl DiscoverChildWallets {
                }
 
                let len = self.discovered_wallets.wallets.len();
-               let items_per_page = self.items_per_page;
 
-               let total_pages = if items_per_page == 0 {
-                  0
-               } else {
-                  len.div_ceil(items_per_page)
-               };
+               let total_pages = len.div_ceil(WALLETS_PER_PAGE);
 
-               let start = self.current_page * items_per_page;
-               let end = (start + items_per_page).min(len);
+               let start = self.current_page * WALLETS_PER_PAGE;
+               let end = (start + WALLETS_PER_PAGE).min(len);
                let text = if len == 0 {
                   "No wallets found".to_string()
                } else {
@@ -272,7 +269,7 @@ impl DiscoverChildWallets {
 
                ui.add_space(10.0);
 
-               let batch_size = self.items_per_page;
+               let batch_size = GENERATE_BATCH;
 
                let n = 2.0;
                let content_width = ui.available_width() * 0.9;
@@ -525,6 +522,13 @@ impl DiscoverChildWallets {
       let mut add_wallet_clicked = false;
       let mut index_to_add = 0;
 
+      // A selectable label hands its drawn text to the tree as a `TextRun` under its own node, and
+      // a reader reads both: the row said its index and then spelled the whole path, and went on
+      // through every row spelling the addresses. The cells name themselves here, so the glyphs
+      // stay on screen and out of the reading.
+      let selectable_labels = ui.style().interaction.selectable_labels;
+      ui.style_mut().interaction.selectable_labels = false;
+
       // The row is a card, not a control: an interactive frame is a focusable plate with no name,
       // and a Tab that lands on one strands the keyboard in that row — the next Tab re-enters it
       // at its first cell. The row has nothing to click, so it asks for no interaction at all.
@@ -672,6 +676,8 @@ impl DiscoverChildWallets {
                });
             });
          });
+
+      ui.style_mut().interaction.selectable_labels = selectable_labels;
 
       if add_wallet_clicked {
          self.open_add_wallet_window(index_to_add);

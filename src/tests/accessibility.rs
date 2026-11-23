@@ -8771,7 +8771,7 @@ fn the_discovery_count_follows_the_page() {
 
    assert_eq!(
       announced(&nodes).as_deref(),
-      Some("Wallets 11 to 12 of 12."),
+      Some("Wallets 6 to 10 of 12."),
       "the page change is the answer the Next button gets"
    );
 }
@@ -8873,31 +8873,19 @@ fn a_discovered_row_is_not_read_out_as_a_path_or_an_address() {
       );
    }
 
-   // What a reader hears on the way through the page: the things a row says, never the glyphs.
+   // Nothing in the tree spells the glyphs out: a selectable label hands its drawn text to the
+   // reader as a `TextRun` under its own node, so the row said its index and the whole path after
+   // it, and every row of the page spelled the address it draws.
    for (_, node) in &nodes {
-      if !matches!(
-         node.role(),
-         Role::Label | Role::Link | Role::Button
-      ) {
-         continue;
-      }
-
-      let spoken = node.label().or_else(|| node.value()).unwrap_or_default();
-
-      assert!(
-         !spoken.contains("m/44"),
-         "a row must not read its derivation path out: {spoken:?}"
-      );
-
-      assert!(
-         !spoken.contains("0x"),
-         "a row must not read an address out: {spoken:?}"
-      );
-
-      if let Some(description) = node.description() {
+      for spoken in [node.label(), node.value(), node.description()].into_iter().flatten() {
          assert!(
-            !description.contains("0x"),
-            "the description must not spell the address out: {description:?}"
+            !spoken.contains("m/44"),
+            "a row must not read its derivation path out: {spoken:?}"
+         );
+
+         assert!(
+            !spoken.contains("0x"),
+            "a row must not read an address out: {spoken:?}"
          );
       }
    }
@@ -8954,7 +8942,7 @@ fn tab_walks_every_discovered_wallet_on_the_page_and_reaches_the_page_buttons() 
       .filter(|stop| stop.starts_with("Add wallet "))
       .collect();
 
-   let expected: Vec<String> = (0..10).map(|index| format!("Add wallet {index}")).collect();
+   let expected: Vec<String> = (0..5).map(|index| format!("Add wallet {index}")).collect();
    let expected: Vec<&str> = expected.iter().map(String::as_str).collect();
 
    assert_eq!(
