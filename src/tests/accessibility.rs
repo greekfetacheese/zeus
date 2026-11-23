@@ -8666,14 +8666,6 @@ fn the_verify_dialog_says_why_it_asks_before_a_wallet_is_deleted() {
    );
 }
 
-/// The first discovered row's address in full, grouped in fours as a reader hears it.
-const FIRST_DISCOVERED_SPOKEN: &str = "0x1111 1111 1111 1111 1111 1111 1111 1111 1111 1111";
-/// The same address as Zeus draws it.
-const FIRST_DISCOVERED_SHORT: &str = "0x1111...111111";
-/// The second discovered row's address, and the form Zeus draws for it.
-const SECOND_DISCOVERED_SPOKEN: &str = "0x2222 2222 2222 2222 2222 2222 2222 2222 2222 2222";
-const SECOND_DISCOVERED_SHORT: &str = "0x2222...222222";
-
 /// A discovery list of `count` rows: the n-th row's address repeats `0x11 × n`, and its index is
 /// the derivation index the row is named by.
 fn discovered_wallets(count: u32) -> crate::core::DiscoveredWallets {
@@ -8784,8 +8776,8 @@ fn the_discovery_count_follows_the_page() {
    );
 }
 
-/// Every row's button says which wallet it adds, and which address that is: ten identical drawn
-/// words become one name per row, and the link speaks the whole address.
+/// Every row's button says which wallet it adds, so ten identical drawn words become ten names,
+/// and each row's link says where it leads instead of reading out the address it draws.
 #[test]
 fn every_discovered_row_names_the_wallet_it_adds() {
    let (ctx, mut gui, zeus) = main_window();
@@ -8795,7 +8787,7 @@ fn every_discovered_row_names_the_wallet_it_adds() {
 
    let nodes = draw_discover_flow(&ctx, &mut gui, &zeus);
 
-   for (index, spoken) in [(0, FIRST_DISCOVERED_SPOKEN), (1, SECOND_DISCOVERED_SPOKEN)] {
+   for index in 0..2 {
       let name = format!("Add wallet {index}");
 
       let node = nodes
@@ -8811,8 +8803,8 @@ fn every_discovered_row_names_the_wallet_it_adds() {
 
       assert_eq!(
          node.description(),
-         Some(spoken),
-         "the button says which address {name} is for"
+         None,
+         "the button must not spell the address out: {name}"
       );
    }
 
@@ -8839,41 +8831,150 @@ fn every_discovered_row_names_the_wallet_it_adds() {
       drawn_names(&nodes)
    );
 
-   let links = nodes.iter().filter(|(_, node)| node.role() == Role::Link).count();
+   let mut links: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Link)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   links.sort_unstable();
 
    assert_eq!(
       links,
-      2,
-      "one address link per row: {:?}",
+      [
+         "Wallet 0 address on the block explorer",
+         "Wallet 1 address on the block explorer",
+      ],
+      "each row's link must say where it leads, not read the address out: {:?}",
       drawn_names(&nodes)
    );
+}
 
-   for (whole, short) in [
-      (FIRST_DISCOVERED_SPOKEN, FIRST_DISCOVERED_SHORT),
-      (SECOND_DISCOVERED_SPOKEN, SECOND_DISCOVERED_SHORT),
-   ] {
-      let link = nodes
-         .iter()
-         .find(|(_, node)| node.role() == Role::Link && node.label() == Some(short))
-         .map(|(_, node)| node)
-         .unwrap_or_else(|| {
-            panic!(
-               "the address link must be named by the shortening it draws ({short}): {:?}",
-               drawn_names(&nodes)
-            )
-         });
+/// The row is named by the index the derivation path ends with, and nothing on it reads the path
+/// or an address out: a path of digits and forty hex characters are walls a listener cannot follow.
+#[test]
+fn a_discovered_row_is_not_read_out_as_a_path_or_an_address() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   open_discover_flow(&mut gui, discovered_wallets(2));
+
+   let nodes = draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   for index in 0..2 {
+      let number = index.to_string();
 
       assert!(
-         link.label().unwrap_or_default().chars().count() < 20,
-         "the whole address spelled one character at a time is a wall nobody can follow"
-      );
-
-      assert_eq!(
-         link.description(),
-         Some(whole),
-         "the whole address stays on the node, for whoever asks for it"
+         nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Label && node.value() == Some(number.as_str())),
+         "the row whose path ends in {number} is named by that number: {:?}",
+         drawn_names(&nodes)
       );
    }
+
+   // What a reader hears on the way through the page: the things a row says, never the glyphs.
+   for (_, node) in &nodes {
+      if !matches!(
+         node.role(),
+         Role::Label | Role::Link | Role::Button
+      ) {
+         continue;
+      }
+
+      let spoken = node.label().or_else(|| node.value()).unwrap_or_default();
+
+      assert!(
+         !spoken.contains("m/44"),
+         "a row must not read its derivation path out: {spoken:?}"
+      );
+
+      assert!(
+         !spoken.contains("0x"),
+         "a row must not read an address out: {spoken:?}"
+      );
+
+      if let Some(description) = node.description() {
+         assert!(
+            !description.contains("0x"),
+            "the description must not spell the address out: {description:?}"
+         );
+      }
+   }
+}
+
+/// The page's rows are a keyboard path: `Tab` walks one wallet at a time to the page buttons,
+/// with the reader model on, because a screen reader is the pass that walks labels at all.
+#[test]
+fn tab_walks_every_discovered_wallet_on_the_page_and_reaches_the_page_buttons() {
+   let (ctx, mut gui, zeus) = main_window();
+   seed_discover_context(&zeus, &master_wallet("Main"));
+
+   // The reader model: every label is a tab stop, which is the page a screen reader arrives on.
+   ctx.options_mut(|options| options.screen_reader = true);
+
+   open_discover_flow(&mut gui, discovered_wallets(12));
+   draw_discover_flow(&ctx, &mut gui, &zeus);
+
+   let mut stops: Vec<String> = Vec::new();
+
+   for _ in 0..80 {
+      let nodes = render_wallet_page(&ctx, &mut gui, &zeus, vec![key_press(Key::Tab)]);
+
+      // The pass after the dialog's close button hands the focus on has no stop of its own.
+      let Some(focused) = focused_id(&ctx) else {
+         continue;
+      };
+
+      let spoken = nodes
+         .iter()
+         .find(|(node_id, _)| *node_id == focused)
+         .map(|(_, node)| node.label().or_else(|| node.value()).unwrap_or_default())
+         .unwrap_or_default()
+         .to_string();
+
+      assert!(
+         !spoken.is_empty(),
+         "a tab stop with nothing to say strands the keyboard: {:?}",
+         drawn_names(&nodes)
+      );
+
+      let done = spoken == "Next";
+
+      stops.push(spoken);
+
+      if done {
+         break;
+      }
+   }
+
+   let adds: Vec<&str> = stops
+      .iter()
+      .map(String::as_str)
+      .filter(|stop| stop.starts_with("Add wallet "))
+      .collect();
+
+   let expected: Vec<String> = (0..10).map(|index| format!("Add wallet {index}")).collect();
+   let expected: Vec<&str> = expected.iter().map(String::as_str).collect();
+
+   assert_eq!(
+      adds, expected,
+      "Tab must walk the page one wallet at a time, in the order the rows are drawn"
+   );
+
+   assert_eq!(
+      stops.last().map(String::as_str),
+      Some("Next"),
+      "Tab must reach the page buttons, or a list of more than ten wallets cannot be read"
+   );
+
+   // The button the walk landed on is the one that turns the page.
+   render_wallet_page(&ctx, &mut gui, &zeus, vec![key_press(Key::Enter)]);
+
+   assert_eq!(
+      gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.current_page, 1,
+      "Enter on the focused Next button must turn the page"
+   );
 }
 
 /// A load and a sync each say what they are doing: the spinner is named for the work behind it,

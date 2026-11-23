@@ -4,7 +4,7 @@ use crate::assets::Icons;
 use crate::core::context::handle::MutexHandle;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{address_for_speech, chain_label, name_address, name_text};
+use crate::gui::ui::common::{chain_label, name_text};
 use crate::utils::malloc_trim;
 use eframe::egui::{
    Align2, FontId, Id, Margin, Order, Response, RichText, Role, Stroke, Ui, WidgetInfo, vec2,
@@ -207,7 +207,13 @@ impl DiscoverChildWallets {
          .frame(frame)
          .show(ui.ctx(), |ui| {
             ui.set_width(self.size.0);
-            ui.set_height(self.size.1);
+
+            // The dialog is the list, and egui places no row the table's viewport cannot show: a
+            // row that is never placed cannot take the keyboard, so a page of ten would stop at
+            // the fourth wallet. It opens as tall as the window allows, which is what puts every
+            // row of the page on the Tab path.
+            let height = (ui.ctx().content_rect().height() - 120.0).clamp(self.size.1, 800.0);
+            ui.set_height(height);
             ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.md);
             ui.spacing_mut().button_padding = theme.button_padding;
 
@@ -519,8 +525,10 @@ impl DiscoverChildWallets {
       let mut add_wallet_clicked = false;
       let mut index_to_add = 0;
 
+      // The row is a card, not a control: an interactive frame is a focusable plate with no name,
+      // and a Tab that lands on one strands the keyboard in that row — the next Tab re-enters it
+      // at its first cell. The row has nothing to click, so it asks for no interaction at all.
       let row_frame = Frame::new()
-         .interactive(true)
          .inner_margin(theme.inner_margin)
          .corner_radius(theme.corner_radius)
          .visuals(theme.frame1_visuals());
@@ -578,9 +586,6 @@ impl DiscoverChildWallets {
                let explorer = current_chain.block_explorer();
                let link = format!("{}/address/{}", explorer, address);
 
-               // What a reader hears for the address, and the name this row's button adds.
-               let spoken = address_for_speech(None, &address);
-
                // A row's place on its page repeats on every page, so the name uses the number the
                // derivation path ends with: "Add wallet 7" for m/44'/60'/0'/0/7.
                let wallet_number = child_index.saturating_sub(BIP32_HARDEN);
@@ -590,7 +595,11 @@ impl DiscoverChildWallets {
                   if !enabled {
                      ui.disable();
                   }
-                  ui.label(RichText::new(&path).size(theme.typography.small));
+                  let drawn = ui.label(RichText::new(&path).size(theme.typography.small));
+
+                  // A derivation path is read one digit and apostrophe at a time; the row is named
+                  // by the index it ends with, the number its button adds.
+                  name_text(ui, &drawn, wallet_number.to_string());
                });
 
                r.cell(|ui| {
@@ -604,9 +613,13 @@ impl DiscoverChildWallets {
                      &link,
                   );
 
-                  // The drawn shortening drops the ends that tell two addresses apart, so a reader
-                  // hears the whole address instead.
-                  name_address(ui, &drawn, &spoken);
+                  // The glyphs are a shortening nobody can follow by ear, so the link says where
+                  // it leads and which wallet it is about; the address is never read out.
+                  name_text(
+                     ui,
+                     &drawn,
+                     format!("Wallet {wallet_number} address on the block explorer"),
+                  );
                });
 
                r.cell(|ui| {
@@ -645,15 +658,10 @@ impl DiscoverChildWallets {
                   } else {
                      let add = ui.add(button);
 
-                     // Every row draws the same word, so the name says which wallet it adds and
-                     // the description which address that is.
+                     // Every row draws the same word, so the name says which wallet it adds; the
+                     // address behind it is not read out.
                      add.widget_info(|| {
                         WidgetInfo::labeled(Role::Button, ui.is_enabled(), &add_name)
-                     });
-                     ui.ctx().accesskit_node_builder(add.id, |node| {
-                        if let Some(whole) = &spoken.description {
-                           node.set_description(whole.as_str());
-                        }
                      });
 
                      if add.clicked() {
