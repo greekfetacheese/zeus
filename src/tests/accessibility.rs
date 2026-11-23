@@ -5457,7 +5457,7 @@ fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
 
    let approvals = node_position(&nodes, "Approval changes,");
    let balances = node_position(&nodes, "Balance changes,");
-   let fee = node_position(&nodes, "Network fee,");
+   let fee = node_position(&nodes, "Network fee");
 
    assert!(
       approvals < balances,
@@ -5469,9 +5469,10 @@ fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
    );
 }
 
-/// The caption and the figure said the same thing: a reader met "Cost" and then "Network fee, …"
-/// for one line, which is the fee twice in two spellings. The title is the eye's version of the
-/// name, so it stays on screen and out of the tree.
+/// The fee row says the amount once. Its title names the figure beside it, and the figure is drawn
+/// in the words a reader needs ("about", not the tilde the other rows use) — nothing in the row is
+/// named over its own glyphs, which is how the fee came out twice on a reader that reads a label's
+/// name and its text.
 #[test]
 fn the_fee_is_said_once() {
    let (ctx, handle, theme, icons, appearance) = prompt_harness();
@@ -5493,22 +5494,49 @@ fn the_fee_is_said_once() {
       Vec::new(),
    );
 
-   assert!(
-      nodes.iter().any(|(_, node)| node.value() == Some("Cost")),
-      "the eye keeps the row's title: {:?}",
-      drawn_names(&nodes)
-   );
-
    let spoken = spoken_text(&nodes);
+   let titles = spoken.iter().filter(|text| **text == "Network fee").count();
+   let figures = spoken.iter().filter(|text| text.starts_with("0.00 ETH, about $")).count();
+
+   assert_eq!(
+      titles, 1,
+      "the row's title must name the figure: {spoken:?}"
+   );
+   assert_eq!(
+      figures, 1,
+      "the figure must be said once: {spoken:?}"
+   );
    assert!(
-      !spoken.iter().any(|text| text.trim() == "Cost"),
-      "the title must not be a stop of its own: {spoken:?}"
+      !spoken.iter().any(|text| *text == "Cost"),
+      "a title that only says \"cost\" was the row's second spelling: {spoken:?}"
    );
 
-   let fees = spoken.iter().filter(|text| text.starts_with("Network fee,")).count();
+   // What a reader hears is what the row draws: the figure carries its own text, not a sentence
+   // written over the glyphs.
+   let (_, figure) = nodes
+      .iter()
+      .find(|(_, node)| {
+         node.role() == Role::Label
+            && node.value().is_some_and(|text| text.starts_with("0.00 ETH, about $"))
+      })
+      .expect("the figure must be a label of its own");
+
+   let drawn: Vec<&str> = figure
+      .children()
+      .iter()
+      .filter(|id| nodes.iter().any(|(node_id, node)| node_id == *id && !node.is_hidden()))
+      .filter_map(|id| {
+         nodes
+            .iter()
+            .find(|(node_id, _)| node_id == id)
+            .and_then(|(_, node)| node.value())
+      })
+      .collect();
+
    assert_eq!(
-      fees, 1,
-      "the fee must be said in one place: {spoken:?}"
+      drawn,
+      vec![figure.value().unwrap()],
+      "the drawn text and the spoken one must be the same words"
    );
 }
 

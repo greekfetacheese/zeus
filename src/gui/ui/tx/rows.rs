@@ -50,29 +50,20 @@ pub fn tx_cost(
    ui: &mut Ui,
 ) {
    let eth = NativeCurrency::from(chain.id());
+   let cost = eth_cost.abbreviated();
+   let usd = eth_cost_usd.abbreviated();
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         let caption = ui.label(RichText::new("Cost").size(theme.typography.large));
-
-         // The figure below is named "Network fee", so this title was a stop of its own that said
-         // the fee in one word and nothing else: a reader heard the cost twice. The eye keeps it.
-         ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
+         ui.label(RichText::new("Network fee").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let cost = eth_cost.abbreviated();
-         let usd = eth_cost_usd.abbreviated();
-         let text = format!("{:.10} {} ~ ${}", cost, eth.symbol, usd);
-         let response = ui.label(RichText::new(text).size(theme.typography.large));
-
-         // The row is drawn as a bare cost figure; a reader landing on it has to hear that the
-         // figure is the network fee, and the tilde the visual uses is silent in speech.
-         name_text(
-            ui,
-            &response,
-            format!("Network fee, {cost} {}, about ${usd}", eth.symbol),
-         );
+         // Drawn in the words a reader needs to hear: the title beside it says what the figure is,
+         // and the figure says "about" where the other rows draw a tilde. Nothing here is named
+         // over its own glyphs, so the row is read once, in the words the eye reads.
+         let text = format!("{cost:.10} {}, about ${usd}", eth.symbol);
+         ui.label(RichText::new(text).size(theme.typography.large));
       });
    });
 }
