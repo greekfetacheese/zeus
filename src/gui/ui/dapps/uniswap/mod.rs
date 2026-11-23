@@ -84,24 +84,24 @@ enum Page {
 }
 
 impl Page {
-   fn index(self) -> usize {
+   fn name(self) -> &'static str {
       match self {
-         Page::Pools => 0,
-         Page::Swap => 1,
-         Page::Settings => 2,
+         Page::Pools => "Pools",
+         Page::Swap => "Swap",
+         Page::Settings => "Settings",
       }
    }
 
-   fn from_index(index: usize) -> Self {
-      match index {
-         0 => Page::Pools,
-         1 => Page::Swap,
-         _ => Page::Settings,
+   /// The pages the tab strip offers.
+   ///
+   /// The pool table is a list of pools to hunt through and import from by eye — a search field,
+   /// a version filter and a table of pairs — so a reader is not walked through it. The two pages
+   /// it used to sit between keep their places.
+   fn tabs(reader_attached: bool) -> &'static [Page] {
+      match reader_attached {
+         false => &[Page::Pools, Page::Swap, Page::Settings],
+         true => &[Page::Swap, Page::Settings],
       }
-   }
-
-   fn labels() -> [&'static str; 3] {
-      ["Pools", "Swap", "Settings"]
    }
 }
 
@@ -116,6 +116,9 @@ const HEADER_STRIP_WIDTH: f32 = 300.0;
 pub struct UniswapUi {
    open: bool,
    page: Page,
+   /// Whether an assistive technology is attached. The pool table is a list of pools to hunt
+   /// through and import from by eye, so a reader is not offered it.
+   reader_attached: bool,
    /// Input time the visible page was selected at, so the page body fades in from it.
    page_shown_at: Option<f64>,
    /// The sentence the window wants said, drained by the frame right after the window has drawn.
@@ -134,6 +137,7 @@ impl UniswapUi {
       Self {
          open: false,
          page: Page::Swap,
+         reader_attached: false,
          page_shown_at: None,
          notice: None,
          size: (400.0, 500.0),
@@ -159,6 +163,17 @@ impl UniswapUi {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   /// Tell the window whether a screen reader is attached: the pool table is not offered to one.
+   pub fn set_reader_attached(&mut self, attached: bool) {
+      self.reader_attached = attached;
+   }
+
+   /// Put the pool table in front, for a test that draws the page the window opens on.
+   #[cfg(test)]
+   pub fn open_pools_for_test(&mut self) {
+      self.set_page(Page::Pools);
    }
 
    /// The words the frame should say, drained by it right after the window has drawn.
@@ -205,12 +220,15 @@ impl UniswapUi {
       ui.scope_builder(
          UiBuilder::new().max_rect(strip).layout(Layout::top_down(Align::Center)),
          |ui| {
-            let mut selected = self.page.index();
-            let tabs = Tabs::new("uniswap_pages", &mut selected, Page::labels())
+            let tabs = Page::tabs(self.reader_attached);
+            let mut selected = tabs.iter().position(|page| *page == self.page).unwrap_or(0);
+            let labels: Vec<&str> = tabs.iter().map(|page| page.name()).collect();
+
+            let strip = Tabs::new("uniswap_pages", &mut selected, labels)
                .fill_width(true)
                .height(HEADER_HEIGHT);
-            if tabs.show(ui).changed() {
-               self.set_page(Page::from_index(selected));
+            if strip.show(ui).changed() {
+               self.set_page(tabs[selected]);
             }
          },
       );
@@ -283,6 +301,13 @@ impl UniswapUi {
                ui,
             );
             return;
+         }
+
+         // The page a reader is not offered cannot stay in front: its segment is gone from the
+         // strip, so a window left on the pool table when a reader attaches goes back to the swap
+         // form instead of stranding them on a page with no way out.
+         if self.reader_attached && self.page == Page::Pools {
+            self.set_page(Page::Swap);
          }
 
          ui.vertical_centered(|ui| {

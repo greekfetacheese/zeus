@@ -436,6 +436,12 @@ impl GUI {
       }
 
       self.set_reader_field_controls();
+
+      // The surfaces that exist only for the eye follow the same flag: the pool table in Swap
+      // and the Appearance page in Settings.
+      let attached = self.at_active;
+      self.uniswap.set_reader_attached(attached);
+      self.settings.set_reader_attached(attached);
    }
 
    /// Take the prose out of this pass's tab order, so the next tab stop is a control.

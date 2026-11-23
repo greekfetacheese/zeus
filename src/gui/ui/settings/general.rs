@@ -124,7 +124,50 @@ impl GeneralSettings {
       std::mem::take(&mut self.shortcuts_requested)
    }
 
-   pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   /// The Window section: whether a minimize hides Zeus in the tray.
+   ///
+   /// Only drawn for a sighted user — a reader has no way to click a tray icon, and the option
+   /// would be a switch that changes nothing they can hear.
+   fn window_section(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+      ui.separator();
+      ui.add_space(10.0);
+
+      let text = "Window";
+      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+
+      let tray_text = RichText::new("Minimize to Tray").size(theme.typography.normal);
+      let qmark = Chip::new(RichText::new("?").size(theme.typography.normal)).role(ChipRole::Info);
+      let ui_size = vec2(ui.available_width() * 0.3, 30.0);
+
+      ui.allocate_ui_with_layout(
+         ui_size,
+         Layout::left_to_right(Align::Center),
+         |ui| {
+            let checkbox = Checkbox::new(&mut self.minimize_to_tray, tray_text);
+            let control = ui.add(checkbox);
+
+            if control.changed() {
+               ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
+               Self::persist_misc(ctx);
+            }
+
+            let chip = ui.add(qmark).on_hover_text(TRAY_TIP);
+
+            ui.ctx()
+               .accesskit_node_builder(control.id, |node| node.set_description(TRAY_TIP));
+            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
+         },
+      );
+   }
+
+   pub fn show(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      reader_attached: bool,
+      ui: &mut Ui,
+   ) {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.lg);
       ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
@@ -231,35 +274,11 @@ impl GeneralSettings {
          },
       );
 
-      ui.separator();
-      ui.add_space(10.0);
-
-      let text = "Window";
-      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
-
-      let tray_text = RichText::new("Minimize to Tray").size(theme.typography.normal);
-      let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
-
-      ui.allocate_ui_with_layout(
-         ui_size,
-         Layout::left_to_right(Align::Center),
-         |ui| {
-            let checkbox = Checkbox::new(&mut self.minimize_to_tray, tray_text);
-            let control = ui.add(checkbox);
-
-            if control.changed() {
-               ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
-               Self::persist_misc(ctx);
-            }
-
-            let chip = ui.add(qmark).on_hover_text(TRAY_TIP);
-
-            ui.ctx()
-               .accesskit_node_builder(control.id, |node| node.set_description(TRAY_TIP));
-            ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
-         },
-      );
+      // A reader cannot reach a tray icon, so their window never hides there and the option that
+      // would is not offered.
+      if !reader_attached {
+         self.window_section(ctx, theme, ui);
+      }
 
       ui.separator();
       ui.add_space(10.0);

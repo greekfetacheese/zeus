@@ -73,6 +73,9 @@ pub struct SettingsUi {
    /// can put the focus back on the plate that opened it.
    focus_return: bool,
    page: SettingsPage,
+   /// Whether an assistive technology is attached. The Appearance page is how Zeus looks and
+   /// feels, so it is not offered to a reader.
+   reader_attached: bool,
    /// The page whose heading has already been given the focus, so a change of page moves it once.
    last_page: Option<SettingsPage>,
    /// The words a page asked the app to say, drained right after the window is drawn.
@@ -97,6 +100,7 @@ impl SettingsUi {
          open: false,
          focus_return: false,
          page: SettingsPage::General,
+         reader_attached: false,
          last_page: None,
          notice: None,
          general: GeneralSettings::new(ctx),
@@ -128,6 +132,11 @@ impl SettingsUi {
 
    pub fn is_open(&self) -> bool {
       self.open
+   }
+
+   /// Tell the window whether a screen reader is attached.
+   pub fn set_reader_attached(&mut self, attached: bool) {
+      self.reader_attached = attached;
    }
 
    pub fn open(&mut self, ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) {
@@ -331,6 +340,12 @@ impl SettingsUi {
       keymap: &mut KeyBindings,
       ui: &mut Ui,
    ) {
+      // The page a reader is not offered cannot stay in front: its plate is gone from the nav, so
+      // a window left on Appearance when a reader attaches falls back to General.
+      if self.reader_attached && self.page == SettingsPage::Appearance {
+         self.set_page(SettingsPage::General, ctx);
+      }
+
       let nav_bg = theme.frame1.fill;
       egui::Panel::left("settings_nav")
          .min_size(180.0)
@@ -372,7 +387,7 @@ impl SettingsUi {
                      "settings_general_ui_fade",
                      page == SettingsPage::General,
                      |ui| {
-                        self.general.show(ctx, theme, ui);
+                        self.general.show(ctx, theme, self.reader_attached, ui);
                      },
                   );
 
@@ -473,7 +488,7 @@ impl SettingsUi {
 
       let icon_color = theme.colors.text;
 
-      let items: [(SettingsPage, egui::Image<'static>); 8] = [
+      let mut items: Vec<(SettingsPage, egui::Image<'static>)> = vec![
          (
             SettingsPage::General,
             Lucide::SlidersHorizontal.size(20.0).color(icon_color).image(),
@@ -507,6 +522,12 @@ impl SettingsUi {
             Lucide::Archive.size(20.0).color(icon_color).image(),
          ),
       ];
+
+      // Appearance is the theme, the ambient particles and the hold-to-confirm gesture: a page
+      // about how Zeus looks and feels, which a reader has no use for.
+      if self.reader_attached {
+         items.retain(|(page, _)| *page != SettingsPage::Appearance);
+      }
 
       privacy_mode_switch(ctx, theme, ui);
       ui.add_space(10.0);

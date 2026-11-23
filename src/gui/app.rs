@@ -234,7 +234,11 @@ impl ZeusApp {
    /// Read through the shared context rather than an app field because the setting
    /// can change on the settings page between two calls to this hook.
    fn minimize_to_tray_enabled(&self) -> bool {
-      SHARED_GUI.read(|gui| gui.ctx.read(|ctx| ctx.misc_config.minimize_to_tray()))
+      SHARED_GUI.read(|gui| {
+         let configured = gui.ctx.read(|ctx| ctx.misc_config.minimize_to_tray());
+
+         tray::minimize_hides_window(configured, gui.at_active)
+      })
    }
 
    fn on_shutdown(&mut self, ctx: &egui::Context) {

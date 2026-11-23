@@ -13235,3 +13235,143 @@ fn the_lock_screen_opens_on_its_own_title() {
       "the lock card must take the focus from the page heading behind the lock"
    );
 }
+
+/// The pool table is a list of pools to hunt through and import from by eye — a search field, a
+/// filter and a table of pairs. A reader is offered the two pages that are not that, and a window
+/// left on the table when a reader attaches falls back to Swap instead of drawing a page whose tab
+/// is gone.
+#[test]
+fn a_reader_is_offered_the_two_swap_pages_that_are_not_a_table() {
+   let (ctx, mut gui, zeus) = main_window();
+   wallet_in_cache(&zeus);
+   gui.uniswap.open();
+
+   let tabs = |nodes: &[(NodeId, Node)]| -> Vec<String> {
+      nodes
+         .iter()
+         .filter(|(_, node)| node.role() == Role::Tab)
+         .filter_map(|(_, node)| node.label())
+         .map(str::to_string)
+         .collect()
+   };
+
+   let nodes = render_uniswap_window(&ctx, &mut gui, &zeus);
+   let mut sighted = tabs(&nodes);
+   sighted.sort();
+
+   assert_eq!(
+      sighted,
+      vec!["Pools", "Settings", "Swap"],
+      "a sighted user keeps the pool table"
+   );
+
+   // The page the reader is not offered is the one in front when the reader attaches.
+   gui.uniswap.open_pools_for_test();
+   gui.uniswap.set_reader_attached(true);
+
+   let nodes = render_uniswap_window(&ctx, &mut gui, &zeus);
+   let mut reader_tabs = tabs(&nodes);
+   reader_tabs.sort();
+
+   assert_eq!(
+      reader_tabs,
+      vec!["Settings", "Swap"],
+      "a reader must not be handed a table of pools to hunt through"
+   );
+
+   assert!(
+      !nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button && node.label() == Some("Add Pool")),
+      "the pool table must not stay in front of a reader: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
+/// The Appearance page is the theme, the ambient particles and the hold-to-confirm gesture: how
+/// Zeus looks and feels. A reader is not offered it, the page it was on falls back to General, and
+/// the tray option that cannot work for a reader goes with it.
+#[test]
+fn a_reader_is_not_offered_the_appearance_page() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   zeus.write(|zeus| {
+      gui.settings.open_page(
+         SettingsPage::Appearance,
+         zeus,
+         &mut gui.appearance_settings,
+      );
+   });
+
+   let tabs = |nodes: &[(NodeId, Node)]| -> Vec<String> {
+      nodes
+         .iter()
+         .filter(|(_, node)| node.role() == Role::Tab)
+         .filter_map(|(_, node)| node.label())
+         .map(str::to_string)
+         .collect()
+   };
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      tabs(&nodes).contains(&"Appearance".to_string()),
+      "a sighted user keeps the page: {:?}",
+      tabs(&nodes)
+   );
+
+   gui.settings.set_reader_attached(true);
+
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   assert!(
+      !tabs(&nodes).contains(&"Appearance".to_string()),
+      "a reader must not be offered the page: {:?}",
+      tabs(&nodes)
+   );
+
+   let headings: Vec<&str> = nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Heading)
+      .filter_map(|(_, node)| node.label())
+      .collect();
+
+   assert!(
+      headings.contains(&"General"),
+      "the page a reader cannot be offered must fall back to General: {headings:?}"
+   );
+
+   assert!(
+      !headings.contains(&"Appearance"),
+      "the Appearance page must not stay in front of a reader: {headings:?}"
+   );
+
+   assert!(
+      !nodes.iter().any(|(_, node)| node.role() == Role::CheckBox
+         && node.label() == Some("Minimize to Tray")),
+      "a reader must not be offered a tray option that cannot work for them: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
+/// A reader's window never hides in the tray: the icon behind it is a pointer target, so a hidden
+/// window leaves the keyboard and alt-tab both, with nothing but a mouse to bring it back.
+#[test]
+fn a_reader_window_never_minimizes_into_the_tray() {
+   use crate::gui::tray::minimize_hides_window;
+
+   assert!(
+      minimize_hides_window(true, false),
+      "a sighted user's preference still hides the window"
+   );
+
+   assert!(
+      !minimize_hides_window(true, true),
+      "a reader's window must stay where the keyboard and alt-tab can reach it"
+   );
+
+   assert!(
+      !minimize_hides_window(false, false),
+      "the preference off is the preference off"
+   );
+}
