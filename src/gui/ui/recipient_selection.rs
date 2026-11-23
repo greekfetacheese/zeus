@@ -82,6 +82,9 @@ const SEARCH_ICON: f32 = 18.0;
 pub struct RecipientSelectionWindow {
    open: bool,
    /// Where the keyboard goes when the picker closes: back to the control it was opened from.
+   ///
+   /// The address field hands its own id over when it opens the picker: it gives its focus up on
+   /// that same `Enter`, so the picker's first frame has no keyboard to read instead.
    focus_home: FocusHome,
    /// Set when the window opens, and spent on the first frame the search field is drawn: someone
    /// who opens the picker to paste an address is going there, not to whatever the layout draws
@@ -166,10 +169,14 @@ impl RecipientSelectionWindow {
       self.notice.take()
    }
 
-   pub fn open(&mut self) {
+   /// Open the picker, recording the control it was opened from.
+   ///
+   /// `opener` takes the keyboard back when the picker closes. It is handed over rather than read
+   /// off the keyboard on the first frame the picker draws, because a field gives its focus up on
+   /// the very key that opens the picker.
+   pub fn open(&mut self, opener: Id) {
       self.open = true;
-      // A new opening records its own opener: the control this one is being opened from.
-      self.focus_home = FocusHome::default();
+      self.focus_home.open_from(opener);
       self.focus_search = true;
       self.calc_wallet_value();
    }
@@ -337,8 +344,6 @@ impl RecipientSelectionWindow {
       if !open {
          return;
       }
-
-      self.focus_home.note(ui);
 
       let mut close_window = false;
 

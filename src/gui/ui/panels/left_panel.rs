@@ -186,11 +186,15 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
    });
 }
 
-/// Open a page and close the page bodies the nav closes when it moves.
+/// Open a page, close the page bodies the nav closes when it moves, and give it the keyboard.
 ///
 /// The nav plate and the `Alt` digit shortcuts both call this, so a page opened with a key is the
 /// page a pointer click would open: same state, same reset. Settings and Connected Dapps are the
 /// two that open over the page in front and close on their own, so they close nothing.
+///
+/// The page also takes the keyboard, through the same request `F6` sends to it: selecting the page
+/// that is already in front is still a choice, and without the request the next `Tab` walks the
+/// rest of the side menu while the page sits unfocused.
 pub fn open_page(gui: &mut GUI, ctx: &mut ZeusContext, page: Page) {
    if !matches!(page, Page::Settings | Page::ConnectedDapps) {
       close_other_pages(gui, ctx, page);
@@ -231,6 +235,12 @@ pub fn open_page(gui: &mut GUI, ctx: &mut ZeusContext, page: Page) {
          #[cfg(feature = "dev")]
          gui.dev.open();
       }
+   }
+
+   // The two surfaces that open *over* the page keep the keyboard they take; every page body
+   // hands it to the page, which is where a reader lands next.
+   if !gui.settings.is_open() && !gui.connected_dapps.is_open() {
+      gui.request_region_focus(FocusRegion::Main);
    }
 }
 

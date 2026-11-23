@@ -459,6 +459,15 @@ pub enum FocusHome {
 }
 
 impl FocusHome {
+   /// Record the control a picker is opened from, when the opener knows its own id.
+   ///
+   /// [`Self::note`] reads the keyboard on the picker's first frame, which serves an opener that
+   /// keeps its focus. A text field gives its focus up on the key that opens the picker, so that
+   /// frame has nothing to read and the field's id has to be handed over instead.
+   pub fn open_from(&mut self, opener: Id) {
+      *self = Self::Opened(Some(opener));
+   }
+
    /// Note the control a picker is opened from. Only the first note of an opening counts: the dialog
    /// takes the keyboard later in that same frame, and that must not become the home.
    pub fn note(&mut self, ui: &Ui) {

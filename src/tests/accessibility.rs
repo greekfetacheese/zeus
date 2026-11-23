@@ -908,6 +908,49 @@ fn the_page_heading_names_the_open_page_and_takes_focus_when_it_changes() {
    );
 }
 
+/// A reader who picks the page already in front is still asking for that page: the keyboard lands
+/// on the page, not on the plate that was pressed. Without that the next Tab walks the rest of the
+/// side menu while the page the reader asked for sits unfocused.
+#[test]
+fn choosing_the_page_that_is_already_open_lands_on_it() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   render_shortcuts(&ctx, &mut gui, &zeus, Vec::new());
+   press_shortcut(&ctx, &mut gui, &zeus, Key::Num2, Modifiers::ALT);
+
+   let nodes = render_shortcuts(&ctx, &mut gui, &zeus, Vec::new());
+   let plate = nodes
+      .iter()
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Send"))
+      .map(|(id, _)| *id)
+      .expect("the nav must draw the plate of the page in front");
+
+   render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Focus, plate)],
+   );
+
+   let nodes = render_shortcuts(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, plate)],
+   );
+   let focused = focused_node(&ctx, &nodes);
+
+   assert_eq!(
+      focused.role(),
+      Role::Heading,
+      "selecting the open page must put the keyboard on the page, not leave it on the plate"
+   );
+
+   assert_eq!(focused.label(), Some("Send"));
+}
+
 /// The keyboard path works as well as the AccessKit one: Tab from the Home plate reaches Send, and
 /// Enter on the focused plate opens the page.
 #[test]
@@ -4557,7 +4600,8 @@ fn open_recipient_picker(
       gui.recipient_selection.reset();
       // The shared surface keeps the tab another test left open; this one opens on Contacts.
       gui.recipient_selection.reset_tab_for_test();
-      gui.recipient_selection.open();
+      // No field is drawn by this harness, so the picker is opened with no home to hand back to.
+      gui.recipient_selection.open(Id::unique("recipient_picker_without_a_field"));
    });
 
    for _ in 0..300 {
@@ -4843,7 +4887,7 @@ fn render_recipient_from_field(
       opener = Some(button.id);
 
       if open && button.clicked() {
-         crate::gui::SHARED_GUI.write(|gui| gui.recipient_selection.open());
+         crate::gui::SHARED_GUI.write(|gui| gui.recipient_selection.open(button.id));
       }
    });
 
@@ -4851,6 +4895,35 @@ fn render_recipient_from_field(
       nodes,
       opener.expect("the button must be in the frame"),
    )
+}
+
+/// Draw the shared recipient row: the picker and the address field that opens it.
+fn render_recipient_field(ctx: &Context, events: Vec<Event>) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      crate::gui::SHARED_GUI.write(|gui| {
+         let mut theme = gui.theme.clone();
+         theme.install(ctx);
+
+         let icons = gui.icons.clone();
+         let zeus = gui.ctx.clone();
+         let picker = &mut gui.recipient_selection;
+         let contacts_ui = &mut gui.settings.contacts_ui;
+
+         zeus.write(|zeus| {
+            crate::gui::ui::common::recipient_field(
+               zeus,
+               &theme,
+               icons,
+               picker,
+               contacts_ui,
+               false,
+               ChainId::Ethereum.id(),
+               ChainId::Ethereum,
+               ui,
+            )
+         });
+      });
+   })
 }
 
 /// The picker is drawn before the field's own button — the form reads the recipient the picker
@@ -4918,6 +4991,82 @@ fn picking_a_recipient_returns_the_focus_to_the_field_it_was_opened_from() {
       focused_id(&ctx),
       Some(opener.accesskit_id()),
       "a pick must hand the keyboard back to the field it was opened from"
+   );
+}
+
+/// The address field gives its focus up on the Enter that opens the picker, so the picker cannot
+/// read its home off the keyboard the way a button's can. The pick still has to end on the field
+/// it was opened from: a focus lost here sends the next Tab back to the top of the window.
+#[test]
+fn a_pick_from_the_address_field_returns_the_keyboard_to_it() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   seed_contacts(&[(PICKER_CONTACT, PICKER_CONTACT_ADDRESS)]);
+
+   crate::gui::SHARED_GUI.write(|gui| {
+      gui.recipient_selection.reset();
+      gui.recipient_selection.reset_tab_for_test();
+      gui.recipient_selection.close();
+   });
+
+   let nodes = render_recipient_field(&ctx, Vec::new());
+   let field = nodes
+      .iter()
+      .find(|(_, node)| is_text_input(node.role()))
+      .map(|(id, _)| *id)
+      .expect("the row must draw the address field");
+
+   render_recipient_field(&ctx, vec![accesskit_action(Action::Focus, field)]);
+   assert_eq!(
+      focused_id(&ctx),
+      Some(field),
+      "the address field takes the keyboard"
+   );
+
+   render_recipient_field(&ctx, vec![key_press(Key::Enter)]);
+   assert!(
+      recipient_picker_open(),
+      "Enter on the field opens the picker"
+   );
+
+   let name = contact_row_name(PICKER_CONTACT, PICKER_CONTACT_SPOKEN);
+   let mut row = None;
+
+   for _ in 0..300 {
+      let nodes = render_recipient_field(&ctx, Vec::new());
+
+      row = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name.as_str()))
+         .map(|(id, _)| *id);
+
+      if row.is_some() {
+         break;
+      }
+
+      std::thread::sleep(Duration::from_millis(10));
+   }
+
+   let row = row.expect("the picker must draw its contact list");
+
+   render_recipient_field(&ctx, vec![accesskit_action(Action::Focus, row)]);
+   render_recipient_field(&ctx, vec![key_press(Key::Enter)]);
+
+   assert_eq!(
+      picked_recipient_address(),
+      PICKER_CONTACT_ADDRESS,
+      "Enter on the focused row picks that contact"
+   );
+
+   // The hand-back waits for the dialog layer to clear, so it lands two frames after the pick.
+   render_recipient_field(&ctx, Vec::new());
+   render_recipient_field(&ctx, Vec::new());
+
+   assert_eq!(
+      focused_id(&ctx),
+      Some(field),
+      "a pick must give the keyboard back to the address field it was opened from"
    );
 }
 

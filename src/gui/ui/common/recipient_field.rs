@@ -217,11 +217,12 @@ pub fn recipient_field(
          // The picker was reachable by clicking this field and by nothing else, so someone typing
          // an address could never get to their contacts. A single-line edit gives its focus up on
          // Enter rather than inserting anything, which leaves that key free: it opens the same
-         // picker the click does, and the field's description says so.
+         // picker the click does, and the field's description says so. The field is also the
+         // control the picker hands the keyboard back to, so it goes with the opening.
          let entered = res.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
 
          if res.clicked() || entered {
-            recipient_selection.open();
+            recipient_selection.open(res.id);
          }
       });
    });
