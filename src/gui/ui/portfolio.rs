@@ -420,11 +420,11 @@ impl PortfolioUi {
                      let visuals = theme.frame1_visuals();
                      let inner = theme.inner_margin;
                      let corner = theme.corner_radius;
-                     let row_frame = Frame::new()
-                        .interactive(true)
-                        .inner_margin(inner)
-                        .corner_radius(corner)
-                        .visuals(visuals);
+                     // The row is a card, not a control: an interactive frame is a focusable plate
+                     // with no name, and a Tab that lands on one strands the keyboard in that row —
+                     // the next Tab re-enters it at its first cell. Remove is the row's control.
+                     let row_frame =
+                        Frame::new().inner_margin(inner).corner_radius(corner).visuals(visuals);
 
                      Table::new("portfolio_tokens", rows)
                         .columns([
@@ -628,11 +628,10 @@ impl PortfolioUi {
          let visuals = theme.frame1_visuals();
          let inner = theme.inner_margin;
          let corner = theme.corner_radius;
-         let row_frame = Frame::new()
-            .interactive(true)
-            .inner_margin(inner)
-            .corner_radius(corner)
-            .visuals(visuals);
+         // The row is a card, not a control: an interactive frame is a focusable plate with no name,
+         // and a Tab that lands on one strands the keyboard in that row — the next Tab re-enters it
+         // at its first cell. Remove and View are the row's controls.
+         let row_frame = Frame::new().inner_margin(inner).corner_radius(corner).visuals(visuals);
 
          Table::new("portfolio_nfts", rows)
             // The artwork's thumbnail size is the row height this list was laid out for.

@@ -817,8 +817,10 @@ impl ApprovalsUi {
 
             let mut revoke_request: Option<ApprovalRow> = None;
 
+            // The row is a card, not a control: an interactive frame is a focusable plate with no
+            // name, and a Tab that lands on one strands the keyboard in that row — the next Tab
+            // re-enters it at its first cell. Revoke is the row's control.
             let row_frame = Frame::new()
-               .interactive(true)
                .inner_margin(theme.inner_margin)
                .corner_radius(theme.corner_radius)
                .visuals(theme.frame1_visuals());

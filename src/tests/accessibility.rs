@@ -3651,6 +3651,39 @@ fn render_portfolio(ctx: &Context) -> Vec<(NodeId, Node)> {
    })
 }
 
+/// The Home token page for the wallet with no vault, carrying this frame's input events.
+///
+/// The frame's one `SHARED_GUI` carries whatever the test before it left in the context, so the
+/// wallet and the side the page draws from are pinned on every frame, and the rows the test walks
+/// are the same ones on each pass.
+fn render_home_tokens(ctx: &Context, events: Vec<Event>) -> Vec<(NodeId, Node)> {
+   frame_nodes(ctx, events, |ui| {
+      crate::gui::SHARED_GUI.write(|gui| {
+         gui.portofolio.open();
+
+         let zeus = gui.ctx.clone();
+         let theme = gui.theme.clone();
+         let icons = gui.icons.clone();
+
+         zeus.write(|ctx| {
+            let info = crate::core::WalletInfo::default();
+
+            ctx.current_wallet = info.clone();
+            ctx.privacy_mode = false;
+            ctx.wallet_info_cache = crate::core::types::WalletInfoCache::new(
+               std::collections::HashMap::from([(info.address, info.clone())]),
+               vec![info],
+            );
+         });
+
+         let page = &mut gui.portofolio;
+         let selection = &mut gui.token_selection;
+
+         zeus.write(|zeus| page.show(zeus, &theme, icons, selection, ui));
+      });
+   })
+}
+
 /// Every surface the portfolio paints says what it is: the asset cell is read by the token's name
 /// where Zeus has one, the price, the balance and the value each say which figure they are, and the
 /// total says what the number is and which chain it is on. The page also hands its arrival
@@ -3727,6 +3760,64 @@ fn the_portfolio_names_its_total_and_every_cell() {
       crate::gui::SHARED_GUI.write(|gui| gui.portofolio.take_notice()).as_deref(),
       Some(total),
       "the page must hand its arrival sentence to the frame, which says it"
+   );
+}
+
+/// The Home token table is a keyboard path: every tab stop on the page says what it is, and the
+/// walk leaves the row. The row's card was an interactive frame, which egui makes a focusable plate
+/// with no name — the walk stopped on it and never left that row.
+#[test]
+fn every_tab_stop_on_the_home_token_table_has_a_name() {
+   let _turn = shared_gui_turn();
+   let ctx = Context::default();
+
+   // The rows land a frame or two after the page opens, because they are built off the GUI thread.
+   let mut nodes = Vec::new();
+
+   for _ in 0..200 {
+      nodes = render_home_tokens(&ctx, Vec::new());
+
+      if nodes.iter().any(|(_, node)| node.label() == Some("Ethereum")) {
+         break;
+      }
+
+      std::thread::sleep(std::time::Duration::from_millis(10));
+   }
+
+   assert!(
+      nodes.iter().any(|(_, node)| node.label() == Some("Ethereum")),
+      "the token table must draw its first row: {:?}",
+      drawn_names(&nodes)
+   );
+
+   let mut stops: Vec<String> = Vec::new();
+
+   for _ in 0..40 {
+      let nodes = render_home_tokens(&ctx, vec![key_press(Key::Tab)]);
+
+      let Some(focused) = focused_id(&ctx) else {
+         continue;
+      };
+
+      let spoken = nodes
+         .iter()
+         .find(|(node_id, _)| *node_id == focused)
+         .map(|(_, node)| node.label().or_else(|| node.value()).unwrap_or_default())
+         .unwrap_or_default()
+         .to_string();
+
+      assert!(
+         !spoken.is_empty(),
+         "a tab stop with nothing to say strands the keyboard: {:?}",
+         drawn_names(&nodes)
+      );
+
+      stops.push(spoken);
+   }
+
+   assert!(
+      stops.len() >= 3,
+      "the page's controls must be on the keyboard path, and the walk stopped at {stops:?}"
    );
 }
 

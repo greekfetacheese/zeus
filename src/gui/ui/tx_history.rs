@@ -650,8 +650,11 @@ impl TxHistory {
 
             // One card per row. Its margins become part of the row pitch, so the cells keep the
             // height the table measured and the header still shares their left edge.
+            //
+            // A card, not a control: an interactive frame is a focusable plate with no name, and a
+            // Tab that lands on one strands the keyboard in that row — the next Tab re-enters it at
+            // its first cell. Details is the row's control.
             let row_frame = Frame::new()
-               .interactive(true)
                .inner_margin(theme.inner_margin)
                .corner_radius(theme.corner_radius)
                .visuals(theme.frame1_visuals());
