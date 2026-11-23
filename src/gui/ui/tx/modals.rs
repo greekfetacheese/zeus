@@ -17,7 +17,6 @@ use crate::core::clear_signing::{ClearDisplay, FormattedValue};
 use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::{ApprovalDiff, BalanceDiff, TransactionAnalysis, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::name_text;
 use crate::utils::truncate_hash;
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::types::ChainId;
@@ -198,22 +197,18 @@ pub fn show_tx_diffs_modal(
                // Approvals lead, as they do in the confirmation window: a spender being granted
                // an allowance is the half of this report that can cost money after the
                // transaction, so it is what a reader must meet first.
+
+               // The count is drawn into the title rather than named over it: a label says one
+               // string, and a name on top of these glyphs is a second spelling of the row.
                let text = if approval_diff.is_empty() {
-                  "No approval changes"
+                  "No approval changes".to_string()
                } else {
-                  "Approval changes"
+                  format!("Approval changes ({})", approval_diff.len())
                };
 
-               let response = ui.label(RichText::new(text).size(theme.typography.large));
+               ui.label(RichText::new(text).size(theme.typography.large));
 
                if !approval_diff.is_empty() {
-                  // The count tells a reader how much of the report is below the fold; the
-                  // drawn title keeps the words the design uses.
-                  name_text(
-                     ui,
-                     &response,
-                     format!("Approval changes, {}", approval_diff.len()),
-                  );
                   show_approval_diff_rows(
                      ctx,
                      chain,
@@ -227,19 +222,14 @@ pub fn show_tx_diffs_modal(
                ui.add_space(10.0);
 
                let text = if balance_diff.is_empty() {
-                  "No balance changes"
+                  "No balance changes".to_string()
                } else {
-                  "Balance changes"
+                  format!("Balance changes ({})", balance_diff.len())
                };
 
-               let response = ui.label(RichText::new(text).size(theme.typography.large));
+               ui.label(RichText::new(text).size(theme.typography.large));
 
                if !balance_diff.is_empty() {
-                  name_text(
-                     ui,
-                     &response,
-                     format!("Balance changes, {}", balance_diff.len()),
-                  );
                   show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
                }
             });

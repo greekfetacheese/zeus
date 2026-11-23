@@ -2875,41 +2875,6 @@ fn a_themed_label_is_named_with_its_sentence() {
    );
 }
 
-/// A label says one thing. The glyphs it draws are text runs under the same node, and Windows reads
-/// a label's text as well as its name: a row named "Network fee, …" also said the drawn
-/// "0.00 ETH ~ $0.00", so the fee came out as a figure and then as a sentence.
-#[test]
-fn a_named_label_does_not_read_its_glyphs_too() {
-   let ctx = Context::default();
-
-   let nodes = frame_nodes(&ctx, Vec::new(), |ui| {
-      let label = ui.label("0.00 ETH ~ $0.00");
-      crate::gui::ui::common::name_text(ui, &label, "Network fee, 0.00 ETH, about $0.00");
-   });
-
-   let (_, fee) = nodes
-      .iter()
-      .find(|(_, node)| node.value() == Some("Network fee, 0.00 ETH, about $0.00"))
-      .expect("the label must be named with its sentence");
-
-   let text: Vec<&str> = fee
-      .children()
-      .iter()
-      .filter(|id| nodes.iter().any(|(node_id, node)| node_id == *id && !node.is_hidden()))
-      .filter_map(|id| {
-         nodes
-            .iter()
-            .find(|(node_id, _)| node_id == id)
-            .and_then(|(_, node)| node.value())
-      })
-      .collect();
-
-   assert!(
-      text.is_empty(),
-      "the drawn spelling must not be read next to the name: {text:?}"
-   );
-}
-
 /// A notice panel draws its title and hint with plain labels, and a plain label already carries its
 /// text into the tree. This pins that the dapp panels' prose is reachable without being rewritten,
 /// and fails loudly if a future egui stops emitting it.
@@ -5456,8 +5421,8 @@ fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
       Vec::new(),
    );
 
-   let approvals = node_position(&nodes, "Approval changes,");
-   let balances = node_position(&nodes, "Balance changes,");
+   let approvals = node_position(&nodes, "Approval Changes (");
+   let balances = node_position(&nodes, "Balance Changes (");
    let fee = node_position(&nodes, "Network fee");
 
    assert!(
@@ -6010,8 +5975,33 @@ fn the_sign_window_opens_on_the_message_heading() {
    );
 }
 
+/// The visible text runs under the one node a reader reaches under `spoken`.
+///
+/// A label draws its own text as a run beneath itself, and a reader can be handed that run as well
+/// as the name: a row whose two strings differ is heard twice, which is how the fee and the origin
+/// line came out doubled. A row that says one thing has one run, and it is the string itself.
+fn drawn_runs(nodes: &[(NodeId, Node)], spoken: &str) -> Vec<String> {
+   // A label and the run it draws carry the same string, so the role is what picks the node the
+   // runs hang from.
+   let Some((_, node)) = nodes.iter().find(|(_, node)| {
+      node.role() == Role::Label && node.label().or_else(|| node.value()) == Some(spoken)
+   }) else {
+      return Vec::new();
+   };
+
+   node
+      .children()
+      .iter()
+      .filter_map(|id| nodes.iter().find(|(node_id, _)| node_id == id))
+      .filter(|(_, child)| !child.is_hidden())
+      .filter_map(|(_, child)| child.value())
+      .map(str::to_string)
+      .collect()
+}
+
 /// Who asked is named, not just drawn: the dapp's line says "Requested by <dapp>", and a prompt
-/// with no origin line at all still answers the question with Zeus.
+/// with no origin line at all still answers the question with Zeus. The line draws the words it is
+/// called, too, because a name written over a label's own glyphs is a second spelling of the row.
 #[test]
 fn the_sign_window_says_who_requested_it() {
    let (ctx, handle, theme, icons, appearance) = prompt_harness();
@@ -6033,11 +6023,18 @@ fn the_sign_window_says_who_requested_it() {
       Vec::new(),
    );
 
+   let spoken = "Requested by app.example.org";
+
    assert!(
       nodes
          .iter()
-         .any(|(_, node)| node.label() == Some("Requested by app.example.org")),
+         .any(|(_, node)| node.label().or_else(|| node.value()) == Some(spoken)),
       "the dapp's line must say who asked, not just show its name"
+   );
+   assert_eq!(
+      drawn_runs(&nodes, spoken),
+      vec![spoken.to_string()],
+      "the line must draw the words it is called: a second spelling is read aloud beside it"
    );
 
    let mut in_app = SignMsgWindow::for_test(
@@ -6061,6 +6058,42 @@ fn the_sign_window_says_who_requested_it() {
       nodes.iter().any(|(_, node)| node.label() == Some("Requested by Zeus")),
       "a request with no origin line must still say Zeus asked for it"
    );
+}
+
+/// The prompt says the same thing the eye sees: the origin line draws "Requested by <dapp>" and
+/// the state-change titles draw their counts, so no row carries a name that is a second spelling of
+/// its own glyphs. That second spelling is what a reader hears twice when a window opens.
+#[test]
+fn the_confirmation_draws_the_origin_and_the_titles_it_says() {
+   let (ctx, handle, theme, icons, appearance) = prompt_harness();
+   let analysis = TransactionAnalysis::dummy_with_diffs();
+   let approvals = format!("Approval Changes ({})", analysis.approval_diff.len());
+   let balances = format!("Balance Changes ({})", analysis.balance_diff.len());
+
+   let mut window = TxConfirmationWindow::for_test(
+      &handle,
+      analysis,
+      "app.uniswap.org",
+      false,
+      None,
+   );
+   let nodes = render_confirmation(
+      &ctx,
+      &handle,
+      &mut window,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   for spoken in ["Requested by app.uniswap.org", approvals.as_str(), balances.as_str()] {
+      assert_eq!(
+         drawn_runs(&nodes, spoken),
+         vec![spoken.to_string()],
+         "{spoken:?} must be the one string the row shows and the one it is called"
+      );
+   }
 }
 
 /// The raw message is a viewer, not an editor: AT is given one named, read-only field, and the
@@ -6452,18 +6485,21 @@ fn the_state_changes_modal_reads_approvals_before_balances() {
       });
    });
 
-   // Each section is named with the count it holds, so a name that lost its count is not
-   // found here at all: this is the order and the words together.
+   // Each section draws the count it holds, and the drawn title is the whole node, so a title
+   // that lost its count is not found here at all: this is the order and the words together.
    let approvals = node_position(
       &nodes,
       &format!(
-         "Approval changes, {}",
+         "Approval changes ({})",
          analysis.approval_diff.len()
       ),
    );
    let balances = node_position(
       &nodes,
-      &format!("Balance changes, {}", analysis.balance_diff.len()),
+      &format!(
+         "Balance changes ({})",
+         analysis.balance_diff.len()
+      ),
    );
 
    assert!(

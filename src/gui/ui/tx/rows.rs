@@ -747,14 +747,11 @@ pub fn show_state_changes_block(
       STATE_CHANGES_SECTION_MAX_HEIGHT
    };
 
+   // The count is in the drawn title and the title is the whole node: a name spelled out over
+   // these glyphs is a second reading of the same row.
    if !approval_diff.is_empty() {
       let title = format!("Approval Changes ({})", approval_diff.len());
-      let response = ui.label(RichText::new(title).size(theme.typography.large));
-      name_text(
-         ui,
-         &response,
-         format!("Approval changes, {}", approval_diff.len()),
-      );
+      ui.label(RichText::new(title).size(theme.typography.large));
 
       state_changes_scroll(
          "tx_state_changes_approval",
@@ -780,12 +777,7 @@ pub fn show_state_changes_block(
       }
 
       let title = format!("Balance Changes ({})", balance_diff.len());
-      let response = ui.label(RichText::new(title).size(theme.typography.large));
-      name_text(
-         ui,
-         &response,
-         format!("Balance changes, {}", balance_diff.len()),
-      );
+      ui.label(RichText::new(title).size(theme.typography.large));
 
       state_changes_scroll(
          "tx_state_changes_balance",

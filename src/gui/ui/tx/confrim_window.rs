@@ -604,14 +604,14 @@ impl TxConfirmationWindow {
                // The wallet that signs this transaction, on the chain it goes out on
                ui.allocate_ui(frame_size, |ui| {
                   frame.show(ui, |ui| {
-                     // Who asked is the first thing after the action, and an in-app send has
-                     // no origin line at all today: its node says Zeus rather than leaving the
-                     // question unanswered, while the visual stays as empty as it was.
+                     // Who asked is the first thing after the action, and the line is drawn in
+                     // the words it is read as: a name written over a label's own glyphs is a
+                     // second spelling of the row, and the Windows reader says both. An in-app
+                     // send has no origin line at all today: its node says Zeus, and it draws no
+                     // glyphs to say the same thing twice.
                      if !self.dapp.is_empty() {
-                        let response = ui.label(
-                           RichText::new(&self.dapp).size(theme.typography.large),
-                        );
-                        name_text(ui, &response, format!("Requested by {}", self.dapp));
+                        let text = format!("Requested by {}", self.dapp);
+                        ui.label(RichText::new(text).size(theme.typography.large));
                         ui.separator();
                      } else {
                         let id = ui.scope_id().with("tx_confirmation_origin");

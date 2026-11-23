@@ -233,12 +233,14 @@ impl SignMsgWindow {
                   let msg = msg.unwrap();
 
                   frame2.show(ui, |ui| {
-                     // Who asked is the first thing after the action, and an in-app request has
-                     // no origin line at all: its node says Zeus rather than leaving the question
-                     // unanswered, while the visual stays as empty as it was.
+                     // Who asked is the first thing after the action, and the line is drawn in the
+                     // words it is read as: a name written over a label's own glyphs is a second
+                     // spelling of the row, and the Windows reader says both. An in-app request has
+                     // no origin line at all: its node says Zeus, and it draws no glyphs to say the
+                     // same thing twice.
                      if !self.dapp.is_empty() {
-                        let response = ui.label(RichText::new(&self.dapp).size(large));
-                        name_text(ui, &response, format!("Requested by {}", self.dapp));
+                        let text = format!("Requested by {}", self.dapp);
+                        ui.label(RichText::new(text).size(large));
 
                         ui.separator();
                      } else {
