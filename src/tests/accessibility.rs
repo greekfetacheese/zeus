@@ -7719,6 +7719,57 @@ fn the_wallet_menu_says_what_each_item_does() {
    );
 }
 
+/// A chosen item closes the menu it was chosen from.
+///
+/// A popup closes itself only on a pointer click, and a reader activates an item with Enter, which
+/// presses no pointer at all: the menu would stay open over the card, above the dialog the item
+/// opened, and be the next thing the keyboard could reach.
+#[test]
+fn the_wallet_menu_closes_when_an_item_is_chosen() {
+   let (ctx, mut gui, zeus) = main_window();
+   let master = master_wallet("Main");
+
+   seed_wallet_page(&mut gui, &zeus, &master, &[], &[1]);
+
+   let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
+   let options = button_named(&nodes, "Options for Main, master wallet");
+
+   render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, options)],
+   );
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+   let rename = button_named(&nodes, "Rename");
+
+   render_wallet_page(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, rename)],
+   );
+   let nodes = render_wallet_page(&ctx, &mut gui, &zeus, Vec::new());
+
+   // Rename is the item chosen above, and the dialog it opens draws a button of that name too, so
+   // the words that only the menu says are the ones that must be gone.
+   for label in ["Export key", "Show address QR code", "Delete"] {
+      assert!(
+         !nodes
+            .iter()
+            .any(|(_, node)| node.role() == Role::Button && node.label() == Some(label)),
+         "the menu must close once an item is chosen: {:?}",
+         drawn_names(&nodes)
+      );
+   }
+
+   assert!(
+      gui.wallet_ui.rename_is_open_for_test(),
+      "the chosen item must still do its work: {:?}",
+      drawn_names(&nodes)
+   );
+}
+
 /// Open the import dialog over the Wallets page and draw it until it paints: a shrink-wrapping
 /// modal spends two invisible sizing passes, and egui exposes no node for a widget it considers
 /// invisible.

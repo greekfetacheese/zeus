@@ -486,18 +486,25 @@ impl WalletUi {
             let options = format!("Options for {spoken}");
             more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &options));
 
+            // A chosen item closes the menu. A popup closes itself only on the pointer's click,
+            // and a reader activates an item with Enter, which never presses a pointer: the open
+            // menu would then stay over the card, above the dialog the item opened, and be the
+            // next thing the keyboard could reach.
             Menu::new(id).show_below(&more, |ui| {
                if ui.add(MenuItem::new("Export key")).clicked() {
+                  ui.close();
                   self.export_key_ui.open(wallet.clone());
                }
 
                if ui.add(MenuItem::new("Rename")).clicked() {
+                  ui.close();
                   self.open_rename_wallet(Some(wallet.clone()));
                }
 
                let show_qr = ui.add(MenuItem::new("Show address QR code"));
 
                if show_qr.clicked() {
+                  ui.close();
                   // The menu item is gone once the menu closes; the dots button that opened it
                   // is still on the card when the QR window gives the focus back.
                   on_show_wallet_qr(wallet.clone(), more.id);
@@ -513,6 +520,7 @@ impl WalletUi {
                }
 
                if delete.clicked() {
+                  ui.close();
                   self.delete_wallet_ui.open(wallet.clone());
                }
             });
