@@ -1236,30 +1236,30 @@ fn activating_a_settings_tab_opens_its_page() {
    );
 }
 
-/// Opening Settings lands on the open page's heading, and a page change moves the focus to the new
-/// heading — that focus move is how the page's name reaches a reader.
+/// Opening Settings lands on the page switcher, the window's first control, so the first Tab walks
+/// the other pages instead of diving into the page body. Changing the page lands on the new page's
+/// heading, and that focus move is how the page's name reaches a reader.
 #[test]
-fn the_settings_page_heading_names_the_page_and_takes_focus() {
+fn the_page_switcher_opens_and_a_page_change_names_the_page() {
    let (ctx, mut gui, zeus) = settings_window();
 
    let first = render_settings(&ctx, &mut gui, &zeus, Vec::new());
-   let focused = ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id());
-   let (id, node) = first
-      .iter()
-      .find(|(id, node)| node.role() == Role::Heading && Some(*id) == focused)
-      .expect("the open page must have a heading node");
 
+   let focused = focused_node(&ctx, &first);
    assert_eq!(
-      node.label(),
-      Some("General"),
-      "no page was chosen, so the heading names General"
+      focused.role(),
+      Role::Tab,
+      "opening must land on the switcher, not inside the page"
    );
-
-   let focused = ctx.memory(|memory| memory.focused());
    assert_eq!(
-      focused.map(|id| id.accesskit_id()),
-      Some(*id),
-      "the General heading must take focus when Settings opens"
+      focused.label(),
+      Some("General"),
+      "the switcher opens on the page in front"
+   );
+   assert_eq!(
+      focused.toggled(),
+      Some(Toggled::True),
+      "the page in front must report itself selected"
    );
 
    let appearance = first
@@ -1292,6 +1292,65 @@ fn the_settings_page_heading_names_the_page_and_takes_focus() {
       focused.map(|id| id.accesskit_id()),
       Some(*id),
       "the page change must move focus to the new page's heading"
+   );
+}
+
+/// The window holds the keyboard. Once a reader had walked every control of the open page, the next
+/// Tab handed the keyboard back to the page behind — the chain select of the page that opened
+/// Settings — and the reader left the window without asking to. The walk now comes back to the page
+/// switcher in the same press, and never touches a layer under the window.
+#[test]
+fn the_settings_window_keeps_the_keyboard_when_the_page_runs_out() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+   wallet_in_cache(&zeus);
+
+   zeus.write(|zeus| {
+      crate::gui::ui::panels::left_panel::open_page(&mut gui, zeus, Page::Send);
+   });
+   zeus.write(|zeus| gui.settings.open(zeus, &mut gui.appearance_settings));
+
+   // An `egui::Window` is measured on its first pass; the keyboard is on the switcher after both.
+   render_central_with_settings(&ctx, &mut gui, &zeus, Vec::new());
+   render_central_with_settings(&ctx, &mut gui, &zeus, Vec::new());
+
+   let mut window_layer = None;
+   let mut saw_switcher = false;
+   let mut saw_page = false;
+
+   for _ in 0..40 {
+      let nodes = render_central_with_settings(&ctx, &mut gui, &zeus, vec![key_press(Key::Tab)]);
+      let focused = focused_node(&ctx, &nodes);
+
+      // The window claims the modal layer, so every widget of the page behind it stops wanting the
+      // keyboard; a Tab that leaves the window shows up here as a different layer.
+      let layer = ctx
+         .memory(|memory| memory.focused())
+         .and_then(|id| ctx.read_response(id))
+         .map(|response| response.layer_id)
+         .expect("the frame must leave the keyboard on a widget");
+
+      assert_eq!(
+         *window_layer.get_or_insert(layer),
+         layer,
+         "Tab left the Settings window and landed on {:?}",
+         focused.label().or_else(|| focused.value())
+      );
+
+      match focused.role() {
+         Role::Tab => saw_switcher = true,
+         Role::CheckBox | Role::Slider | Role::Button => saw_page = true,
+         _ => {}
+      }
+   }
+
+   assert!(
+      saw_switcher,
+      "the walk must come back to the page switcher"
+   );
+   assert!(
+      saw_page,
+      "the walk must cover the open page, or it proves nothing about running out of it"
    );
 }
 

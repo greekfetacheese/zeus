@@ -78,6 +78,13 @@ pub struct SettingsUi {
    reader_attached: bool,
    /// The page whose heading has already been given the focus, so a change of page moves it once.
    last_page: Option<SettingsPage>,
+   /// Set when the window opens, so its first frame puts the keyboard on the page switcher rather
+   /// than on the page: the bar is the window's first control, and a reader who Tabs expects to walk
+   /// it before the page, the way Windows Settings hands over its own sidebar.
+   focus_nav: bool,
+   /// Set when the plate of the page in front is pressed, so the keyboard goes to the page even
+   /// though nothing changed: asking for the page already open is still asking for it.
+   focus_page: bool,
    /// The words a page asked the app to say, drained right after the window is drawn.
    notice: Option<String>,
    general: GeneralSettings,
@@ -102,6 +109,8 @@ impl SettingsUi {
          page: SettingsPage::General,
          reader_attached: false,
          last_page: None,
+         focus_nav: false,
+         focus_page: false,
          notice: None,
          general: GeneralSettings::new(ctx),
          appearance: AppearanceSettingsUi::new(appearance),
@@ -142,6 +151,7 @@ impl SettingsUi {
    pub fn open(&mut self, ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) {
       if !self.open {
          self.open = true;
+         self.focus_nav = true;
          self.general.sync_from_ctx(ctx);
          self.appearance.sync_from_settings(appearance);
          self.encryption.sync_from_ctx(ctx);
@@ -328,6 +338,13 @@ impl SettingsUi {
       keymap: &mut KeyBindings,
       ui: &mut Ui,
    ) {
+      // Tab belongs to this window while it is up. Without a modal layer egui hands the keyboard to
+      // the page behind once the window's last control is walked, so a reader who was working
+      // through the pages suddenly hears the chain select of the page that opened Settings. The
+      // layer is the window's own: what is drawn above it — a dialog raised from a page, the
+      // shortcut sheet — still takes the keyboard, and the layer is gone the frame the window is.
+      ui.ctx().memory_mut(|memory| memory.set_modal_layer(ui.layer_id()));
+
       self.show_shell(ctx, icons, theme, appearance, keymap, ui);
    }
 
@@ -346,8 +363,9 @@ impl SettingsUi {
          self.set_page(SettingsPage::General, ctx);
       }
 
+      let focus_nav = std::mem::take(&mut self.focus_nav);
       let nav_bg = theme.frame1.fill;
-      egui::Panel::left("settings_nav")
+      let selected_plate = egui::Panel::left("settings_nav")
          .min_size(180.0)
          .max_size(180.0)
          .resizable(false)
@@ -361,8 +379,9 @@ impl SettingsUi {
                node.set_label("Settings pages");
             });
 
-            self.nav(ctx, theme, ui);
-         });
+            self.nav(ctx, theme, focus_nav, ui)
+         })
+         .inner;
 
       egui::CentralPanel::default()
          .frame(egui::Frame::new().fill(theme.colors.bg).inner_margin(16.0))
@@ -373,8 +392,20 @@ impl SettingsUi {
             let page_heading = heading(ui, self.page.name());
 
             if self.last_page != Some(self.page) {
-               page_heading.request_focus();
+               // Opening the window lands on the switcher instead. A page change — the reader
+               // picking another tab — lands here, and that focus move is what says the page's
+               // name: the name is not drawn or announced anywhere else.
+               if !focus_nav {
+                  page_heading.request_focus();
+               }
+
                self.last_page = Some(self.page);
+            }
+
+            // Asking for the page already in front is still asking for it: the keyboard goes to the
+            // page, not to the plate that was pressed.
+            if std::mem::take(&mut self.focus_page) {
+               page_heading.request_focus();
             }
 
             ScrollArea::vertical().auto_shrink([false; 2]).show(ui, |ui| {
@@ -475,6 +506,23 @@ impl SettingsUi {
             });
          });
 
+      // Tab at the end of a page has nothing under it to move to: egui drops the keyboard for that
+      // press, and the next one starts over from the top of the window. A Tab that says nothing
+      // reads as a lost keyboard, so the walk goes on at the page switcher instead. Only a forward
+      // Tab wraps — Shift+Tab at the top of the window is a reader backing out of the window's own
+      // frame, the one place the key should stay put.
+      let ran_out_of_page = ui.input(|input| input.key_pressed(Key::Tab) && !input.modifiers.shift)
+         && ui.ctx().memory(|memory| memory.focused()).is_none();
+
+      if ran_out_of_page && let Some(plate) = selected_plate {
+         // The flag egui uses to hand the keyboard to the next widget that wants it is still set
+         // by the press that ran out of page, so registering the plate as interested is what puts
+         // the keyboard back on it. Requesting the focus alone would leave that flag standing, and
+         // the window's own Close button — drawn before the bar — would take it next frame.
+         ui.ctx()
+            .memory_mut(|memory| memory.interested_in_focus(plate.id, plate.layer_id));
+      }
+
       // A page's save, reset, copy or inline error raised its words; hand them up now, so the app
       // can say them in the frame that drew the page.
       self.promote_general_notice();
@@ -483,7 +531,17 @@ impl SettingsUi {
       self.promote_keyboard_notice();
    }
 
-   fn nav(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
+   /// Draw the page switcher and return the plate of the page in front.
+   ///
+   /// That plate is the window's first control, so it is also where a forward Tab that runs out of
+   /// page goes back to, and where the keyboard starts when the window opens.
+   fn nav(
+      &mut self,
+      ctx: &mut ZeusContext,
+      theme: &Theme,
+      focus_nav: bool,
+      ui: &mut Ui,
+   ) -> Option<Response> {
       ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.xs);
 
       let icon_color = theme.colors.text;
@@ -532,14 +590,32 @@ impl SettingsUi {
       privacy_mode_switch(ctx, theme, ui);
       ui.add_space(10.0);
 
+      let mut selected_plate = None;
+
       for (page, icon) in items {
          let selected = self.page == page;
          let response = nav_plate(ui, theme, page.name(), icon, selected);
 
+         // The window was just opened: the keyboard starts on the page the reader is on, so the
+         // first Tab walks the rest of the bar instead of diving into the page.
+         if focus_nav && selected {
+            response.request_focus();
+         }
+
          if response.clicked() {
+            if selected {
+               self.focus_page = true;
+            }
+
             self.set_page(page, ctx);
          }
+
+         if selected {
+            selected_plate = Some(response);
+         }
       }
+
+      selected_plate
    }
 }
 
