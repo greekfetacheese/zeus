@@ -1,6 +1,5 @@
 use egui::{
-   Align, CollapsingHeader, Id, Key, Layout, Order, Rect, RichText, Role, ScrollArea, Sense, Ui,
-   WidgetInfo, vec2,
+   Align, CollapsingHeader, Id, Key, Layout, Order, Rect, RichText, ScrollArea, Sense, Ui, vec2,
 };
 use egui_elements::{Button, Modal, Theme};
 
@@ -19,7 +18,7 @@ use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
    address::name_address, address_for_speech, blocked_reason_line, delayed_action_remaining,
-   heading, name_text, wallet_identity,
+   heading, name_alert, name_text, wallet_identity,
 };
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
@@ -529,7 +528,7 @@ impl TxConfirmationWindow {
                   // A paragraph alone is walked past: this is the window's alert, not prose.
                   let text = "Could not read this transaction. Do not confirm.";
                   let label = ui.label(RichText::new(text).size(theme.typography.large));
-                  label.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text));
+                  name_alert(ui, &label, text);
                   return;
                };
 
@@ -671,9 +670,7 @@ impl TxConfirmationWindow {
                         .size(theme.typography.large)
                         .color(theme.colors.warning),
                   );
-                  response.widget_info(|| {
-                     WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone())
-                  });
+                  name_alert(ui, &response, sentence);
                }
 
                // A bare asset movement gives way to the descriptor, which says what the call was

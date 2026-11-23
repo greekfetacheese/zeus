@@ -325,6 +325,20 @@ pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
    });
 }
 
+/// Make a drawn line the alert that says `sentence` — once.
+///
+/// A label's words are already in its node's value, and a widget given the alert role needs them as
+/// the node's name as well. That naming left the sentence in both places, and the Windows reader
+/// says both: the unlimited-allowance warning came out doubled. The name is what an alert is
+/// announced by, so the value is let go.
+pub fn name_alert(ui: &Ui, response: &Response, sentence: impl Into<String>) {
+   let sentence = sentence.into();
+
+   response.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.as_str()));
+
+   ui.ctx().accesskit_node_builder(response.id, |node| node.set_value(""));
+}
+
 /// A plate that is one clickable row to a reader: the frame, its contents, and the node behind them.
 ///
 /// A row drawn as a frame with a click sense bolted on afterwards is a hit target and nothing more:

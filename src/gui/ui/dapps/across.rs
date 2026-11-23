@@ -14,8 +14,8 @@ use crate::gui::{
    ui::{
       ChainSelect, ContactsUi, RecipientSelectionWindow,
       common::{
-         AmountField, AmountFieldParams, blocked_announcement, blocked_reason_line, name_text,
-         recipient_field,
+         AmountField, AmountFieldParams, blocked_announcement, blocked_reason_line, name_alert,
+         name_text, recipient_field,
       },
       show_with_fade,
    },
@@ -347,13 +347,10 @@ impl AcrossBridge {
                            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                               let risk = ui.label(warning_text2);
-                              risk.widget_info(|| {
-                                 WidgetInfo::labeled(
-                                    Role::Alert,
-                                    ui.is_enabled(),
-                                    ACROSS_RISK_WARNING,
-                                 )
-                              });
+
+                              // The drawn words are a fragment of the warning; the alert is the
+                              // whole sentence, and it says it once.
+                              name_alert(ui, &risk, ACROSS_RISK_WARNING);
 
                               let q_mark = RichText::new("?").size(theme.typography.normal);
                               let badge = Chip::new(q_mark).role(ChipRole::Warning);

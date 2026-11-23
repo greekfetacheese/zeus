@@ -1,8 +1,8 @@
 //! UI that allows the user to inspect and sign a message
 
 use egui::{
-   Align, FontId, Frame, Id, Key, Layout, Margin, Order, Rect, RichText, Role, ScrollArea, Sense,
-   TextEdit, Ui, WidgetInfo, vec2,
+   Align, FontId, Frame, Id, Key, Layout, Margin, Order, Rect, RichText, ScrollArea, Sense,
+   TextEdit, Ui, vec2,
 };
 use egui_elements::{Button, Label, Modal, Theme};
 
@@ -12,8 +12,8 @@ use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
-   address::name_address, address_for_speech, delayed_action_remaining, heading, name_text,
-   wallet_identity,
+   address::name_address, address_for_speech, delayed_action_remaining, heading, name_alert,
+   name_text, wallet_identity,
 };
 use crate::gui::ui::tx::{address, chain};
 
@@ -287,12 +287,8 @@ impl SignMsgWindow {
                         "Unlimited allowance. This signature lets {} take all of this token, now and later.",
                         spoken.name
                      );
-                     let response = ui.label(
-                        RichText::new(&sentence).size(normal).color(warning),
-                     );
-                     response.widget_info(|| {
-                        WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone())
-                     });
+                     let response = ui.label(RichText::new(&sentence).size(normal).color(warning));
+                     name_alert(ui, &response, sentence);
                   }
 
                   if msg.is_permit2_single() {

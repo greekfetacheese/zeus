@@ -6462,6 +6462,76 @@ fn an_unnamed_spender_is_read_by_its_ends_and_not_spelled_out() {
    );
 }
 
+/// An alert says its sentence once.
+///
+/// A label's words sit in its node's value, and a widget given the alert role needs them as the
+/// name too: naming them over the value left the sentence in both places, and the Windows reader
+/// said both — which is how the unlimited-allowance warning came out doubled for a second time. The
+/// name is what an alert is announced by, so the value is let go.
+#[test]
+fn an_alert_does_not_say_its_sentence_twice() {
+   let (ctx, handle, theme, icons, appearance) = prompt_harness();
+
+   let mut signing = SignMsgWindow::for_test(
+      "app.example.org",
+      ChainId::default(),
+      Address::repeat_byte(0x11),
+      unlimited_permit(),
+      None,
+   );
+
+   let signed = render_sign(
+      &ctx,
+      &handle,
+      &mut signing,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   let mut confirming = TxConfirmationWindow::for_test(
+      &handle,
+      TransactionAnalysis::dummy_permit(),
+      "app.example.org",
+      false,
+      None,
+   );
+
+   let confirmed = render_confirmation(
+      &ctx,
+      &handle,
+      &mut confirming,
+      &theme,
+      &icons,
+      &appearance,
+      Vec::new(),
+   );
+
+   for (prompt, nodes) in [
+      ("the signing prompt", signed),
+      ("the confirmation", confirmed),
+   ] {
+      let alert = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Alert)
+         .map(|(_, node)| node)
+         .unwrap_or_else(|| panic!("{prompt} must warn with an Alert node"));
+
+      let sentence = alert.label().unwrap_or_default();
+
+      assert!(
+         sentence.starts_with("Unlimited allowance."),
+         "{prompt}'s alert must be named by its sentence: {sentence:?}"
+      );
+      assert!(
+         alert.value().unwrap_or_default().is_empty(),
+         "{prompt} says its sentence as its name and as its value, which a reader hears twice: {:?}",
+         alert.value()
+      );
+   }
+}
+
 /// Draw a modal the way the window hosting it draws it, into a reader's tree.
 ///
 /// Three passes, for the same reason as the confirmation and the sign window: a

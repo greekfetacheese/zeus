@@ -13,8 +13,7 @@ use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
 use egui::{
-   Align, Align2, FontId, Layout, Margin, Response, RichText, Role, ScrollArea, Ui, WidgetInfo,
-   Window, vec2,
+   Align, Align2, FontId, Layout, Margin, Response, RichText, ScrollArea, Ui, Window, vec2,
 };
 use egui_elements::{
    Button, Checkbox, ChipRole, CredentialsForm, Label, SecureTextEdit, Theme, Toast,
@@ -291,11 +290,11 @@ impl RecoverHDWallet {
          // colour they cannot see.
          let warning = ui
             .label(RichText::new(&text1).size(theme.typography.normal).color(theme.colors.warning));
-         warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text1.clone()));
+         common::name_alert(ui, &warning, text1.clone());
 
          let warning = ui
             .label(RichText::new(&text2).size(theme.typography.normal).color(theme.colors.warning));
-         warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text2.clone()));
+         common::name_alert(ui, &warning, text2.clone());
       }
 
       if !meets_min_mem {
@@ -308,7 +307,7 @@ impl RecoverHDWallet {
 
          let warning = ui
             .label(RichText::new(&text).size(theme.typography.normal).color(theme.colors.warning));
-         warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text.clone()));
+         common::name_alert(ui, &warning, text);
       }
    }
 

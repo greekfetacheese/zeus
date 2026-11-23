@@ -1,4 +1,4 @@
-use egui::{Id, Key, Order, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2};
+use egui::{Id, Key, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Modal, Spinner, Theme};
 
 use super::{
@@ -10,7 +10,7 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{heading, usable_chain};
+use crate::gui::ui::common::{heading, name_alert, usable_chain};
 
 use std::sync::Arc;
 
@@ -208,7 +208,7 @@ impl TxWindow {
                   // not only a line of prose that a reader may walk past.
                   let text = "Transaction not found";
                   let response = ui.label(RichText::new(text).size(theme.typography.large));
-                  response.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text));
+                  name_alert(ui, &response, text);
                   let size = vec2(ui.available_width() * 0.8, 45.0);
 
                   let text = RichText::new("Close").size(theme.typography.normal);
@@ -234,9 +234,7 @@ impl TxWindow {
                   let sentence =
                      format!("This transaction is on a chain Zeus cannot use ({chain})");
                   let response = ui.label(RichText::new(&sentence).size(theme.typography.large));
-                  response.widget_info(|| {
-                     WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone())
-                  });
+                  name_alert(ui, &response, sentence);
                   ui.add_space(20.0);
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
@@ -361,7 +359,7 @@ impl TxWindow {
                   let response = ui.label(
                      RichText::new(text).size(theme.typography.large).color(theme.colors.error),
                   );
-                  response.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), text));
+                  name_alert(ui, &response, text);
                }
 
                let should_show_balance_diff =

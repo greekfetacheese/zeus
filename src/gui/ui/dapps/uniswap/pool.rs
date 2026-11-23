@@ -9,7 +9,7 @@ use egui::{
 use crate::assets::icons::Icons;
 use crate::core::{PoolManagerHandle, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{name_picker, name_text, next_widget_id};
+use crate::gui::ui::common::{name_alert, name_picker, name_text, next_widget_id};
 use crate::utils::truncate_symbol_or_name;
 use egui_elements::{
    Button, ChipRole, ComboBox, Label, Modal, SecureTextEdit, Spinner, Theme, Toast,
@@ -686,9 +686,7 @@ impl PoolsUi {
 
                // The refusal is a sentence that appears, not a colour: it is an alert named with its
                // own words, so a reader is told why the form did not submit.
-               alert.widget_info(|| {
-                  WidgetInfo::labeled(Role::Alert, ui.is_enabled(), error.as_str())
-               });
+               name_alert(ui, &alert, error.as_str());
             }
 
             ui.add_space(theme.spacing.sm);

@@ -270,9 +270,7 @@ impl DeleteWalletUi {
                      .size(theme.typography.normal)
                      .color(theme.colors.warning),
                );
-               warning.widget_info(|| {
-                  WidgetInfo::labeled(Role::Alert, ui.is_enabled(), DELETION_CONSEQUENCE)
-               });
+               common::name_alert(ui, &warning, DELETION_CONSEQUENCE);
 
                ui.label(
                   RichText::new("Are you sure you want to continue?")

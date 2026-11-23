@@ -156,7 +156,7 @@ impl ExportKeyUi {
             .color(theme.colors.warning),
       );
       let sentence = warning_sentence();
-      warning.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.clone()));
+      common::name_alert(ui, &warning, sentence);
 
       let button_visuals = theme.button_visuals();
       let button_size = vec2(ui.available_width() * 0.9, 45.0);
