@@ -2,7 +2,8 @@ use super::UniswapSettingsUi;
 use crate::core::ZeusContext;
 use crate::gui::ui::common::amount_field::{AmountField, AmountFieldParams};
 use crate::gui::ui::common::{
-   blocked_announcement, blocked_reason_line, name_picker, name_text, next_widget_id,
+   blocked_announcement, blocked_reason_line, currency_for_speech, name_picker, name_text,
+   next_widget_id, token_for_speech,
 };
 use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
@@ -852,13 +853,26 @@ impl SwapUi {
       };
 
       // The button's own words are the action, whatever is blocking it: the words it drew while it
-      // could run are the ones that say what pressing it does.
-      let label = if action.is_wrap() {
-         format!("Wrap {}", self.currency_in.symbol())
+      // could run are the ones that say what pressing it does. It draws the ticker, which a reader
+      // would hear letter by letter, so the node is given the token's name.
+      let (label, spoken) = if action.is_wrap() {
+         (
+            format!("Wrap {}", self.currency_in.symbol()),
+            format!(
+               "Wrap {}",
+               currency_for_speech(&self.currency_in).name
+            ),
+         )
       } else if action.is_unwrap() {
-         format!("Unwrap {}", self.currency_in.symbol())
+         (
+            format!("Unwrap {}", self.currency_in.symbol()),
+            format!(
+               "Unwrap {}",
+               currency_for_speech(&self.currency_in).name
+            ),
+         )
       } else {
-         "Swap".to_string()
+         ("Swap".to_string(), "Swap".to_string())
       };
 
       // Said once, then drawn directly above the button: a disabled button takes no focus, so a
@@ -883,7 +897,7 @@ impl SwapUi {
          let response = ui.add_enabled(valid, swap_button);
 
          // The button keeps the name of what it does whatever is blocking it.
-         response.widget_info(|| WidgetInfo::labeled(Role::Button, valid, &label));
+         response.widget_info(|| WidgetInfo::labeled(Role::Button, valid, &spoken));
 
          if response.clicked() {
             self.sending_tx = true;
@@ -2136,7 +2150,10 @@ async fn handle_approve(
       // prompt: say it before that prompt appears, so nobody confirms a fee they were not warned
       // about.
       SHARED_GUI.write(|gui| {
-         gui.uniswap.swap_ui.notice = Some(format!("Approving {} first.", token.symbol));
+         gui.uniswap.swap_ui.notice = Some(format!(
+            "Approving {} first.",
+            token_for_speech(&token.name, &token.symbol).name
+         ));
       });
 
       let receipt = send_token_approve(

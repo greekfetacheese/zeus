@@ -18,7 +18,8 @@ use crate::core::{
 };
 use crate::{
    gui::ui::common::{
-      blocked_announcement, blocked_reason_line, name_text, notices, show_with_fade,
+      blocked_announcement, blocked_reason_line, currency_for_speech, name_text, notices,
+      show_with_fade,
    },
    utils::{TimeStamp, write_private_atomic},
 };
@@ -1203,6 +1204,7 @@ impl ShieldUi {
 
       let decimals = self.currency.decimals();
       let symbol = self.currency.symbol().to_string();
+      let spoken = currency_for_speech(&self.currency);
       let inner_frame = theme.frame2;
       let mut apply_suggestion = None;
 
@@ -1423,7 +1425,7 @@ impl ShieldUi {
          self.amount_field.amount = amount.clone();
 
          // The field was rewritten from a button press: say what landed in it.
-         self.notice = Some(format!("Amount set to {amount} {symbol}."));
+         self.notice = Some(format!("Amount set to {amount} {}.", spoken.name));
       }
    }
 

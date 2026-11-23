@@ -9,6 +9,7 @@ use crate::core::{ClientKind, ZeusContext, ZeusCtx};
 use crate::gui::ui::common::ConfirmWindowClaim;
 use crate::gui::ui::common::FocusHome;
 use crate::gui::ui::common::clickable_row;
+use crate::gui::ui::common::currency_for_speech;
 use crate::gui::ui::common::place_in_list;
 use crate::gui::ui::common::windows::authorising_prompt_busy;
 use crate::gui::{SHARED_GUI, dots_button};
@@ -163,30 +164,20 @@ pub(crate) fn count_announcement(
    (previous != Some(text.as_str())).then_some(text)
 }
 
-/// What a token row says to a reader: the symbol, the name Zeus knows for the token, and the
-/// balance the row draws.
+/// What a token row says to a reader: the name Zeus knows for the token, and the balance the row
+/// draws.
 ///
-/// The row paints the name above the symbol and the balance beside them, so a reader gets the three
-/// as one sentence from the row's own node. A name that only repeats the symbol is said once, and a
-/// balance of nothing is not drawn, so it is not said either.
+/// The row paints the name above the symbol and the balance beside them, so a reader gets all of it
+/// as one sentence from the row's own node. The token is named once, at the front, and the balance
+/// is the bare number: the symbol said with it would be read out letter by letter. A balance of
+/// nothing is not drawn, so it is not said either.
 fn token_row_name(currency: &Currency, balance: &NumericValue) -> String {
-   let mut parts = vec![currency.symbol().to_string()];
+   let name = currency_for_speech(currency).name;
 
-   let name = currency.name().trim();
-
-   if !name.is_empty() && name != currency.symbol() {
-      parts.push(name.to_string());
+   match balance.is_zero() {
+      true => name,
+      false => format!("{name}, {:.12}", balance.abbreviated()),
    }
-
-   if !balance.is_zero() {
-      parts.push(format!(
-         "{:.12} {}",
-         balance.abbreviated(),
-         currency.symbol()
-      ));
-   }
-
-   parts.join(", ")
 }
 
 /// The fiat value a token row draws, when it draws one.

@@ -7,7 +7,7 @@ use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::{
    SHARED_GUI,
    ui::{
-      common::{name_text, show_with_fade, spoken_wallet_name},
+      common::{name_text, name_token, show_with_fade, spoken_wallet_name, token_for_speech},
       token_selection::{
          PickerMode, TokenSelectionWindow, cached_collections, nft_collection_name, ownership_badge,
       },
@@ -89,14 +89,15 @@ impl TokenRow {
    /// What a reader hears for this row, as one sentence, in the order the table draws it: the
    /// asset, what it costs, how much of it is held, and what that holding is worth.
    ///
-   /// The balance's own cell draws the number alone — the symbol is the asset cell's — so the
-   /// sentence says the symbol with it: `1.2534` on its own is an amount of nothing.
+   /// The asset is named once, at the front, and the balance follows it as the bare number its cell
+   /// draws: the token has just been said, and its symbol said with the amount would be read out
+   /// letter by letter.
    fn sentence(&self) -> String {
-      let (name, _) = asset_name(&self.name, &self.symbol);
+      let name = token_for_speech(&self.name, &self.symbol).name;
 
       format!(
-         "{name}, price {}, balance {} {}, value {}",
-         self.price, self.balance, self.symbol, self.value
+         "{name}, price {}, balance {}, value {}",
+         self.price, self.balance, self.value
       )
    }
 }
@@ -490,16 +491,11 @@ impl PortfolioUi {
                                     .interactive(false);
                                  let asset = ui.add(label).on_hover_text(&row.name);
 
-                                 // The full name is hover-only, so a cell read by the drawn symbol
-                                 // alone loses the one word that says which token it is.
-                                 let (name, symbol) = asset_name(&row.name, &row.symbol);
-                                 name_text(ui, &asset, name);
-
-                                 if let Some(symbol) = symbol {
-                                    ui.ctx().accesskit_node_builder(asset.id, |node| {
-                                       node.set_description(symbol.as_str());
-                                    });
-                                 }
+                                 // The cell draws the ticker, and the full name is hover-only:
+                                 // a reader hears the token's name, with the drawn symbol kept
+                                 // as the description.
+                                 let spoken = token_for_speech(&row.name, &row.symbol);
+                                 name_token(ui, &asset, &spoken);
                               });
 
                               r.cell(|ui| {
@@ -544,7 +540,10 @@ impl PortfolioUi {
 
                                  let text = RichText::new("X").size(normal);
                                  let remove = ui.add(Button::new(text));
-                                 let name = format!("Remove {}", row.symbol);
+                                 let name = format!(
+                                    "Remove {}",
+                                    token_for_speech(&row.name, &row.symbol).name
+                                 );
 
                                  // The glyph is the same on every row; the sentence says which
                                  // token this one drops.
@@ -1107,21 +1106,6 @@ fn total_text(total_value: &NumericValue) -> String {
 /// The sentence a reader gets for the total: the number, and the chain it is on.
 fn total_sentence(chain: &str, total: &str) -> String {
    format!("Portfolio value on {chain}, {total}")
-}
-
-/// What a token's own cell says, and the symbol it may add as a description.
-///
-/// The full name is hover-only, so a cell read by the drawn symbol alone loses the one word that
-/// says which token it is. A name that only repeats the symbol is said once, and a token Zeus has
-/// no name for is named by the symbol it draws.
-fn asset_name(name: &str, symbol: &str) -> (String, Option<String>) {
-   let name = name.trim();
-
-   if name.is_empty() || name == symbol {
-      (symbol.to_string(), None)
-   } else {
-      (name.to_string(), Some(symbol.to_string()))
-   }
 }
 
 /// What a reader hears for the portfolio's total, if anything.

@@ -3089,7 +3089,7 @@ fn the_amount_field_never_reads_out_its_text() {
 
    assert_eq!(
       field.label(),
-      Some("Amount in ETH"),
+      Some("Amount in Ethereum"),
       "the field is named after what it holds and the token it is in"
    );
 
@@ -3142,7 +3142,7 @@ fn the_amount_field_never_reads_out_its_text() {
    assert!(
       nodes
          .iter()
-         .any(|node| node.role() == Role::Button && node.label() == Some("Change token (ETH)")),
+         .any(|node| node.role() == Role::Button && node.label() == Some("Change token (Ethereum)")),
       "the currency button says what it shows and what pressing it does"
    );
 
@@ -3846,7 +3846,7 @@ fn a_reader_can_take_each_token_row_as_one_sentence() {
       std::thread::sleep(std::time::Duration::from_millis(10));
    }
 
-   let sentence = "Ethereum, price $0.00, balance 0.00 ETH, value $0.00";
+   let sentence = "Ethereum, price $0.00, balance 0.00, value $0.00";
 
    let speak = nodes
       .iter()
@@ -3896,12 +3896,12 @@ fn shared_gui_turn() -> std::sync::MutexGuard<'static, ()> {
    SHARED_GUI_TURN.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// The USDC row's name: the symbol, the full name Zeus knows for the token, and the balance the row
-/// draws beside them.
-const USDC_ROW: &str = "USDC, USD Coin, 12.50 USDC";
+/// The USDC row's name: the full name Zeus knows for the token, and the balance the row draws
+/// beside it.
+const USDC_ROW: &str = "USD Coin, 12.50";
 
 /// What the menu button must say it opens.
-const USDC_OPTIONS: &str = "Options for USDC, USD Coin, 12.50 USDC";
+const USDC_OPTIONS: &str = "Options for USD Coin, 12.50";
 
 /// Two rows for the picker: a USDC balance worth a figure, and the empty native currency, which
 /// draws no balance and so says nothing about one.
@@ -4023,7 +4023,7 @@ fn the_token_picker_says_each_rows_place_and_the_lists_size() {
    let ctx = Context::default();
    let nodes = open_picker(&ctx, &picker_rows());
 
-   for (name, position) in [(USDC_ROW, 0usize), ("ETH, Ethereum", 1)] {
+   for (name, position) in [(USDC_ROW, 0usize), ("Ethereum", 1)] {
       let (row, node) = nodes
          .iter()
          .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
@@ -4616,14 +4616,14 @@ fn the_picker_row_says_which_token_is_selected() {
    );
 
    assert_eq!(
-      selected("ETH, Ethereum"),
+      selected("Ethereum"),
       Some(Toggled::False),
       "every other row says it is not the selection"
    );
 
    let eth = nodes
       .iter()
-      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("ETH, Ethereum"))
+      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Ethereum"))
       .map(|(_, node)| node)
       .expect("the empty native row must be in the tree too");
 

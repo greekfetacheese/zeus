@@ -6,8 +6,8 @@ use crate::core::{
    TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
 };
 use crate::gui::ui::common::{
-   SpokenAddress, chain_label, drawn_and_spoken, name_address, name_text, spoken_wallet_name,
-   usable_chain,
+   SpokenAddress, chain_label, drawn_and_spoken, name_address, name_text, name_token,
+   spoken_wallet_name, token_for_speech, usable_chain,
 };
 use crate::gui::{SHARED_GUI, ui::show_with_fade};
 use crate::utils::{TimeStamp, simulate::simulate_for_analysis};
@@ -866,12 +866,16 @@ impl ApprovalsUi {
                   t.rows(|r, row| {
                      // Asset — a token's symbol, or the collection an NFT approval is over.
                      r.cell(|ui| {
-                        let (icon, title, hover, spoken) = match &row.asset {
+                        let (icon, title, hover, spoken_address, spoken_token) = match &row.asset {
                            ApprovalAsset::Token { currency, .. } => (
                               icons.currency_icon_x32(currency, tint),
                               currency.symbol().to_string(),
                               currency.name().to_string(),
                               None,
+                              Some(token_for_speech(
+                                 currency.name(),
+                                 currency.symbol(),
+                              )),
                            ),
                            ApprovalAsset::Nft {
                               collection,
@@ -891,7 +895,7 @@ impl ApprovalsUi {
                               let (title, spoken) =
                                  self.collection_label(ctx, row.chain, *collection);
                               let hover = format!("{}\n{}", title, collection);
-                              (icon, title, hover, Some(spoken))
+                              (icon, title, hover, Some(spoken), None)
                            }
                         };
 
@@ -902,13 +906,14 @@ impl ApprovalsUi {
                         let label = Label::new(text, None).wrap().visuals(label_visuals);
                         let response = ui.add(label).on_hover_text(hover.as_str());
 
-                        // A token draws only its symbol, and the full name used to be the hover: a
-                        // reader gets the name on the node. A collection already goes through
-                        // `name_address`, whose description must not be overwritten.
-                        if let Some(spoken) = &spoken {
+                        // A token draws only its symbol, which is a ticker rather than a word: the
+                        // node is named by the token's name and keeps the drawn symbol as the
+                        // description. A collection already goes through `name_address`, whose
+                        // description must not be overwritten.
+                        if let Some(spoken) = &spoken_token {
+                           name_token(ui, &response, spoken);
+                        } else if let Some(spoken) = &spoken_address {
                            name_address(ui, &response, spoken);
-                        } else {
-                           describe(ui, &response, hover);
                         }
                      });
 
@@ -1928,30 +1933,30 @@ mod tests {
          );
       }
 
-      /// The token cell draws only a symbol and used to leave the full name in a hover: a reader
-      /// gets that name on the node, and the chain cell keeps its (possibly truncated) name there
-      /// too.
+      /// The token cell draws only a symbol, which is a ticker rather than a word: the node is
+      /// named by the token's name, and the drawn symbol stays on it as the description. The chain
+      /// cell keeps its (possibly truncated) name on its node too.
       #[test]
-      fn the_asset_cell_says_the_name_its_hover_carried() {
+      fn the_asset_cell_is_named_by_the_token_and_keeps_its_symbol() {
          let (ctx, handle, theme, icons) = page_harness();
          let mut page = ApprovalsUi::for_test(vec![usdc_row()]);
 
          let nodes = render_page(&mut page, &ctx, &handle, &theme, &icons);
          let asset = nodes
             .iter()
-            .find(|(_, node)| node.role() == Role::Label && is_named(node, "USDC"))
+            .find(|(_, node)| node.role() == Role::Label && is_named(node, "USD Coin"))
             .map(|(_, node)| node)
             .unwrap_or_else(|| {
                panic!(
-                  "the token cell must still draw its symbol: {:?}",
+                  "the token cell must be named by the token, not by its symbol: {:?}",
                   spoken(&nodes)
                )
             });
 
          assert_eq!(
             asset.description(),
-            Some("USD Coin"),
-            "the full name the hover carried must be on the node: {:?}",
+            Some("USDC"),
+            "the symbol the cell draws stays on the node: {:?}",
             spoken(&nodes)
          );
 

@@ -12,7 +12,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
-use super::name_text;
+use super::{currency_for_speech, name_text};
 
 use egui_elements::layout::{CrossAlign, Justify};
 use egui_elements::{Button, Flex, Item, Label, SecureTextEdit, Slider, Spinner, Theme};
@@ -161,9 +161,11 @@ impl AmountField {
       // What the field says to a reader. The drawn word beside it is folded into the name instead
       // of staying in the tree as a label of its own: beside a single Amount field it would be the
       // same word twice, while it is the only thing telling the swap page's two fields apart.
+      let spoken = currency_for_speech(currency);
+
       let field_name = match label {
-         Some(label) => format!("{label} in {}", currency.symbol()),
-         None => format!("Amount in {}", currency.symbol()),
+         Some(label) => format!("{label} in {}", spoken.name),
+         None => format!("Amount in {}", spoken.name),
       };
 
       ui.vertical(|ui| {
@@ -263,7 +265,7 @@ impl AmountField {
 
                // The button draws the symbol and nothing else, so the node says what pressing it
                // opens as well as what it shows.
-               let name = format!("Change token ({})", currency.symbol());
+               let name = format!("Change token ({})", spoken.name);
                picker.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &name));
 
                if picker.clicked()
