@@ -7,6 +7,7 @@ pub mod chain_select;
 pub mod chain_switch;
 pub mod fade;
 pub mod field_controls;
+pub mod focus;
 pub mod heading;
 pub mod naming;
 pub mod notices;
@@ -29,6 +30,7 @@ pub use autolock_timing::{GRACE_NOTICE, LockNotices, effective_idle_secs};
 pub use chain_select::ChainSelect;
 pub use chain_switch::switch_chain;
 pub use fade::{panel_fade, show_with_fade};
+pub use focus::{FocusHome, hand_focus_back};
 pub use heading::heading;
 pub use naming::{clickable_row, name_alert, name_picker, name_text, place_in_list};
 pub use recipient_field::recipient_field;
@@ -43,7 +45,7 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
-use egui::{Align, Id, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
+use egui::{Align, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
 use egui_elements::{Button, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
 use std::time::{Duration, Instant};
@@ -110,20 +112,6 @@ pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (b
    match delayed_action_remaining(opened_at) {
       Some(secs) => (false, format!("Available in {secs}s")),
       None => (true, ready_label.to_string()),
-   }
-}
-
-/// Put the keyboard back on the control a dialog was opened from.
-///
-/// A window cannot do this from its own `show`: on the frame a dialog closes, the page under it
-/// still draws behind the dialog's modal layer, and egui clears the focus of a widget drawn in that
-/// state — `Context::create_widget` calls `Memory::ignore_focus` for anything not allowed
-/// interaction yet. A request made from inside the window is therefore wiped by the page's own
-/// widgets, which draw after it. The frame hands the focus back at the end of the pass instead —
-/// see `central_panel::show` — where nothing follows but the announcer.
-pub fn hand_focus_back(ctx: &egui::Context, opener: &mut Option<Id>) {
-   if let Some(id) = opener.take() {
-      ctx.memory_mut(|memory| memory.request_focus(id));
    }
 }
 
@@ -309,66 +297,6 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
       }
    }
    resp
-}
-
-/// Where the keyboard goes when a picker closes: back to the control it was opened from.
-///
-/// A dialog takes the keyboard while it is up, so the control that opened it loses it — and a pick
-/// closes the picker from inside its own body, which is a close no dialog hands the focus back from
-/// on its own. The opener is recorded once per opening, and given the focus back on the first frame
-/// the dialog layer no longer covers: the layer outlives the close by a frame, and every widget
-/// drawn behind it withdraws a focus it is handed.
-#[derive(Default, Clone, Copy)]
-pub enum FocusHome {
-   /// Nothing recorded for this opening yet.
-   #[default]
-   Unrecorded,
-   /// What had the keyboard when the picker opened, if anything did.
-   Opened(Option<Id>),
-   /// The picker has closed; this control takes the keyboard back on the next frame.
-   Closing(Id),
-}
-
-impl FocusHome {
-   /// Record the control a picker is opened from, when the opener knows its own id.
-   ///
-   /// [`Self::note`] reads the keyboard on the picker's first frame, which serves an opener that
-   /// keeps its focus. A text field gives its focus up on the key that opens the picker, so that
-   /// frame has nothing to read and the field's id has to be handed over instead.
-   pub fn open_from(&mut self, opener: Id) {
-      *self = Self::Opened(Some(opener));
-   }
-
-   /// Note the control a picker is opened from. Only the first note of an opening counts: the dialog
-   /// takes the keyboard later in that same frame, and that must not become the home.
-   pub fn note(&mut self, ui: &Ui) {
-      if matches!(*self, Self::Unrecorded) {
-         *self = Self::Opened(ui.memory(|memory| memory.focused()));
-      }
-   }
-
-   /// The picker is closing: its opener takes the keyboard back once the dialog layer has gone.
-   pub fn close(&mut self) {
-      *self = match *self {
-         Self::Opened(Some(id)) => Self::Closing(id),
-         _ => Self::Unrecorded,
-      };
-   }
-
-   /// The control that takes the keyboard back now, once the dialog layer has gone.
-   ///
-   /// The layer outlives the frame a picker closes on — it is still in force on the frame after —
-   /// and every widget drawn behind it withdraws a focus it is handed, so the hand-back waits for
-   /// it to clear instead of racing it.
-   pub fn take_closing(&mut self, ui: &Ui) -> Option<Id> {
-      match *self {
-         Self::Closing(id) if ui.memory(|memory| memory.allows_interaction(ui.layer_id())) => {
-            *self = Self::Unrecorded;
-            Some(id)
-         }
-         _ => None,
-      }
-   }
 }
 
 #[cfg(test)]
