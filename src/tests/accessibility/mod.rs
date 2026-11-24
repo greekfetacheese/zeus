@@ -14,7 +14,7 @@ mod contacts;
 mod dapps;
 #[cfg(feature = "dev")]
 mod dev_dump;
-mod harness;
+pub(crate) mod harness;
 mod lock;
 mod nav;
 mod portfolio;

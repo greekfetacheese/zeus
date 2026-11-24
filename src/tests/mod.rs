@@ -19,7 +19,7 @@
 //! `accessibility` is the exception: it renders screens headlessly and asserts their
 //! accessibility tree, so it runs with the normal suite.
 
-mod accessibility;
+pub(crate) mod accessibility;
 mod bridge;
 mod connector;
 mod dev_feature;
