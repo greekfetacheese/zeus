@@ -2,6 +2,7 @@
 //! the page is shown behind.
 
 mod delete;
+mod discovery;
 mod export;
 mod page;
 
