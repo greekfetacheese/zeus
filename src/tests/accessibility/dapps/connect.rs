@@ -1,5 +1,5 @@
 use super::super::app::{main_window, master_wallet, wallet_named};
-use super::super::harness::{accesskit_action, drawn_names, frame, frame_nodes, key_press};
+use super::super::harness::{accesskit_action, drawn_names, frame_nodes, key_press};
 use crate::core::WalletInfo;
 use crate::gui::GUI;
 use crate::gui::ui::dapps::connect::{ConnectDappWindow, DappAccountChoice, DappConnectResult};
