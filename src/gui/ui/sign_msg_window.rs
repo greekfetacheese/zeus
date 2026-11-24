@@ -12,8 +12,8 @@ use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
-   address::name_address, address_for_speech, delayed_action_remaining, heading, name_alert,
-   name_text, token_for_speech, wallet_identity,
+   DeferredFocus, address::name_address, address_for_speech, delayed_action_remaining, heading,
+   name_alert, name_text, token_for_speech, wallet_identity,
 };
 use crate::gui::ui::tx::{address, chain};
 
@@ -40,12 +40,7 @@ pub struct SignMsgWindow {
    formatted_msg: Option<String>,
    signed: Option<bool>,
    opened_at: Option<Instant>,
-   /// True until the opening painted frame has put focus on the message heading.
-   ///
-   /// The modal spends two invisible sizing passes before it paints, and focus requested on
-   /// those does not survive the pass, so the flag is cleared only once the frame a reader can
-   /// be handed has drawn.
-   focus_pending: bool,
+   focus: DeferredFocus,
    /// The countdown's one announcement has been raised for this prompt.
    ready_announced: bool,
    /// The words this window hands back to the frame, which owns the announcement channel.
@@ -65,7 +60,7 @@ impl SignMsgWindow {
          formatted_msg: None,
          signed: None,
          opened_at: None,
-         focus_pending: false,
+         focus: DeferredFocus::default(),
          ready_announced: false,
          notice: None,
          size: (500.0, 750.0),
@@ -90,7 +85,7 @@ impl SignMsgWindow {
       self.signed = None;
       // A prompt the user has not seen yet starts with its action focused, the countdown still
       // to say, and nothing of the previous prompt's words left over.
-      self.focus_pending = true;
+      self.focus.request();
       self.ready_announced = false;
       self.notice = None;
       self.opened_at = Some(Instant::now());
@@ -200,13 +195,7 @@ impl SignMsgWindow {
             // body, focused once when the window opens and never again — a prompt must not keep
             // pulling the focus back from what the user reached next.
             let title_heading = heading(ui, self.title());
-            // A shrink-wrapping modal spends two invisible sizing passes before its first painted
-            // frame, and focus requested on those does not survive the pass: wait for the frame a
-            // reader can actually be handed.
-            if self.focus_pending && !ui.is_sizing_pass() {
-               title_heading.request_focus();
-               self.focus_pending = false;
-            }
+            self.focus.grab(ui, title_heading.id);
 
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
@@ -503,7 +492,7 @@ impl SignMsgWindow {
       window.account = account;
       window.msg = Some(msg);
       window.opened_at = opened_at;
-      window.focus_pending = true;
+      window.focus.request();
       window.open = true;
 
       window

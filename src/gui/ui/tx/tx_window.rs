@@ -10,7 +10,7 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{hand_focus_back, heading, name_alert, usable_chain};
+use crate::gui::ui::common::{DeferredFocus, hand_focus_back, heading, name_alert, usable_chain};
 
 use std::sync::Arc;
 
@@ -28,8 +28,7 @@ pub struct TxWindow {
    size: (f32, f32),
    /// The control that opened the window, focused again when the window closes.
    opener: Option<Id>,
-   /// True until the opening painted frame has put focus inside the window.
-   focus_pending: bool,
+   focus: DeferredFocus,
 }
 
 impl TxWindow {
@@ -43,7 +42,7 @@ impl TxWindow {
          show_diffs: false,
          size: (550.0, 400.0),
          opener: None,
-         focus_pending: false,
+         focus: DeferredFocus::default(),
       }
    }
 
@@ -69,7 +68,7 @@ impl TxWindow {
       // A window the user has not seen yet starts on its heading, with the control that opened
       // it remembered for when it closes.
       self.opener = opener;
-      self.focus_pending = true;
+      self.focus.request();
       self.maybe_fill_clear_display();
    }
 
@@ -174,13 +173,7 @@ impl TxWindow {
             // is put on — once, on the frame the window opens, and never again, so a details
             // view does not keep pulling it back from what the user reached next.
             let title_heading = heading(ui, TITLE);
-            // A shrink-wrapping modal spends two invisible sizing passes before its first
-            // painted frame, and focus requested on those does not survive the pass: wait for
-            // the frame a reader can actually be handed.
-            if self.focus_pending && !ui.is_sizing_pass() {
-               title_heading.request_focus();
-               self.focus_pending = false;
-            }
+            self.focus.grab(ui, title_heading.id);
 
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
@@ -500,7 +493,7 @@ impl TxWindow {
       window.tx = tx;
       window.loading = loading;
       window.open = true;
-      window.focus_pending = true;
+      window.focus.request();
 
       window
    }

@@ -17,8 +17,8 @@ use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
-   address::name_address, address_for_speech, blocked_reason_line, delayed_action_remaining,
-   hand_focus_back, heading, name_alert, name_text, wallet_identity,
+   DeferredFocus, address::name_address, address_for_speech, blocked_reason_line,
+   delayed_action_remaining, hand_focus_back, heading, name_alert, name_text, wallet_identity,
 };
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
@@ -90,12 +90,7 @@ pub struct TxConfirmationWindow {
    opener: Option<Id>,
    /// True once the opening frame has read [`Self::opener`] off the focus.
    opener_read: bool,
-   /// True until the opening painted frame has put focus on the action heading.
-   ///
-   /// The modal spends two invisible sizing passes before it paints, and focus requested on
-   /// those does not survive the pass, so the flag is cleared only once the frame a reader can
-   /// be handed has drawn.
-   focus_pending: bool,
+   focus: DeferredFocus,
    /// The countdown's one announcement has been raised for this prompt.
    ready_announced: bool,
    /// The words this window hands back to the frame, which owns the announcement channel.
@@ -137,7 +132,7 @@ impl TxConfirmationWindow {
          opened_at: None,
          opener: None,
          opener_read: false,
-         focus_pending: false,
+         focus: DeferredFocus::default(),
          ready_announced: false,
          notice: None,
          size: (550.0, 400.0),
@@ -279,7 +274,7 @@ impl TxConfirmationWindow {
       // raised from is read again on its first frame; this one belongs to a stale prompt.
       self.opener = None;
       self.opener_read = false;
-      self.focus_pending = true;
+      self.focus.request();
       self.ready_announced = false;
       self.notice = None;
       self.open_generation = self.open_generation.wrapping_add(1);
@@ -523,13 +518,7 @@ impl TxConfirmationWindow {
             // focused once when the window opens and never again — a prompt must not keep
             // pulling the focus back from what the user reached next.
             let action_heading = heading(ui, self.action_name());
-            // A shrink-wrapping modal spends two invisible sizing passes before its first
-            // painted frame, and focus requested on those does not survive the pass: wait for
-            // the frame a reader can actually be handed.
-            if self.focus_pending && !ui.is_sizing_pass() {
-               action_heading.request_focus();
-               self.focus_pending = false;
-            }
+            self.focus.grab(ui, action_heading.id);
 
             ui.set_width(self.size.0);
             // A maximum, not a fixed height: `set_height` also sets the *minimum*, and
@@ -1119,7 +1108,7 @@ impl TxConfirmationWindow {
       window.tx = Some(analysis);
       window.clear_display = clear_display.then(ClearDisplay::dummy_calldata);
       window.opened_at = opened_at;
-      window.focus_pending = true;
+      window.focus.request();
       window.open = true;
 
       window

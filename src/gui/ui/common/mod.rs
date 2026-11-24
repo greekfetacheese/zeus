@@ -32,7 +32,7 @@ pub use blocked::{blocked_announcement, blocked_reason_line};
 pub use chain_select::ChainSelect;
 pub use chain_switch::switch_chain;
 pub use fade::{panel_fade, show_with_fade};
-pub use focus::{FocusHome, hand_focus_back};
+pub use focus::{DeferredFocus, FocusHome, hand_focus_back};
 pub use heading::{heading, section_heading};
 pub use naming::{clickable_row, name_alert, name_picker, name_text, place_in_list};
 pub use recipient_field::recipient_field;

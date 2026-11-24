@@ -1,4 +1,4 @@
-//! Where the keyboard goes when a picker closes.
+//! Where the keyboard goes when a window opens, and when a picker closes.
 
 use egui::{Id, Ui};
 
@@ -13,6 +13,42 @@ use egui::{Id, Ui};
 pub fn hand_focus_back(ctx: &egui::Context, opener: &mut Option<Id>) {
    if let Some(id) = opener.take() {
       ctx.memory_mut(|memory| memory.request_focus(id));
+   }
+}
+
+/// Ask for the keyboard on the first frame a window paints, and once only.
+///
+/// A shrink-wrapping window spends its first passes sizing its body: nothing on it is visible
+/// yet and a request made there does not survive the pass. Asking again on every frame is the
+/// other failure — the keyboard is pulled back from whatever the reader reached next — so the ask
+/// is recorded here and spent on the first pass that paints.
+#[derive(Default, Clone, Copy)]
+pub struct DeferredFocus {
+   pending: bool,
+}
+
+impl DeferredFocus {
+   /// A window that opens on its first control: the ask is already outstanding.
+   pub const fn requested() -> Self {
+      Self { pending: true }
+   }
+
+   /// Ask for the keyboard when the window next paints.
+   pub fn request(&mut self) {
+      self.pending = true;
+   }
+
+   /// Withdraw an ask that has not been answered yet.
+   pub fn cancel(&mut self) {
+      self.pending = false;
+   }
+
+   /// Take the keyboard for `id` on the first pass that paints.
+   pub fn grab(&mut self, ui: &Ui, id: Id) {
+      if self.pending && !ui.is_sizing_pass() {
+         ui.memory_mut(|memory| memory.request_focus(id));
+         self.pending = false;
+      }
    }
 }
 
