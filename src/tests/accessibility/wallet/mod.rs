@@ -1,6 +1,7 @@
 //! The wallet area: the Wallets page and the dialogs it opens, plus the first-run recovery flow
 //! the page is shown behind.
 
+mod delete;
 mod export;
 mod page;
 
