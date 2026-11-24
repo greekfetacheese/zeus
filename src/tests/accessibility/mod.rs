@@ -12,6 +12,8 @@ mod all;
 mod app;
 mod common_widgets;
 mod contacts;
+#[cfg(feature = "dev")]
+mod dev_dump;
 mod harness;
 mod lock;
 mod nav;
