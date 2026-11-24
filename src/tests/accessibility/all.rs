@@ -1,3 +1,9 @@
+use super::harness::{
+   accesskit_action, announced, button_named, button_names, clipboard_text, copy_said, drawn_names,
+   focused_id, focused_node, focused_text, frame, frame_nodes, frame_nodes_and_output, is_control,
+   is_text_input, key_combo, key_press, key_release, label_texts, label_words, named, node_name,
+   node_position, node_texts, opener_button, parent_of, spoken_text, status_text, tree_order,
+};
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::signature::msg::Permit2612Details;
@@ -31,11 +37,8 @@ use crate::gui::ui::tx::{
 use crate::gui::ui::wallet::import::{ImportWallet, ImportWalletType};
 use crate::gui::{GUI, LockScreen, Page};
 use crate::utils::swap_quoter::SwapStep;
-use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
-use egui::{
-   Context, Event, Id, Key, Modifiers, PointerButton, RawInput, Rect, RichText, Sense, Ui,
-   WidgetInfo, pos2, vec2,
-};
+use egui::accesskit::{Action, Live, Node, NodeId, Role, Toggled};
+use egui::{Context, Event, Id, Key, Modifiers, PointerButton, RichText, Ui, pos2, vec2};
 use egui_elements::{Theme, ThemeKind};
 use secure_types::SecureString;
 use std::sync::Arc;
@@ -46,55 +49,6 @@ use zeus_eth::currency::{Currency, ERC20Token, NativeCurrency};
 use zeus_eth::types::ChainId;
 use zeus_eth::utils::NumericValue;
 use zeus_railgun::privacy::RiskBand;
-
-/// Run one AccessKit-enabled frame and return the nodes of the tree update it produced.
-///
-/// egui's own recipe: enable the tree, run a pass, take
-/// `platform_output.accesskit_update` — the same value the platform gives a reader.
-fn frame(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<Node> {
-   frame_nodes(ctx, Vec::new(), add).into_iter().map(|(_, node)| node).collect()
-}
-
-/// Run one AccessKit-enabled frame with `events` in its input, keeping the id each node is
-/// addressed by: a reader sends an action back to that id, so a test that drives a widget needs it.
-fn frame_nodes(ctx: &Context, events: Vec<Event>, add: impl FnMut(&mut Ui)) -> Vec<(NodeId, Node)> {
-   frame_nodes_and_output(ctx, events, add).0
-}
-
-/// The same frame, with the commands it handed the platform — a test that copies an address needs
-/// the words that went to the clipboard, which the tree does not carry.
-fn frame_nodes_and_output(
-   ctx: &Context,
-   events: Vec<Event>,
-   add: impl FnMut(&mut Ui),
-) -> (Vec<(NodeId, Node)>, Vec<egui::OutputCommand>) {
-   ctx.enable_accesskit();
-
-   let mut output = ctx.run_ui(
-      RawInput {
-         screen_rect: Some(Rect::from_min_size(
-            pos2(0.0, 0.0),
-            vec2(1290.0, 950.0),
-         )),
-         events,
-         ..Default::default()
-      },
-      add,
-   );
-
-   let update = output
-      .platform_output
-      .accesskit_update
-      .take()
-      .expect("an AccessKit-enabled frame must produce a tree update");
-
-   let nodes = update.nodes.into_iter().collect();
-   let commands = std::mem::take(&mut output.platform_output.commands);
-
-   output.drop_without_applying_deltas();
-
-   (nodes, commands)
-}
 
 /// The unlock screen and what it needs: the simplest real screen Zeus has — a heading, a line
 /// of prose, the credentials form and its Unlock button — and the only one that renders without
@@ -127,50 +81,6 @@ fn render_unlock_screen(
    frame(ctx, |ui| {
       locked.write(|zeus| screen.show(zeus, theme, ui));
    })
-}
-
-/// The text of every `Role::Label` node. AccessKit puts a label's text in `value` rather than
-/// `label` so that `labelled_by` still works.
-fn label_texts(nodes: &[Node]) -> Vec<&str> {
-   nodes
-      .iter()
-      .filter(|node| node.role() == Role::Label)
-      .filter_map(|node| node.value())
-      .collect()
-}
-
-/// The name of every button node: what a reader hears as it Tabs through the controls.
-fn button_names(nodes: &[Node]) -> Vec<&str> {
-   nodes
-      .iter()
-      .filter(|node| node.role() == Role::Button)
-      .filter_map(|node| node.label())
-      .collect()
-}
-
-/// The id of the widget the keyboard is on, the way a reader addresses it.
-fn focused_id(ctx: &Context) -> Option<NodeId> {
-   ctx.memory(|memory| memory.focused()).map(|id| id.accesskit_id())
-}
-
-/// The name a reader would hear for one node of the frame that drew it.
-fn named(nodes: &[(NodeId, Node)], id: Option<NodeId>) -> Option<String> {
-   let id = id?;
-
-   nodes
-      .iter()
-      .find(|(node_id, _)| *node_id == id)
-      .and_then(|(_, node)| node.label())
-      .map(str::to_string)
-}
-
-/// What a reader hears for the node the keyboard is on: a control's name, or a line's text.
-fn focused_text(ctx: &Context, nodes: &[(NodeId, Node)]) -> Option<String> {
-   let id = focused_id(ctx)?;
-
-   let (_, node) = nodes.iter().find(|(node_id, _)| *node_id == id)?;
-
-   node.label().or_else(|| node.value()).map(str::to_string)
 }
 
 /// The main window with no wallet open behind it: the nav and the page heading draw, while the
@@ -359,27 +269,6 @@ fn render_central_with_settings(
             ui,
          );
       });
-   })
-}
-
-/// A key press as the window delivers it.
-fn key_press(key: Key) -> Event {
-   Event::Key {
-      key,
-      physical_key: None,
-      pressed: true,
-      repeat: false,
-      modifiers: Modifiers::NONE,
-   }
-}
-
-/// An action a screen reader sends to the widget at `target`.
-fn accesskit_action(action: Action, target: NodeId) -> Event {
-   Event::AccessKitActionRequest(ActionRequest {
-      action,
-      target_tree: TreeId::ROOT,
-      target_node: target,
-      data: None,
    })
 }
 
@@ -1401,14 +1290,6 @@ fn render_top_panel(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<Node> {
          gui.show_announcer(ui);
       });
    })
-}
-
-/// The text of this frame's announcement node.
-fn status_text(nodes: &[Node]) -> Option<String> {
-   nodes
-      .iter()
-      .find(|node| node.role() == Role::Status)
-      .and_then(|node| node.label().map(str::to_string))
 }
 
 /// The status pill is the only sign that work is running, and it is drawn in an `Area` that a
@@ -2552,30 +2433,6 @@ fn an_invalid_rpc_url_is_said() {
       Some("Invalid URL"),
       "an invalid URL must be said, not only drawn"
    );
-}
-
-/// The roles egui's single-line text fields use.
-fn is_text_input(role: Role) -> bool {
-   matches!(
-      role,
-      Role::TextInput | Role::MultilineTextInput | Role::PasswordInput
-   )
-}
-
-/// A node's accessible name: its own label, or the value of the label that names it.
-///
-/// `InputField` draws a visible label and ties it to the field with `labelled_by`, so the field
-/// itself carries no label.
-fn node_name(nodes: &[(NodeId, Node)], node: &Node) -> Option<String> {
-   node.label().map(str::to_owned).or_else(|| {
-      node.labelled_by().iter().find_map(|id| {
-         nodes
-            .iter()
-            .find(|(node_id, _)| node_id == id)
-            .and_then(|(_, label)| label.value())
-            .map(str::to_owned)
-      })
-   })
 }
 
 /// Each Railgun slider is one node named with the sentence that used to sit above it, says the
@@ -3995,15 +3852,6 @@ fn picked_symbol() -> Option<String> {
    crate::gui::SHARED_GUI
       .write(|gui| gui.token_selection.get_selected_currency().cloned())
       .map(|currency| currency.symbol().to_string())
-}
-
-/// The node `row` is a direct child of, and that node's id.
-fn parent_of(nodes: &[(NodeId, Node)], row: NodeId) -> (NodeId, &Node) {
-   nodes
-      .iter()
-      .find(|(_, node)| node.children().contains(&row))
-      .map(|(id, node)| (*id, node))
-      .unwrap_or_else(|| panic!("no node holds {row:?} as a direct child"))
 }
 
 /// A list is a set, not a bag: each row says its zero-based place and the container egui made for
@@ -5758,48 +5606,6 @@ fn render_confirmation(
    }
 
    unreachable!("the third pass returns the tree")
-}
-
-/// The node ids in reading order: a depth-first walk from the root, children in the order the
-/// accesskit node says they are read.
-///
-/// The `TreeUpdate` itself is a map and comes out in no particular order, so a tree-order
-/// assertion has to walk the children rather than trust the vector.
-fn tree_order(nodes: &[(NodeId, Node)]) -> Vec<NodeId> {
-   let root = nodes
-      .iter()
-      .find(|(_, node)| node.role() == Role::Window)
-      .map(|(id, _)| *id)
-      .expect("the tree starts from the root window node");
-
-   let mut order = Vec::new();
-   let mut stack = vec![root];
-
-   while let Some(id) = stack.pop() {
-      order.push(id);
-
-      if let Some((_, node)) = nodes.iter().find(|(node_id, _)| *node_id == id) {
-         for child in node.children().iter().rev() {
-            stack.push(*child);
-         }
-      }
-   }
-
-   order
-}
-
-/// Where a node whose name starts with `prefix` sits in the tree's reading order.
-fn node_position(nodes: &[(NodeId, Node)], prefix: &str) -> usize {
-   tree_order(nodes)
-      .into_iter()
-      .position(|id| {
-         nodes
-            .iter()
-            .find(|(node_id, _)| *node_id == id)
-            .and_then(|(_, node)| node.label().or_else(|| node.value()))
-            .is_some_and(|text| text.starts_with(prefix))
-      })
-      .unwrap_or_else(|| panic!("no node named {prefix:?} in the tree"))
 }
 
 /// Approvals are the only state change in the window that can cost money after the transaction,
@@ -7647,35 +7453,6 @@ fn draw_wallet_page(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId
    render_wallet_page(ctx, gui, zeus, Vec::new())
 }
 
-/// Every name in the tree, for the failure message of a missing node.
-fn drawn_names(nodes: &[(NodeId, Node)]) -> Vec<&str> {
-   nodes
-      .iter()
-      .filter_map(|(_, node)| node.label().or_else(|| node.value()))
-      .collect()
-}
-
-/// The text of this frame's announcement node, in a tree that keeps node ids.
-fn announced(nodes: &[(NodeId, Node)]) -> Option<String> {
-   nodes
-      .iter()
-      .find(|(_, node)| node.role() == Role::Status)
-      .and_then(|(_, node)| node.label().map(str::to_string))
-}
-
-/// The sentence a copy leaves for the announcement channel, built the way the buttons build it.
-fn copy_said(address: &str) -> String {
-   crate::gui::ui::copied_words(address)
-}
-
-/// The text a frame handed the platform's clipboard.
-fn clipboard_text(commands: &[egui::OutputCommand]) -> Option<String> {
-   commands.iter().find_map(|command| match command {
-      egui::OutputCommand::CopyText(text) => Some(text.clone()),
-      _ => None,
-   })
-}
-
 /// The wallet Zeus is on is the card above the search field: one group node that says the wallet
 /// and its value, with the two labels that draw those words left out of the reading.
 #[test]
@@ -8369,20 +8146,6 @@ fn draw_export_key(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(NodeId,
    nodes
 }
 
-/// The id of the button named `name` in this frame's tree.
-fn button_named(nodes: &[(NodeId, Node)], name: &str) -> NodeId {
-   nodes
-      .iter()
-      .find(|(_, node)| node.role() == Role::Button && node.label() == Some(name))
-      .map(|(id, _)| *id)
-      .unwrap_or_else(|| {
-         panic!(
-            "the tree must offer a button named {name:?}: {:?}",
-            drawn_names(nodes)
-         )
-      })
-}
-
 /// Dismiss the master-wallet warning the way a reader does, and draw the body that replaces it.
 fn open_export_body(
    ctx: &Context,
@@ -8407,11 +8170,6 @@ fn open_export_body(
    }
 
    nodes
-}
-
-/// Every word a node carries in a form a reader can reach.
-fn node_texts(node: &Node) -> Vec<&str> {
-   [node.label(), node.value(), node.description()].into_iter().flatten().collect()
 }
 
 /// No node may carry `secret` in any of the forms a reader can reach.
@@ -11551,15 +11309,6 @@ fn settle_shield_page(ctx: &Context, gui: &mut GUI, zeus: &ZeusCtx) -> Vec<(Node
    render_shield_page(ctx, gui, zeus, Vec::new())
 }
 
-/// The text of every label node a reader can reach.
-fn spoken_text(nodes: &[(NodeId, Node)]) -> Vec<&str> {
-   nodes
-      .iter()
-      .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
-      .filter_map(|(_, node)| node.value())
-      .collect()
-}
-
 /// The form's title is the page heading, and the one word it draws does not say which way the funds
 /// move: the direction is the heading's description.
 #[test]
@@ -12244,38 +11993,6 @@ fn a_contact_qr_page_says_which_address_it_shows() {
    );
 }
 
-/// A button a test knows the id of, drawn before a dialog: it is where the dialog has to put the
-/// focus back when it closes.
-fn opener_button(ui: &mut Ui, id: Id, name: &str) {
-   let rect = Rect::from_min_size(ui.next_widget_position(), vec2(180.0, 24.0));
-   let response = ui.interact(rect, id, Sense::click());
-   response.widget_info(|| WidgetInfo::labeled(egui::Role::Button, ui.is_enabled(), name));
-}
-
-/// The node a frame left focused, looked up by the id the tree addresses it by.
-fn focused_node<'a>(ctx: &Context, nodes: &'a [(NodeId, Node)]) -> &'a Node {
-   let focused = ctx
-      .memory(|memory| memory.focused())
-      .expect("the frame must leave a node focused");
-
-   nodes
-      .iter()
-      .find(|(id, _)| *id == focused.accesskit_id())
-      .map(|(_, node)| node)
-      .expect("the focused node must be in the frame's tree")
-}
-
-/// A key press with modifiers, as the window delivers it.
-fn key_combo(key: Key, modifiers: Modifiers) -> Event {
-   Event::Key {
-      key,
-      physical_key: None,
-      pressed: true,
-      repeat: false,
-      modifiers,
-   }
-}
-
 /// Draw the shortcut layer and the panels it moves the focus in, in the app's order.
 fn render_shortcuts(
    ctx: &Context,
@@ -12290,17 +12007,6 @@ fn render_shortcuts(
          crate::gui::ui::panels::central_panel::show(gui, zeus, ui);
       });
    })
-}
-
-/// A key released, as the window delivers it.
-fn key_release(key: Key) -> Event {
-   Event::Key {
-      key,
-      physical_key: None,
-      pressed: false,
-      repeat: false,
-      modifiers: Modifiers::NONE,
-   }
 }
 
 /// Press one chord and let it go across two frames, the way a keyboard sends it.
@@ -12546,23 +12252,6 @@ fn an_alt_digit_does_not_type_into_a_focused_field() {
    assert!(gui.send_crypto.is_open());
 }
 
-/// Whether a node is something a reader presses, types into or drags: the stops `Ctrl+Tab` is for.
-fn is_control(role: Role) -> bool {
-   matches!(
-      role,
-      Role::Button
-         | Role::CheckBox
-         | Role::ComboBox
-         | Role::Link
-         | Role::MenuItem
-         | Role::RadioButton
-         | Role::Slider
-         | Role::Switch
-         | Role::Tab
-         | Role::TextInput
-   )
-}
-
 /// Draw the shortcut layer, the panels it moves the focus in and the app's live region, in the
 /// The shortcut layer over the account card, with the app's live region after it.
 ///
@@ -12779,15 +12468,6 @@ fn draw_overlays(ctx: &Context, gui: &mut GUI) -> Vec<(NodeId, Node)> {
    frame_nodes(ctx, Vec::new(), |ui| gui.show_overlay_modals(ui));
 
    frame_nodes(ctx, Vec::new(), |ui| gui.show_overlay_modals(ui))
-}
-
-/// The words of every label in the tree, in the order they are drawn.
-fn label_words(nodes: &[(NodeId, Node)]) -> Vec<String> {
-   nodes
-      .iter()
-      .filter(|(_, node)| node.role() == Role::Label)
-      .filter_map(|(_, node)| node.value().map(str::to_owned))
-      .collect()
 }
 
 /// F1 puts the sheet up, and it lists the keys the app answers: the page rows come from the same
