@@ -1,7 +1,8 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, WalletValue, ZeusContext};
 use crate::gui::ui::common::{
-   address_for_speech, chain_label, clickable_row, copied_words, spoken_wallet_name,
+   address_for_speech, chain_label, clickable_row, copied_words, push_chain_label,
+   spoken_wallet_name,
 };
 use crate::gui::{
    SHARED_GUI, dots_button,
@@ -414,31 +415,42 @@ impl WalletUi {
       let spoken = spoken_wallet_name(wallet);
       let name = format!("{spoken}, {value_fmt}");
 
-      // The chain icons are not a sentence on their own, so the card says what they mean.
-      let chains: Vec<String> = self
+      // The chain icons are not a sentence on their own, so the card says what they mean. The ids
+      // the icons draw are filtered once here and handed to the body, which draws exactly these:
+      // a body that walked the map again would filter it twice and could say a chain it does not
+      // draw.
+      let chains: Vec<u64> = self
          .wallet_chains
          .get(&wallet.address)
          .map(|chains| {
-            chains
-               .iter()
-               .filter(|chain| !ctx.is_chain_disabled(**chain))
-               .map(|chain| chain_label(*chain))
-               .collect()
+            chains.iter().copied().filter(|chain| !ctx.is_chain_disabled(*chain)).collect()
          })
          .unwrap_or_default();
 
-      let description = (!chains.is_empty()).then(|| format!("On {}", chains.join(", ")));
+      let description = (!chains.is_empty()).then(|| {
+         let mut sentence = String::from("On ");
+
+         for (index, chain) in chains.iter().enumerate() {
+            if index > 0 {
+               sentence.push_str(", ");
+            }
+
+            push_chain_label(&mut sentence, *chain);
+         }
+
+         sentence
+      });
 
       if current {
          let card = frame.show(ui, |ui| {
             self.wallet_body(
-               ctx,
                theme,
                icons.clone(),
                wallet,
                width,
                &spoken,
                &value_fmt,
+               &chains,
                ui,
             )
          });
@@ -464,13 +476,13 @@ impl WalletUi {
       // it is on is the card above the search field — so there is no selection to report.
       clickable_row(ui, frame, name, description, false, |ui| {
          self.wallet_body(
-            ctx,
             theme,
             icons.clone(),
             wallet,
             width,
             &spoken,
             &value_fmt,
+            &chains,
             ui,
          )
       })
@@ -483,13 +495,13 @@ impl WalletUi {
    /// Returns the ids of the labels whose words the card's own name already says.
    fn wallet_body(
       &mut self,
-      ctx: &ZeusContext,
       theme: &Theme,
       icons: Arc<Icons>,
       wallet: &WalletInfo,
       width: f32,
       spoken: &str,
       value_fmt: &str,
+      chains: &[u64],
       ui: &mut Ui,
    ) -> Vec<Id> {
       let tint = theme.image_tint_recommended;
@@ -586,15 +598,9 @@ impl WalletUi {
             let label = Label::new(value_text, None).interactive(false);
             covered.push(ui.add(label).id);
 
-            let chains = self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
-
             ui.horizontal(|ui| {
                ui.spacing_mut().item_spacing.x = theme.spacing.xs;
-               for chain in chains {
-                  if ctx.is_chain_disabled(chain) {
-                     continue;
-                  }
-
+               for &chain in chains {
                   let image = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
                   let icon = ui.add(image);
 

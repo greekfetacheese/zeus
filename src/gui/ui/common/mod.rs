@@ -67,9 +67,23 @@ pub fn usable_chain(id: u64) -> Option<ChainId> {
 /// row can still say what it was, rather than aborting the whole wallet. See [`usable_chain`] for
 /// the same split where an action needs the chain itself.
 pub fn chain_label(id: u64) -> String {
+   let mut label = String::new();
+   push_chain_label(&mut label, id);
+   label
+}
+
+/// The same name as [`chain_label`], appended into `out`.
+///
+/// A caller that names several chains in one sentence builds it in one buffer with this, so a
+/// known chain is written without a string of its own.
+pub fn push_chain_label(out: &mut String, id: u64) {
    match usable_chain(id) {
-      Some(chain) => chain.name().to_string(),
-      None => format!("Unknown chain ({id})"),
+      Some(chain) => out.push_str(chain.name()),
+      None => {
+         out.push_str("Unknown chain (");
+         out.push_str(&id.to_string());
+         out.push(')');
+      }
    }
 }
 
