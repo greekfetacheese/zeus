@@ -9,6 +9,7 @@ use super::harness::{
    node_position, node_texts, opener_button, spoken_text, status_text, tree_order,
 };
 use super::settings_pages::host_of;
+use super::tx::prompt::{dialogs, render_modal, text_field};
 use crate::assets::icons::Icons;
 use crate::core::clear_signing::ClearDisplay;
 use crate::core::signature::msg::Permit2612Details;
@@ -635,16 +636,6 @@ fn escape_rejects_the_confirmation_and_closes_it() {
       Some("Transaction rejected."),
       "the rejection is one of the window's sentences"
    );
-}
-
-/// The dialogs a window's tree is made of, by the headings they are named with.
-fn dialogs(nodes: &[(NodeId, Node)]) -> Vec<String> {
-   nodes
-      .iter()
-      .filter(|(_, node)| node.role() == Role::Dialog)
-      .filter_map(|(_, node)| node.label())
-      .map(str::to_string)
-      .collect()
 }
 
 /// The first Escape belongs to the sheet drawn over the prompt: it closes the events, the
@@ -1516,41 +1507,6 @@ fn an_alert_does_not_say_its_sentence_twice() {
          alert.value()
       );
    }
-}
-
-/// Draw a modal the way the window hosting it draws it, into a reader's tree.
-///
-/// Three passes, for the same reason as the confirmation and the sign window: a
-/// shrink-wrapping modal spends two invisible sizing passes before the first frame it actually
-/// paints, and egui exposes no node for a widget it considers invisible. The events go to the
-/// last pass only, so a key is not pressed three times.
-fn render_modal(
-   ctx: &Context,
-   events: Vec<Event>,
-   mut add: impl FnMut(&mut Ui),
-) -> Vec<(NodeId, Node)> {
-   let mut nodes = Vec::new();
-
-   for pass in 0..3 {
-      let events = if pass == 2 {
-         events.clone()
-      } else {
-         Vec::new()
-      };
-
-      nodes = frame_nodes(ctx, events, &mut add);
-   }
-
-   nodes
-}
-
-/// The text field a reader reaches under `name`, however the tree spells that name: the field's
-/// own label, or the value of the label it points at.
-fn text_field<'a>(nodes: &'a [(NodeId, Node)], name: &str) -> Option<&'a Node> {
-   nodes
-      .iter()
-      .map(|(_, node)| node)
-      .find(|node| is_text_input(node.role()) && node_name(nodes, node).as_deref() == Some(name))
 }
 
 /// The Events and State buttons paint their count in a badge that reserves no layout space, so
