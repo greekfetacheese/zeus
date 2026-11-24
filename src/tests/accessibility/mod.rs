@@ -15,6 +15,7 @@ mod contacts;
 mod harness;
 mod lock;
 mod nav;
+mod portfolio;
 mod recipient_field;
 mod send;
 mod settings_pages;
