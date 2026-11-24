@@ -3,6 +3,7 @@
 
 mod connect;
 mod uniswap_pools;
+mod uniswap_swap;
 
 use super::harness::frame_nodes;
 use crate::core::ZeusCtx;
