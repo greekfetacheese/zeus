@@ -7058,8 +7058,8 @@ fn the_events_window_says_how_many_events_were_read() {
    );
 }
 
-/// Every amount in the events window is drawn in its ticker; the row's node says the token's
-/// name, so a reader hears "Wrapped Ether" where the screen shows "WETH" — and never both.
+/// Every amount in the events window draws the token's name where it used to draw the ticker: the
+/// row's own text is what a reader meets, and no amount row spells a ticker any more.
 #[test]
 fn the_events_window_says_what_each_amount_is() {
    let (ctx, handle, theme, icons, _appearance) = prompt_harness();
@@ -7122,9 +7122,20 @@ fn the_events_window_says_what_each_amount_is() {
       let action = analysis.decoded_selector.as_str();
 
       for name in names {
-         assert!(
-            spoken.iter().any(|text| text.ends_with(name)),
-            "a {action} row must say the token's name ({name:?}): {spoken:?}"
+         let row = nodes
+            .iter()
+            .find(|(_, node)| {
+               node.role() == Role::Label && node.value().is_some_and(|text| text.ends_with(name))
+            })
+            .map(|(_, node)| node)
+            .unwrap_or_else(|| {
+               panic!("a {action} row must say the token's name ({name:?}): {spoken:?}")
+            });
+
+         assert_eq!(
+            row.label(),
+            None,
+            "the row draws its words, so nothing is named over them: {action}"
          );
       }
 
