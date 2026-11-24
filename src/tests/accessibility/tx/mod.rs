@@ -3,3 +3,4 @@
 
 pub(super) mod confirmation;
 pub(super) mod prompt;
+mod sign;

@@ -1,7 +1,7 @@
-use super::super::all::longest_hex_run;
 use super::super::app::prompt_harness;
 use super::super::harness::{drawn_names, frame_nodes, key_press, node_position, spoken_text};
 use super::prompt::dialogs;
+use super::sign::longest_hex_run;
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusCtx};
 use crate::gui::appearance::AppearanceSettings;
