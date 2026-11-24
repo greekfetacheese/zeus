@@ -10,3 +10,4 @@
 mod all;
 mod app;
 mod harness;
+mod lock;
