@@ -3,6 +3,7 @@
 
 mod across;
 mod connect;
+mod railgun_shield;
 mod uniswap_pools;
 mod uniswap_swap;
 
