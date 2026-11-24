@@ -17,8 +17,8 @@ use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
-   DeferredFocus, address::name_address, address_for_speech, blocked_reason_line,
-   delayed_action_remaining, hand_focus_back, heading, name_alert, name_text, wallet_identity,
+   DeferredFocus, DelayedAction, address::name_address, address_for_speech, blocked_reason_line,
+   hand_focus_back, heading, name_alert, name_text, wallet_identity,
 };
 use crate::utils::estimate_tx_cost;
 use zeus_eth::{
@@ -83,16 +83,15 @@ pub struct TxConfirmationWindow {
    /// Priority fee / gas limit / MEV status
    show_tx_options: bool,
    clear_display: Option<ClearDisplay>,
-   /// When the prompt became visible. `None` skips the Sign/Confirm delay (in-app Zeus txs).
-   opened_at: Option<Instant>,
+   /// The Sign/Confirm delay before the button is usable, and the one announcement that says the
+   /// wait ended. It starts when the analysis arrives, and not at all for an in-app Zeus tx.
+   delayed: DelayedAction,
    /// The control the user was on when the prompt took the screen over: the keyboard goes back to
    /// it once the prompt closes.
    opener: Option<Id>,
    /// True once the opening frame has read [`Self::opener`] off the focus.
    opener_read: bool,
    focus: DeferredFocus,
-   /// The countdown's one announcement has been raised for this prompt.
-   ready_announced: bool,
    /// The words this window hands back to the frame, which owns the announcement channel.
    notice: Option<String>,
    size: (f32, f32),
@@ -129,11 +128,10 @@ impl TxConfirmationWindow {
          show_diffs: false,
          show_tx_options: false,
          clear_display: None,
-         opened_at: None,
+         delayed: DelayedAction::default(),
          opener: None,
          opener_read: false,
          focus: DeferredFocus::default(),
-         ready_announced: false,
          notice: None,
          size: (550.0, 400.0),
       }
@@ -275,7 +273,7 @@ impl TxConfirmationWindow {
       self.opener = None;
       self.opener_read = false;
       self.focus.request();
-      self.ready_announced = false;
+      self.delayed.set(None);
       self.notice = None;
       self.open_generation = self.open_generation.wrapping_add(1);
       let generation = self.open_generation;
@@ -331,11 +329,11 @@ impl TxConfirmationWindow {
             gui.tx_confirmation_window.clear_display = clear_display;
             gui.tx_confirmation_window.open = true;
             gui.tx_confirmation_window.confirmed_or_rejected = None;
-            gui.tx_confirmation_window.opened_at = if source_is_zeus {
+            gui.tx_confirmation_window.delayed.set(if source_is_zeus {
                None
             } else {
                Some(Instant::now())
-            };
+            });
 
             ctx.write(|ctx| {
                gui.tx_confirmation_window.calculate_tx_cost(ctx, gas_used);
@@ -873,9 +871,8 @@ impl TxConfirmationWindow {
 
                      // The countdown changes the button's description, never its name: a name
                      // that moves every second makes the same control a new one each frame.
-                     let remaining = delayed_action_remaining(self.opened_at);
-                     let confirm_ready = remaining.is_none();
-                     if remaining.is_some() {
+                     let confirm_ready = self.delayed.is_ready();
+                     if !confirm_ready {
                         ui.ctx().request_repaint_after(Duration::from_millis(100));
                      }
                      let text = RichText::new("Confirm").size(theme.typography.large);
@@ -898,10 +895,7 @@ impl TxConfirmationWindow {
 
                      // A disabled control is still a node, and its description is the one part
                      // of it a reader can reach: the wait and the short balance both go there.
-                     let mut description = String::new();
-                     if let Some(secs) = remaining {
-                        description.push_str(&format!("Available in {secs} seconds"));
-                     }
+                     let mut description = self.delayed.description().unwrap_or_default();
                      if !sufficient_balance {
                         if !description.is_empty() {
                            description.push(' ');
@@ -916,11 +910,10 @@ impl TxConfirmationWindow {
 
                      // Say the wait once, and only when it actually opens the button: speaking
                      // "now available" over a wallet that still cannot pay would be a lie.
-                     if self.opened_at.is_some() && confirm_ready && !self.ready_announced {
-                        self.ready_announced = true;
-                        if actionable {
-                           self.notice = Some("Confirm is now available.".to_string());
-                        }
+                     if let Some(words) = self.delayed.announcement(confirm_ready, "Confirm")
+                        && actionable
+                     {
+                        self.notice = Some(words);
                      }
 
                      if response.clicked() && actionable {
@@ -1107,7 +1100,7 @@ impl TxConfirmationWindow {
       window.tx_main_event = Some(analysis.infer_main_event(handle.clone(), chain.id()));
       window.tx = Some(analysis);
       window.clear_display = clear_display.then(ClearDisplay::dummy_calldata);
-      window.opened_at = opened_at;
+      window.delayed.set(opened_at);
       window.focus.request();
       window.open = true;
 

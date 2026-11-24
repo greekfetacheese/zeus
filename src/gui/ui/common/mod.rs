@@ -109,11 +109,83 @@ pub fn delayed_action_remaining(opened_at: Option<Instant>) -> Option<u64> {
    }
 }
 
+/// The sentence a delayed action says while it waits, or `None` once it is available.
+///
+/// One wording for every prompt, and the long one: `Available in 2 seconds` is what a reader
+/// hears, so no prompt abbreviates the wait on its own.
+pub fn delayed_action_description(opened_at: Option<Instant>) -> Option<String> {
+   delayed_action_remaining(opened_at).map(|secs| format!("Available in {secs} seconds"))
+}
+
 /// `(enabled, label)` for Sign/Confirm. `None` means no delay (in-app Zeus prompts).
 pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (bool, String) {
-   match delayed_action_remaining(opened_at) {
-      Some(secs) => (false, format!("Available in {secs}s")),
+   match delayed_action_description(opened_at) {
+      Some(description) => (false, description),
       None => (true, ready_label.to_string()),
+   }
+}
+
+/// The wait before a prompt's action is available, and the one announcement that it ended.
+///
+/// A prompt that puts its Sign/Connect/Confirm button behind [`ACTION_UNLOCK_DELAY`] holds one of
+/// these instead of an `Option<Instant>` and a flag: it starts the wait when the prompt becomes
+/// visible, asks for the sentence that describes the wait while it runs, and asks for the
+/// announcement once. Every question is answered by [`delayed_action_remaining`], so one countdown
+/// stands behind all of them and none of the prompts can drift from another.
+#[derive(Default)]
+pub struct DelayedAction {
+   /// When the prompt became visible. `None` skips the delay (in-app Zeus prompts).
+   opened_at: Option<Instant>,
+   /// The countdown's one announcement has been raised.
+   announced: bool,
+}
+
+impl DelayedAction {
+   /// Start the wait now, for a prompt the user is about to see.
+   pub fn start(&mut self) {
+      self.set(Some(Instant::now()));
+   }
+
+   /// Put the wait where the caller needs it: starting now, or not at all.
+   ///
+   /// The confirmation window learns from whoever raised the prompt whether it waits at all, and
+   /// only knows that once it has fetched the analysis; a test stands a prompt up either still
+   /// counting or already run out. Both hand the start in rather than waiting for it.
+   pub fn set(&mut self, opened_at: Option<Instant>) {
+      self.opened_at = opened_at;
+      self.announced = false;
+   }
+
+   /// The whole seconds left before the action is available, or `None` when it is.
+   pub fn remaining(&self) -> Option<u64> {
+      delayed_action_remaining(self.opened_at)
+   }
+
+   /// Whether the delayed action can be used now.
+   pub fn is_ready(&self) -> bool {
+      self.remaining().is_none()
+   }
+
+   /// The sentence for a control that cannot be used yet, or `None` once it can.
+   pub fn description(&self) -> Option<String> {
+      delayed_action_description(self.opened_at)
+   }
+
+   /// The sentence for the frame the wait ended, once per prompt.
+   ///
+   /// `ready` is the caller's own answer to the same countdown, and a prompt that never waited — an
+   /// in-app Zeus one — has no wait to have ended, so neither gets anything. `label` names the
+   /// action. The prompt is marked announced before the sentence is handed back, not when the
+   /// caller speaks it: a caller that decides it cannot — a wallet that still cannot pay must not be
+   /// told Confirm is available — has spent the one announcement either way, so a later frame says
+   /// nothing.
+   pub fn announcement(&mut self, ready: bool, label: &str) -> Option<String> {
+      if self.opened_at.is_none() || !ready || self.announced {
+         return None;
+      }
+
+      self.announced = true;
+      Some(format!("{label} is now available."))
    }
 }
 

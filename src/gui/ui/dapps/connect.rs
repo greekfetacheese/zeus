@@ -9,10 +9,12 @@
 use crate::core::WalletInfo;
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::windows::PromptGate;
-use crate::gui::ui::common::{address_for_speech, delayed_action_remaining, spoken_wallet_name};
+use crate::gui::ui::common::{DelayedAction, address_for_speech, spoken_wallet_name};
 use egui::{Id, Key, Order, Response, RichText, Role, ScrollArea, Sense, Ui, WidgetInfo, vec2};
 use egui_elements::{Button, Label, Modal, Theme};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 use zeus_eth::alloy_primitives::Address;
 
 /// The account the user chose for an app connection.
@@ -54,11 +56,9 @@ pub struct ConnectDappWindow {
    /// the user can see which wallets the app already knows about.
    seen_accounts: Vec<Address>,
    pub result: Option<DappConnectResult>,
-   /// When the prompt became visible. Drives the Confirm-style delay so a
-   /// focus-steal click cannot approve the connection.
-   opened_at: Option<Instant>,
-   /// The countdown's one announcement has been raised for this prompt.
-   ready_announced: bool,
+   /// The Confirm-style delay before Connect is usable, so a focus-steal click cannot approve
+   /// the connection, and the one announcement that says the wait has ended.
+   delayed: DelayedAction,
    /// The words this window hands back to the frame, which owns the announcement channel.
    notice: Option<String>,
    size: (f32, f32),
@@ -75,8 +75,7 @@ impl ConnectDappWindow {
          selected: None,
          seen_accounts: Vec::new(),
          result: None,
-         opened_at: None,
-         ready_announced: false,
+         delayed: DelayedAction::default(),
          notice: None,
          size: (460.0, 620.0),
       }
@@ -139,8 +138,7 @@ impl ConnectDappWindow {
       self.origin = origin;
       self.wallets = wallets;
       self.result = None;
-      self.opened_at = Some(Instant::now());
-      self.ready_announced = false;
+      self.delayed.start();
       self.notice = None;
    }
 
@@ -391,7 +389,7 @@ impl ConnectDappWindow {
 
                   // The countdown moves the button's description, never its name: a name that
                   // moves every second makes the same control a new one to a reader each frame.
-                  let remaining = delayed_action_remaining(self.opened_at);
+                  let remaining = self.delayed.remaining();
                   let ready = remaining.is_none();
 
                   if !ready {
@@ -416,18 +414,15 @@ impl ConnectDappWindow {
 
                   // A disabled control is still a node, and its description is the one part of
                   // it a reader can reach, so the wait is said there.
-                  if let Some(secs) = remaining {
-                     let description = format!("Available in {secs} seconds");
-
+                  if let Some(description) = self.delayed.description() {
                      ui.ctx().accesskit_node_builder(response.id, |node| {
                         node.set_description(description);
                      });
                   }
 
                   // Say the wait once, and only when it actually opens the button.
-                  if self.opened_at.is_some() && ready && !self.ready_announced {
-                     self.ready_announced = true;
-                     self.notice = Some("Connect is now available.".to_string());
+                  if let Some(words) = self.delayed.announcement(ready, "Connect") {
+                     self.notice = Some(words);
                   }
 
                   if response.clicked() {
@@ -461,7 +456,7 @@ impl ConnectDappWindow {
 impl ConnectDappWindow {
    /// Put the prompt's wait where a tree test needs it: still counting, or already run out.
    pub(crate) fn set_opened_at_for_test(&mut self, opened_at: Option<Instant>) {
-      self.opened_at = opened_at;
+      self.delayed.set(opened_at);
    }
 }
 
