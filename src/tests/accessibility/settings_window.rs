@@ -5,8 +5,8 @@ use super::app::{
 use super::harness::{accesskit_action, drawn_names, focused_node, key_press};
 use crate::gui::Page;
 use crate::gui::ui::settings::SettingsPage;
+use egui::Key;
 use egui::accesskit::{Action, Node, NodeId, Role, Toggled};
-use egui::{Event, Key};
 
 /// Settings is a window in the tree: one named window node a reader can hear, and the Close button
 /// egui draws for it. Neither existed while Settings was a second OS window.
@@ -46,8 +46,9 @@ fn the_settings_window_is_one_named_window() {
    );
 }
 
-/// Escape closes the window, and the close asks the left panel for the focus back so the Settings
-/// plate is where a reader lands again.
+/// Escape closes the window, and the close asks the left panel for the focus back. The panel hands
+/// it to the Settings plate and gives it up again in the same pass, so the plate a closed window
+/// would have left marked is drawn exactly as it was.
 #[test]
 fn the_settings_window_closes_on_escape_and_says_so_to_the_left_panel() {
    let (ctx, mut gui, zeus) = settings_window();
@@ -85,92 +86,22 @@ fn the_settings_window_closes_on_escape_and_says_so_to_the_left_panel() {
    );
 
    let nodes = render_nav(&ctx, &mut gui, &zeus, Vec::new());
-   let settings_plate = nodes
-      .iter()
-      .find(|(_, node)| node.role() == Role::Button && node.label() == Some("Settings"))
-      .map(|(id, _)| *id)
-      .expect("the Settings plate must be in the nav tree");
-
-   let focused = ctx.memory(|memory| memory.focused());
-   assert_eq!(
-      focused.map(|id| id.accesskit_id()),
-      Some(settings_plate),
-      "the close must put the focus back on the Settings plate"
-   );
-
-   render_nav(&ctx, &mut gui, &zeus, Vec::new());
-   assert_eq!(
-      ctx.memory(|memory| memory.focused()),
-      focused,
-      "the plate must keep the focus on the next frame"
-   );
-}
-
-/// The keyboard a closed window hands back is not marked: a band or an outline for a focus the
-/// user did not reach for is the only thing the window would leave behind, so the plate it lands on
-/// is drawn untouched until the user reaches for the keyboard.
-#[test]
-fn a_handed_back_focus_is_not_marked_until_the_keyboard_is_used() {
-   let (ctx, mut gui, zeus) = settings_window();
-
-   render_settings(&ctx, &mut gui, &zeus, Vec::new());
-   render_settings(
-      &ctx,
-      &mut gui,
-      &zeus,
-      vec![key_press(Key::Escape)],
-   );
-   assert!(
-      !gui.settings.is_open(),
-      "Escape must close the window"
-   );
-
-   // The left panel takes the request as it draws the plate that gets the focus back.
-   render_nav(&ctx, &mut gui, &zeus, Vec::new());
-   assert!(
-      gui.nav_focus_quiet,
-      "the focus the close handed back must be drawn unmarked"
-   );
-
-   render_nav(&ctx, &mut gui, &zeus, vec![key_press(Key::Tab)]);
-   assert!(
-      !gui.nav_focus_quiet,
-      "the first key must bring the mark back"
-   );
-}
-
-/// The plate a closed window hands the keyboard to must not go inert: a focused `Frame` paints its
-/// press chrome over the hover colour, so while the focus sits there the entry never lights up under
-/// the cursor. The pointer asking for anything gives that focus up, and with it the plate's own
-/// hover and press chrome comes back.
-#[test]
-fn the_pointer_gives_the_handed_back_focus_up() {
-   let (ctx, mut gui, zeus) = settings_window();
-
-   render_settings(&ctx, &mut gui, &zeus, Vec::new());
-   render_settings(
-      &ctx,
-      &mut gui,
-      &zeus,
-      vec![key_press(Key::Escape)],
-   );
-
-   render_nav(&ctx, &mut gui, &zeus, Vec::new());
-   assert!(
-      gui.nav_focus_quiet,
-      "the close must hand the focus back before the pointer can take it"
-   );
-
-   let pointer = Event::PointerMoved(egui::pos2(120.0, 240.0));
-   render_nav(&ctx, &mut gui, &zeus, vec![pointer]);
 
    assert!(
-      !gui.nav_focus_quiet,
-      "the pointer must end the hand-back"
+      nodes
+         .iter()
+         .any(|(_, node)| node.role() == Role::Button && node.label() == Some("Settings")),
+      "the Settings plate must still be in the nav tree"
    );
    assert!(
       ctx.memory(|memory| memory.focused()).is_none(),
-      "the plate must give the focus up so its own hover chrome is back"
+      "the plate takes the focus back and gives it up again: a closed window leaves nothing marked"
+   );
+
+   render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   assert!(
+      ctx.memory(|memory| memory.focused()).is_none(),
+      "and nothing takes it on the next frame either"
    );
 }
 

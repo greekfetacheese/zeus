@@ -165,36 +165,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          ui,
       );
 
-      // A window the user closed must not take the focus with it: the plate that opened it takes
-      // the focus back, so the nav stays where the user left it. The mark that says where the
-      // keyboard is stays off it — see `GUI::nav_focus_quiet` — so nothing of the window is left
-      // drawn on a plate the user did not reach for.
+      // Settings is closed, return the focus to the sidebar
+      // TODO FIX: When the top panel notification runs it takes the focus and we cannot close the window
+      // with Esc
       if focus_return {
-         gui.nav_focus_quiet = true;
          plate.request_focus();
-      }
-
-      // Reaching for the keyboard is what puts the mark back: whatever it lands on is a focus the
-      // user asked for.
-      if gui.nav_focus_quiet
-         && ui.input(|input| {
-            input.events.iter().any(|event| matches!(event, egui::Event::Key { .. }))
-         })
-      {
-         gui.nav_focus_quiet = false;
-      }
-
-      // The plate a window hands the keyboard to must not ignore the pointer either: a focused
-      // `Frame` paints its press chrome over the hover colour, so while the focus sits there the
-      // entry never lights up under the cursor. The pointer asking for anything ends the
-      // hand-back — the plate gives the focus up and its own hover and press chrome come back —
-      // while a user who never touches the mouse keeps the keyboard where the window left it.
-      if gui.nav_focus_quiet
-         && (ui.rect_contains_pointer(ui.max_rect())
-            || ui.input(|input| input.pointer.any_pressed()))
-      {
          ui.ctx().memory_mut(|memory| memory.surrender_focus(plate.id));
-         gui.nav_focus_quiet = false;
       }
 
       nav_plate(
@@ -330,10 +306,7 @@ fn nav_plate(
    // darker than the panel, which looks like a press that never ended. The fill stays idle and a
    // one-point accent outline is what says where the keyboard is.
    visuals.bg_click = Fill::Solid(theme.frame1.fill);
-   visuals.border_click = match gui.nav_focus_quiet {
-      true => Stroke::NONE,
-      false => Stroke::new(1.0, theme.colors.accent),
-   };
+   visuals.border_click = Stroke::NONE;
    visuals.border = Stroke::NONE;
    visuals.shadow = Shadow::NONE;
 

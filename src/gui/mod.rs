@@ -196,12 +196,6 @@ pub struct GUI {
    /// It starts at the page, where the focus is on the first frame: the heading takes it when
    /// the window opens.
    focus_region: FocusRegion,
-   /// Whether the mark that says where the keyboard is must stay off the nav.
-   ///
-   /// Set when the Settings window hands the focus back to its own plate. A mark for a focus the
-   /// user did not reach for is the only thing a closed window would leave behind, so the plate
-   /// is drawn untouched until the user reaches for the keyboard — the first key puts it back.
-   pub nav_focus_quiet: bool,
    /// The pending announcement; the last `announce` of a frame wins.
    announcement: String,
    /// The label-focus model a shortcut took away for the pass it moved the focus in.
@@ -321,7 +315,6 @@ impl GUI {
          last_page: None,
          pending_region: None,
          focus_region: FocusRegion::Main,
-         nav_focus_quiet: false,
          announcement: String::new(),
          reader_model: None,
          announcer: Announcer::new("zeus"),
