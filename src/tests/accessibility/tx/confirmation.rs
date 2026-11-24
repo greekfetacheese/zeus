@@ -22,7 +22,7 @@ use zeus_eth::alloy_primitives::U256;
 /// Three passes: a shrink-wrapping modal spends two invisible sizing passes before the first
 /// frame it actually paints, and egui exposes no node for a widget it considers invisible. The
 /// last pass is the one a reader is handed — and the first one the window may take focus on.
-pub(crate) fn render_confirmation(
+pub(super) fn render_confirmation(
    ctx: &Context,
    handle: &ZeusCtx,
    window: &mut TxConfirmationWindow,

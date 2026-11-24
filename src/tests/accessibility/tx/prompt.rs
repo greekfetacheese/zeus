@@ -3,7 +3,7 @@ use egui::accesskit::{Node, NodeId, Role};
 use egui::{Context, Event, Ui};
 
 /// The dialogs a window's tree is made of, by the headings they are named with.
-pub(crate) fn dialogs(nodes: &[(NodeId, Node)]) -> Vec<String> {
+pub(super) fn dialogs(nodes: &[(NodeId, Node)]) -> Vec<String> {
    nodes
       .iter()
       .filter(|(_, node)| node.role() == Role::Dialog)
@@ -18,7 +18,7 @@ pub(crate) fn dialogs(nodes: &[(NodeId, Node)]) -> Vec<String> {
 /// shrink-wrapping modal spends two invisible sizing passes before the first frame it actually
 /// paints, and egui exposes no node for a widget it considers invisible. The events go to the
 /// last pass only, so a key is not pressed three times.
-pub(crate) fn render_modal(
+pub(super) fn render_modal(
    ctx: &Context,
    events: Vec<Event>,
    mut add: impl FnMut(&mut Ui),

@@ -8,7 +8,7 @@ use egui::{Context, Key, Modifiers};
 
 /// Draw the app-wide overlays twice: the sheet is an `egui::Area` measured on the pass it opens,
 /// and egui exposes no node for a widget it considers invisible.
-pub(crate) fn draw_overlays(ctx: &Context, gui: &mut GUI) -> Vec<(NodeId, Node)> {
+pub(super) fn draw_overlays(ctx: &Context, gui: &mut GUI) -> Vec<(NodeId, Node)> {
    frame_nodes(ctx, Vec::new(), |ui| gui.show_overlay_modals(ui));
 
    frame_nodes(ctx, Vec::new(), |ui| gui.show_overlay_modals(ui))

@@ -4,4 +4,4 @@
 mod keyboard;
 pub(super) mod keys;
 mod palette;
-pub(super) mod sheet;
+mod sheet;
