@@ -11,6 +11,7 @@ mod account_panel;
 mod all;
 mod app;
 mod common_widgets;
+mod contacts;
 mod harness;
 mod lock;
 mod nav;
