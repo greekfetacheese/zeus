@@ -8,4 +8,5 @@
 //! The helpers below are the shared harness; every screen test renders a real screen headlessly.
 
 mod all;
+mod app;
 mod harness;
