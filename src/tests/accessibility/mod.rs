@@ -17,6 +17,7 @@ mod lock;
 mod nav;
 mod portfolio;
 mod recipient_field;
+mod recipient_picker;
 mod send;
 mod settings_pages;
 mod settings_window;
