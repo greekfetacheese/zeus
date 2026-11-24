@@ -13,6 +13,8 @@ use crate::core::{
    ApprovalChange, ApprovalDiff, ApprovalKind, BalanceChange, BalanceDiff, NftApprovalChange,
    NftApprovalTarget, NftApprovalValue, NftBalanceChange, ZeusContext,
 };
+use crate::gui::ui::common::address::{address_for_speech, name_address};
+use crate::gui::ui::common::{name_text, spoken_row, token_for_speech};
 use crate::utils::truncate_address;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -48,21 +50,27 @@ pub fn tx_cost(
    ui: &mut Ui,
 ) {
    let eth = NativeCurrency::from(chain.id());
+   let cost = eth_cost.abbreviated();
+   let usd = eth_cost_usd.abbreviated();
 
    ui.horizontal(|ui| {
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.label(RichText::new("Cost").size(theme.typography.large));
+         ui.label(RichText::new("Network fee").size(theme.typography.large));
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         let cost = eth_cost.abbreviated();
-         let text = format!(
-            "{:.10} {} ~ ${}",
-            cost,
-            eth.symbol,
-            eth_cost_usd.abbreviated()
+         // The title beside it says what the figure is. The figure itself is drawn as the ticker
+         // and said as the token's name, and the hedge stays in the words: "about" is spoken, and
+         // the row draws nothing but the sum.
+         let token = token_for_speech(&eth.name, &eth.symbol);
+         let drawn = format!(
+            "{cost:.10} {}, ${usd}",
+            token.symbol.as_deref().unwrap_or(&eth.symbol)
          );
-         ui.label(RichText::new(text).size(theme.typography.large));
+         let spoken = format!("{cost:.10} {}, about ${usd}", token.name);
+         let text = RichText::new(drawn).size(theme.typography.large);
+
+         spoken_row(theme, ui, spoken, &[(text, None)], 0.0);
       });
    });
 }
@@ -84,13 +92,24 @@ pub fn value(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
-         let text = format!(
+         let token = token_for_speech(eth.name(), eth.symbol());
+         // The row draws the ticker and says the token's name over it, so a reader is not handed a
+         // ticker to spell out.
+         let drawn = format!(
             "{:.12} {} ~ ${:5}",
             value.abbreviated(),
-            eth.symbol(),
+            token.symbol.as_deref().unwrap_or(eth.symbol()),
             value_usd.abbreviated()
          );
-         ui.label(RichText::new(text).size(theme.typography.large));
+         let spoken = format!(
+            "{:.12} {} ~ ${:5}",
+            value.abbreviated(),
+            token.name,
+            value_usd.abbreviated()
+         );
+         let text = RichText::new(drawn).size(theme.typography.large);
+
+         spoken_row(theme, ui, spoken, &[(text, None)], 0.0);
       });
    });
 }
@@ -163,7 +182,15 @@ pub fn address_with_picked_name(
             ui.horizontal(|ui| {
                ui.label(text);
                ui.add_space(5.0);
-               ui.add(danger).on_hover_text(tip_text);
+
+               // The sentence is the whole reason the chip is drawn, and a hover is no way to
+               // reach it: the chip is named and described instead, and the hover stays for
+               // whoever points at it.
+               let warning = ui.add(danger).on_hover_text(tip_text);
+               name_text(ui, &warning, "Warning");
+               ui.ctx().accesskit_node_builder(warning.id, |node| {
+                  node.set_description(NULL_ADDRESS_TIP);
+               });
             });
          } else {
             ui.label(text);
@@ -175,27 +202,35 @@ pub fn address_with_picked_name(
          // not hide the truncated address — the picked name gets the same
          // guard, since a picker row can carry one too.
          let picked_name = picked_name.filter(|name| !name.trim().is_empty());
-         let address_name = match picked_name {
-            Some(name) => name.to_string(),
-            None => match ctx.get_address_name(chain.id(), address) {
-               Some(name) if !name.trim().is_empty() => name.to_string(),
-               _ => {
-                  if !ctx.address_name_requested(chain.id(), address) {
-                     request_address_name(chain.id(), address);
-                  }
-                  truncate_address(address.to_string())
+         let name = match picked_name {
+            Some(name) => Some(name.to_string()),
+            None => ctx
+               .get_address_name(chain.id(), address)
+               .filter(|name| !name.trim().is_empty())
+               .map(|name| name.to_string()),
+         };
+
+         let full = address.to_string();
+
+         let drawn = match &name {
+            Some(name) => name.clone(),
+            None => {
+               if !ctx.address_name_requested(chain.id(), address) {
+                  request_address_name(chain.id(), address);
                }
-            },
+               truncate_address(full.clone())
+            }
          };
 
          let explorer = chain.block_explorer();
          let link = format!("{}/address/{}", explorer, address);
-         ui.hyperlink_to(
-            RichText::new(address_name)
-               .size(theme.typography.large)
-               .color(theme.colors.info),
+         let response = ui.hyperlink_to(
+            RichText::new(drawn).size(theme.typography.large).color(theme.colors.info),
             link,
          );
+
+         let spoken = address_for_speech(name.as_deref(), &full);
+         name_address(ui, &response, &spoken);
       });
    });
 }
@@ -343,7 +378,13 @@ pub fn approval_change_row(
          let arrow = Lucide::ArrowRight.size(20.0).color(theme.colors.text).image();
          let arrow_label = Label::new("", Some(arrow)).spacing(0.0).interactive(false);
 
-         ui.add(MultiLabel::new(vec![token_label, arrow_label]));
+         // The line draws the ticker; a reader hears the token behind it.
+         let response = ui.add(MultiLabel::new(vec![token_label, arrow_label]));
+         name_text(
+            ui,
+            &response,
+            token_for_speech(change.token.name(), change.token.symbol()).name,
+         );
 
          ui.add_space(6.0);
 
@@ -363,7 +404,13 @@ pub fn approval_change_row(
             let q_mark = RichText::new("?").size(theme.typography.normal);
             let info_tip = Chip::new(q_mark).role(ChipRole::Info);
             let hover = format!("Expires {}", expiration.to_relative());
-            ui.add(info_tip).on_hover_text(hover);
+            let expiry = ui.add(info_tip).on_hover_text(hover.clone());
+
+            // When the allowance lapses is part of the row's meaning, not a tip about it: the
+            // sentence rides on the node instead of waiting for a pointer.
+            ui.ctx().accesskit_node_builder(expiry.id, |node| {
+               node.set_description(hover);
+            });
          }
 
          let amount_text = RichText::new(amount).size(theme.typography.large).color(color);
@@ -698,6 +745,11 @@ pub fn show_approval_diff_rows(
 /// areas**, or the section can hide exactly like the rows did; they carry the change
 /// count for the same reason, so the size of each list reads at a glance.
 ///
+/// Approvals are drawn first: they are the only block here that can cost money after the
+/// transaction, so they are what a reader must meet before the balances rather than after
+/// them. The headers are spoken with a comma, not the drawn brackets, because punctuation
+/// is heard unevenly.
+///
 /// Three rows fit a section, and a section on its own keeps the full height: a
 /// transaction with only one kind of change loses no rows to this split.
 pub fn show_state_changes_block(
@@ -719,26 +771,9 @@ pub fn show_state_changes_block(
       STATE_CHANGES_SECTION_MAX_HEIGHT
    };
 
-   if !balance_diff.is_empty() {
-      let title = format!("Balance Changes ({})", balance_diff.len());
-      ui.label(RichText::new(title).size(theme.typography.large));
-
-      state_changes_scroll(
-         "tx_state_changes_balance",
-         theme,
-         section_height,
-         ui,
-         |ui| {
-            show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
-         },
-      );
-   }
-
+   // The count is in the drawn title and the title is the whole node: a name spelled out over
+   // these glyphs is a second reading of the same row.
    if !approval_diff.is_empty() {
-      if !balance_diff.is_empty() {
-         ui.add_space(theme.spacing.md);
-      }
-
       let title = format!("Approval Changes ({})", approval_diff.len());
       ui.label(RichText::new(title).size(theme.typography.large));
 
@@ -756,6 +791,25 @@ pub fn show_state_changes_block(
                approval_diff,
                ui,
             );
+         },
+      );
+   }
+
+   if !balance_diff.is_empty() {
+      if !approval_diff.is_empty() {
+         ui.add_space(theme.spacing.md);
+      }
+
+      let title = format!("Balance Changes ({})", balance_diff.len());
+      ui.label(RichText::new(title).size(theme.typography.large));
+
+      state_changes_scroll(
+         "tx_state_changes_balance",
+         theme,
+         section_height,
+         ui,
+         |ui| {
+            show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
          },
       );
    }

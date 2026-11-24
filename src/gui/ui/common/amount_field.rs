@@ -2,13 +2,17 @@
 
 use crate::assets::icons::Icons;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
-use egui::{Align, Color32, FontId, Layout, Margin, Response, RichText, Ui, vec2};
+use egui::{
+   Align, Color32, FontId, Layout, Margin, Response, RichText, Role, Ui, WidgetInfo, vec2,
+};
 use std::sync::Arc;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
    currency::Currency,
    utils::NumericValue,
 };
+
+use super::{currency_for_speech, name_text};
 
 use egui_elements::layout::{CrossAlign, Justify};
 use egui_elements::{Button, Flex, Item, Label, SecureTextEdit, Slider, Spinner, Theme};
@@ -154,13 +158,28 @@ impl AmountField {
       let mut amount_changed = false;
       let tint = theme.image_tint_recommended;
 
+      // What the field says to a reader. The drawn word beside it is folded into the name instead
+      // of staying in the tree as a label of its own: beside a single Amount field it would be the
+      // same word twice, while it is the only thing telling the swap page's two fields apart.
+      let spoken = currency_for_speech(currency);
+
+      let field_name = match label {
+         Some(label) => format!("{label} in {}", spoken.name),
+         None => format!("Amount in {}", spoken.name),
+      };
+
       ui.vertical(|ui| {
          ui.set_width(ui.available_width());
          ui.spacing_mut().item_spacing = vec2(0.0, theme.spacing.sm);
 
          ui.horizontal(|ui| {
             if let Some(label) = label {
-               ui.label(RichText::new(label).size(theme.typography.large).color(theme.colors.text));
+               let drawn = ui.label(
+                  RichText::new(label).size(theme.typography.large).color(theme.colors.text),
+               );
+
+               // The field's name already says it.
+               ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
             }
 
             if loading {
@@ -192,6 +211,7 @@ impl AmountField {
                   RichText::new("0").color(theme.colors.text_muted).size(theme.typography.heading);
 
                let amount_input = SecureTextEdit::singleline(&mut self.amount)
+                  .accessible_name(field_name.as_str())
                   .visuals(visuals)
                   .font(FontId::proportional(theme.typography.heading))
                   .hint_text(hint)
@@ -207,9 +227,27 @@ impl AmountField {
                   self.amount_wei = new_amount_wei.wei();
                }
 
-               ui.label(
-                  RichText::new(format!("${:.10}", value.abbreviated())).size(theme.typography.normal),
-               );
+               // The node says how much the field holds and what it is worth, never the text: the
+               // amount is on screen, and the key echo is what tells the user each character
+               // landed, so a value that repeated the field would say all of it again. The value is
+               // set after the widget, which fills the node with the text as it draws.
+               let count = self.amount.chars().count();
+               let fiat = format!("${:.10}", value.abbreviated());
+
+               ui.ctx().accesskit_node_builder(res.id, |node| {
+                  if count == 0 {
+                     node.clear_value();
+                     node.clear_description();
+                  } else {
+                     node.set_value(character_count_text(count));
+                     node.set_description(format!("Value {fiat}"));
+                  }
+               });
+
+               // The same sentence is the field's description, so the drawn label is not a second
+               // destination that says it again.
+               let drawn = ui.label(RichText::new(fiat).size(theme.typography.normal));
+               ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
             });
 
             ui.add_space(10.0);
@@ -223,7 +261,14 @@ impl AmountField {
                   .visuals(visuals)
                   .min_size(vec2(width, 40.0));
 
-               if ui.add(button).clicked()
+               let picker = ui.add(button);
+
+               // The button draws the symbol and nothing else, so the node says what pressing it
+               // opens as well as what it shows.
+               let name = format!("Change token ({})", spoken.name);
+               picker.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &name));
+
+               if picker.clicked()
                   && let Some(token_selection) = token_selection
                {
                   token_selection.open(privacy_mode, chain_id, owner);
@@ -234,16 +279,34 @@ impl AmountField {
 
                let icon = Lucide::WalletMinimal.size(17.0).color(theme.colors.text).image();
 
-               let text = RichText::new(format!("{:.10}", balance.abbreviated()))
+               let drawn_balance = format!("{:.10}", balance.abbreviated());
+               let text = RichText::new(drawn_balance.as_str())
                   .size(theme.typography.normal)
                   .color(theme.colors.text);
                let label = Label::new(text, Some(icon)).interactive(false);
 
-               ui.add(label);
+               let balance_label = ui.add(label);
+
+               // The wallet icon says this figure is the balance, which a reader does not get.
+               name_text(
+                  ui,
+                  &balance_label,
+                  format!("Balance {drawn_balance}"),
+               );
             });
          });
       });
       amount_changed
+   }
+}
+
+/// How many characters the amount field holds, said as a count.
+///
+/// A count of one is a sentence of its own; anything else is the number and the plural.
+fn character_count_text(count: usize) -> String {
+   match count {
+      1 => "1 character".to_string(),
+      count => format!("{count} characters"),
    }
 }
 
@@ -256,10 +319,7 @@ fn percent_width(ui: &Ui, theme: &Theme) -> f32 {
    let font = FontId::proportional(theme.typography.normal);
 
    ui.fonts_mut(|fonts| {
-      fonts
-         .layout_no_wrap("100%".to_owned(), font, Color32::PLACEHOLDER)
-         .size()
-         .x
+      fonts.layout_no_wrap("100%".to_owned(), font, Color32::PLACEHOLDER).size().x
    })
 }
 
@@ -267,18 +327,21 @@ fn percent_width(ui: &Ui, theme: &Theme) -> f32 {
 fn percent_label(ui: &mut Ui, theme: &Theme, amount_percent: f64) -> Response {
    let text = RichText::new(format!("{amount_percent:.0}%")).size(theme.typography.normal);
 
-   ui.with_layout(Layout::right_to_left(Align::Center), |ui| ui.label(text))
-      .inner
+   ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+      ui.label(text)
+   })
+   .inner
 }
 
-/// Draw the percent slider and its label as one row, right-aligned and cross-aligned.
+/// Draw the percent slider and its readout as one row, right-aligned and cross-aligned.
 ///
-/// Returns the slider's and the label's responses.
+/// Returns the slider's and the readout's responses, both named for a reader here: the slider after
+/// what it sets, the readout hidden because it draws the value the slider already reports.
 fn percent_slider(ui: &mut Ui, theme: &Theme, amount_percent: &mut f64) -> (Response, Response) {
    let label_width = percent_width(ui, theme);
    let slider_width = ui.spacing().slider_width;
 
-   Flex::row(ui.auto_id_with("amount_percent"))
+   let (slider, readout) = Flex::row(ui.auto_id_with("amount_percent"))
       .gap(5.0)
       .justify(Justify::End)
       .align_items(CrossAlign::Center)
@@ -298,7 +361,15 @@ fn percent_slider(ui: &mut Ui, theme: &Theme, amount_percent: &mut f64) -> (Resp
 
          (slider.inner, label.inner)
       })
-      .inner
+      .inner;
+
+   // The slider is named after what it sets, and the readout beside it is the value the slider
+   // already reports, drawn a second time — so the readout leaves the tree.
+   ui.ctx()
+      .accesskit_node_builder(slider.id, |node| node.set_label("Amount percent"));
+   ui.ctx().accesskit_node_builder(readout.id, |node| node.set_hidden());
+
+   (slider, readout)
 }
 
 #[cfg(test)]
@@ -319,7 +390,10 @@ mod tests {
 
       for _ in 0..3 {
          let input = egui::RawInput {
-            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(600.0, 240.0))),
+            screen_rect: Some(egui::Rect::from_min_size(
+               egui::Pos2::ZERO,
+               vec2(600.0, 240.0),
+            )),
             ..Default::default()
          };
 

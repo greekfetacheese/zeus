@@ -2093,7 +2093,7 @@ async fn wallet_send_calls(
    let source_is_zeus = false;
 
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Sending your transaction…");
       gui.bring_to_front();
    });
 

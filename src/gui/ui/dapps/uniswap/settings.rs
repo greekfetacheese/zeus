@@ -10,10 +10,11 @@ const MAX_SLIPPAGE: f64 = 20.0;
 const MIN_DEADLINE: u64 = 1; // minutes
 const MAX_DEADLINE: u64 = 60; // minutes
 
-const SLIPPAGE_TIP: &str =
+pub(crate) const SLIPPAGE_TIP: &str =
    "Your transaction will revert if the price changes unfavorably by more than this percentage.";
 
-const DEADLINE_TIP: &str = "The transaction will revert if it is pending for more than this time.";
+pub(crate) const DEADLINE_TIP: &str =
+   "The transaction will revert if it is pending for more than this time.";
 
 /// Single sanitisation point for the swap slippage.
 ///
@@ -49,6 +50,8 @@ pub struct UniswapSettingsUi {
    /// Days to go back to sync positions
    /// Applies only to [ViewPositionsUi]
    pub days: String,
+   /// The sentence the page wants said, drained by the window right after it has drawn.
+   notice: Option<String>,
 }
 
 impl UniswapSettingsUi {
@@ -66,6 +69,7 @@ impl UniswapSettingsUi {
          slippage_f64: DEFAULT_SLIPPAGE,
          simulate_mode: false,
          days: String::new(),
+         notice: None,
       }
    }
 
@@ -73,12 +77,28 @@ impl UniswapSettingsUi {
       self.slippage_f64
    }
 
+   /// The words the window should say, drained by it right after the page has drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
    /// Sanitise [Self::slippage] and write the result back into both the displayed string and
    /// the numeric field the swap flow enforces, so the two can never disagree.
+   ///
+   /// The write-back can change what the field shows, and a correction nobody hears is a number the
+   /// user never chose: when it differs from what was typed, the page says what the field holds now.
    fn apply_slippage_input(&mut self) {
-      let sanitised = sanitise_slippage(&self.slippage);
+      let typed = std::mem::take(&mut self.slippage);
+      let sanitised = sanitise_slippage(&typed);
       self.slippage_f64 = sanitised;
       self.slippage = sanitised.to_string();
+
+      if self.slippage != typed {
+         self.notice = Some(format!(
+            "Slippage set to {} percent.",
+            self.slippage
+         ));
+      }
    }
 
    pub fn show(
@@ -94,19 +114,31 @@ impl UniswapSettingsUi {
       // Slippage
       ui.horizontal(|ui| {
          let text = RichText::new("Slippage").size(theme.typography.normal);
-         ui.label(text).on_hover_text(SLIPPAGE_TIP);
+         let caption = ui.label(text).on_hover_text(SLIPPAGE_TIP);
+         ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
 
          let icon = Lucide::RefreshCw.size(14.0).color(theme.colors.text).image();
-         let button = Button::image(icon).small().visuals(button_visuals);
+         // The button is a picture of a refresh arrow: its text alternative says which field it
+         // puts back.
+         let button = Button::image(icon).small().visuals(button_visuals).alt("Reset slippage");
+         let reset = ui.add(button);
 
-         if ui.add(button).clicked() {
+         if reset.clicked() {
             self.slippage_f64 = DEFAULT_SLIPPAGE;
             self.slippage = DEFAULT_SLIPPAGE.to_string();
          }
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let output =
-               SecureTextEdit::singleline(&mut self.slippage).desired_width(50.0).show(ui);
+            let output = SecureTextEdit::singleline(&mut self.slippage)
+               .accessible_name("Slippage percent")
+               .desired_width(50.0)
+               .show(ui);
+
+            // The field draws the number alone and the tip the drawn word carries explains it: both
+            // go on the field's own node, and the word leaves the tree.
+            ui.ctx().accesskit_node_builder(output.response.id, |node| {
+               node.set_description(SLIPPAGE_TIP);
+            });
 
             if output.response.changed() {
                self.apply_slippage_input();
@@ -117,33 +149,63 @@ impl UniswapSettingsUi {
       // Swap deadline
       ui.horizontal(|ui| {
          let text = RichText::new("Deadline (minutes)").size(theme.typography.normal);
-         ui.label(text).on_hover_text(DEADLINE_TIP);
+         let caption = ui.label(text).on_hover_text(DEADLINE_TIP);
+         ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
 
          ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            ui.label(RichText::new(self.deadline.to_string()).size(theme.typography.normal));
-            ui.add(
+            let number =
+               ui.label(RichText::new(self.deadline.to_string()).size(theme.typography.normal));
+            ui.ctx().accesskit_node_builder(number.id, |node| node.set_hidden());
+
+            let slider = ui.add(
                Slider::new(&mut self.deadline, MIN_DEADLINE..=MAX_DEADLINE)
                   .show_value(false)
                   .width(ui.spacing().slider_width),
             );
+
+            // The slider draws no value and the number beside it says nothing about what it counts:
+            // the node says both, and the bare number leaves the tree. The tip the drawn word holds
+            // only answers a mouse, so it goes on the node a reader lands on, behind the value.
+            ui.ctx().accesskit_node_builder(slider.id, |node| {
+               node.set_label("Deadline in minutes");
+               node.set_description(format!(
+                  "Now {} minutes. {}",
+                  self.deadline, DEADLINE_TIP
+               ));
+            });
          });
       });
 
       if swap_ui_open {
          // Max Hops
          ui.horizontal(|ui| {
-            ui.label(RichText::new("Max Hops").size(theme.typography.normal));
+            let caption = ui.label(RichText::new("Max Hops").size(theme.typography.normal));
+            ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
 
             let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.label(RichText::new(self.max_hops.to_string()).size(theme.typography.normal));
-               ui.add(
+               let number =
+                  ui.label(RichText::new(self.max_hops.to_string()).size(theme.typography.normal));
+               ui.ctx().accesskit_node_builder(number.id, |node| node.set_hidden());
+
+               let slider = ui.add(
                   Slider::new(&mut self.max_hops, 1..=10)
                      .show_value(false)
                      .width(ui.spacing().slider_width),
-               )
+               );
+
+               ui.ctx().accesskit_node_builder(slider.id, |node| {
+                  node.set_label("Max hops");
+                  node.set_description(format!("Now {} hops", self.max_hops));
+               });
+
+               slider
             });
 
             if res.inner.changed() {
+               // The quote is fetched by a worker, so the page says the work started rather than
+               // claiming it finished.
+               self.notice = Some("Refreshing the quote.".to_string());
+
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();
@@ -156,20 +218,34 @@ impl UniswapSettingsUi {
 
          // Max Split Routes
          ui.horizontal(|ui| {
-            ui.label(RichText::new("Max Routes").size(theme.typography.normal));
+            let caption = ui.label(RichText::new("Max Routes").size(theme.typography.normal));
+            ui.ctx().accesskit_node_builder(caption.id, |node| node.set_hidden());
 
             let res = ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-               ui.label(
+               let number = ui.label(
                   RichText::new(self.max_split_routes.to_string()).size(theme.typography.normal),
                );
-               ui.add(
+               ui.ctx().accesskit_node_builder(number.id, |node| node.set_hidden());
+
+               let slider = ui.add(
                   Slider::new(&mut self.max_split_routes, 1..=10)
                      .show_value(false)
                      .width(ui.spacing().slider_width),
-               )
+               );
+
+               ui.ctx().accesskit_node_builder(slider.id, |node| {
+                  node.set_label("Max routes");
+                  node.set_description(format!("Now {} routes", self.max_split_routes));
+               });
+
+               slider
             });
 
             if res.inner.changed() {
+               // The quote is fetched by a worker, so the page says the work started rather than
+               // claiming it finished.
+               self.notice = Some("Refreshing the quote.".to_string());
+
                crate::runtime::rt().spawn_blocking(move || {
                   SHARED_GUI.write(|gui| {
                      let ctx = gui.ctx.clone();

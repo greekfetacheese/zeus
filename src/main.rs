@@ -17,6 +17,7 @@ pub mod embedded;
 pub mod gui;
 pub mod runtime;
 pub mod server;
+#[cfg(test)]
 mod tests;
 pub mod utils;
 

@@ -1,8 +1,9 @@
 //! UI that allows the user to import a wallet from a private key or a seed phrase
 
-use crate::gui::SHARED_GUI;
+use crate::gui::ui::common;
+use crate::gui::{GUI, SHARED_GUI};
 use crate::utils::malloc_trim;
-use eframe::egui::{FontId, Id, Margin, Order, RichText, Ui, vec2};
+use eframe::egui::{FontId, Id, Key, Margin, Order, Response, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, SecureInputField, SecureTextEdit, Theme};
 use secure_types::SecureString;
 use zeus_eth::types::SUPPORTED_CHAINS;
@@ -18,6 +19,9 @@ pub struct ImportWallet {
    import_key_or_phrase: ImportWalletType,
    input_field: SecureInputField,
    wallet_name: String,
+   /// Whether the name field still has to take the focus the dialog's Close button is given when
+   /// it opens.
+   focus_name_field: bool,
    size: (f32, f32),
 }
 
@@ -28,8 +32,14 @@ impl ImportWallet {
          import_key_or_phrase: ImportWalletType::PrivateKey,
          input_field: SecureInputField::new("Import Wallet", true, true),
          wallet_name: String::new(),
+         focus_name_field: false,
          size: (450.0, 250.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::secure_field(&mut self.input_field, shown);
    }
 
    pub fn erase(&mut self) {
@@ -43,6 +53,7 @@ impl ImportWallet {
    pub fn open(&mut self, import_type: ImportWalletType) {
       self.open = true;
       self.import_key_or_phrase = import_type;
+      self.focus_name_field = true;
    }
 
    pub fn close(&mut self) {
@@ -57,6 +68,7 @@ impl ImportWallet {
       let was_open = self.open;
       let mut is_open = self.open;
       let mut clicked = false;
+      let mut name_field: Option<Response> = None;
 
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let title = RichText::new("Import Wallet").size(theme.typography.heading);
@@ -84,14 +96,31 @@ impl ImportWallet {
                ui.add_space(20.0);
 
                // Wallet Name
-               ui.label(RichText::new("Wallet Name (Optional)").size(theme.typography.large));
-               ui.add(
+               let drawn =
+                  ui.label(RichText::new("Wallet Name (Optional)").size(theme.typography.large));
+
+               // The field carries this instruction as its name, so the drawn label is not a
+               // second stop.
+               ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
+
+               // The parentheses of the drawn label are read aloud, so the field is named without
+               // them.
+               let field = ui.add(
                   SecureTextEdit::singleline(&mut self.wallet_name)
+                     .accessible_name("Wallet name, optional")
                      .visuals(text_edit_visuals)
                      .font(FontId::proportional(theme.typography.normal))
                      .margin(Margin::same(10))
                      .min_size(size),
                );
+
+               // A single-line edit gives its focus up on Enter instead of taking the key as a
+               // character, which leaves Enter free to press Import from here.
+               if field.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter)) {
+                  clicked = true;
+               }
+
+               name_field = Some(field);
 
                // Private Key or Phrase
                let text = if self.import_key_or_phrase == ImportWalletType::PrivateKey {
@@ -105,10 +134,32 @@ impl ImportWallet {
                self.input_field.set_min_size(size);
                self.input_field.set_id(text);
 
-               ui.scope(|ui| {
-                  ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
-                  self.input_field.show(ui);
-               });
+               let secret_field = ui
+                  .scope(|ui| {
+                     ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);
+                     self.input_field.show(ui)
+                  })
+                  .inner;
+
+               if let Some(field) = &secret_field {
+                  // The count is taken from the plaintext `unlock_str` hands back rather than
+                  // kept: the field is the only owner of the secret, and a copy that outlived this
+                  // pass would be one more place it lives.
+                  let description = self
+                     .input_field
+                     .text()
+                     .unlock_str(|typed| secret_count(&self.import_key_or_phrase, typed));
+
+                  ui.ctx().accesskit_node_builder(field.response.id, |node| {
+                     node.set_description(description.as_str());
+                  });
+
+                  // The same free key as the name field: Enter presses Import.
+                  if field.response.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter))
+                  {
+                     clicked = true;
+                  }
+               }
 
                // Import Button
                let text = RichText::new("Import").size(theme.typography.normal);
@@ -119,6 +170,15 @@ impl ImportWallet {
                }
             });
          });
+
+      // The dialog spends its first passes sizing, where its body is invisible and cannot hold the
+      // focus, so the name field asks for it on the first pass that is drawn. It asks after the
+      // dialog has drawn, so the dialog's own opening grab — which moves focus to its Close button —
+      // cannot take it back.
+      if let Some(field) = name_field.filter(|field| field.visible() && self.focus_name_field) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(field.id));
+         self.focus_name_field = false;
+      }
 
       if clicked {
          let name = self.wallet_name.clone();
@@ -138,6 +198,38 @@ impl ImportWallet {
    }
 }
 
+#[cfg(test)]
+impl ImportWallet {
+   /// Put a secret into the form the way typing would, for a tree test that cannot reach the field.
+   pub(crate) fn set_secret_for_test(&mut self, text: &str) {
+      self.input_field.set_text(SecureString::from(text));
+   }
+}
+
+/// How much the secret field holds: a phrase is counted in words, a key in characters.
+fn secret_count(kind: &ImportWalletType, text: &str) -> String {
+   match kind {
+      ImportWalletType::MnemonicPhrase => count_with_noun(text.split_whitespace().count(), "word"),
+      ImportWalletType::PrivateKey => count_with_noun(text.chars().count(), "character"),
+   }
+}
+
+/// A count with the noun it counts, singular when there is one of it: "1 word", "12 words".
+fn count_with_noun(count: usize, noun: &str) -> String {
+   match count {
+      1 => format!("1 {noun}"),
+      count => format!("{count} {noun}s"),
+   }
+}
+
+/// Say a failed import and keep what was typed: the message window carries the crate's reason, and
+/// the field still holds the phrase or key, so one wrong word can be corrected instead of the whole
+/// secret being typed again.
+fn import_failed(gui: &mut GUI, message: String) {
+   gui.open_msg_window(message);
+   gui.request_repaint();
+}
+
 fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
    crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -148,11 +240,8 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
          match new_vault.new_wallet_from_key_or_phrase(name, from_key, key_or_phrase) {
             Ok(address) => address,
             Err(e) => {
-               SHARED_GUI.write(|gui| {
-                  gui.open_msg_window(format!("Failed to import wallet: {}", e));
-                  gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
-                  gui.request_repaint();
-               });
+               let message = format!("Failed to import wallet: {}", e);
+               SHARED_GUI.write(|gui| import_failed(gui, message));
                return;
             }
          };
@@ -174,11 +263,10 @@ fn on_import_wallet(name: String, from_key: bool, key_or_phrase: SecureString) {
             });
          }
          Err(e) => {
+            let message = format!("Failed to encrypt account: {}", e);
             SHARED_GUI.write(|gui| {
                gui.loading_window.reset();
-               gui.open_msg_window(format!("Failed to encrypt account: {}", e));
-               gui.wallet_ui.add_wallet_ui.import_wallet.input_field.erase();
-               gui.request_repaint();
+               import_failed(gui, message);
             });
             return;
          }
@@ -246,4 +334,72 @@ fn on_reopen_add_wallet() {
          gui.wallet_ui.add_wallet_ui.open();
       });
    });
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A failed import keeps what was typed: one wrong word in a phrase has to be correctable, not a
+   /// reason to type the whole secret again.
+   #[test]
+   fn a_failed_import_keeps_what_was_typed() {
+      let mut gui = GUI::default();
+      let phrase = "legal winner thank year wave sausage worth useful legal winner thank yellow";
+
+      gui.wallet_ui
+         .add_wallet_ui
+         .import_wallet
+         .input_field
+         .set_text(SecureString::from(phrase));
+
+      import_failed(
+         &mut gui,
+         "Failed to import wallet: invalid phrase".to_string(),
+      );
+
+      assert!(
+         gui.msg_window.is_open(),
+         "the failure must still be said"
+      );
+
+      assert_eq!(
+         gui.wallet_ui
+            .add_wallet_ui
+            .import_wallet
+            .input_field
+            .text()
+            .unlock_str(|text| text.to_string()),
+         phrase,
+         "the phrase must still be in the field"
+      );
+   }
+
+   /// The count names words for a phrase and characters for a key, singular when there is one.
+   #[test]
+   fn the_secret_count_names_words_or_characters() {
+      assert_eq!(
+         secret_count(
+            &ImportWalletType::MnemonicPhrase,
+            "legal winner thank"
+         ),
+         "3 words"
+      );
+      assert_eq!(
+         secret_count(&ImportWalletType::MnemonicPhrase, "legal"),
+         "1 word"
+      );
+      assert_eq!(
+         secret_count(&ImportWalletType::MnemonicPhrase, ""),
+         "0 words"
+      );
+      assert_eq!(
+         secret_count(&ImportWalletType::PrivateKey, "abcd1234"),
+         "8 characters"
+      );
+      assert_eq!(
+         secret_count(&ImportWalletType::PrivateKey, "a"),
+         "1 character"
+      );
+   }
 }

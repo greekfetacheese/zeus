@@ -522,7 +522,7 @@ impl Vault {
       for wallet in self.all_wallets() {
          if wallet.is_key_erased() {
             return Err(anyhow!(
-               "At least one Wallet key is erased, this is a bug"
+               "At least one wallet key is missing from the vault."
             ));
          }
       }

@@ -14,6 +14,8 @@ pub struct WalletSelect {
    pub wallet: WalletInfo,
    pub size: Vec2,
    pub expansion: Option<f32>,
+   /// Whether a region shortcut asked for this row and it has not taken the focus yet.
+   focus_pending: bool,
 }
 
 impl WalletSelect {
@@ -23,7 +25,13 @@ impl WalletSelect {
          wallet: WalletInfo::default(),
          size: (200.0, 25.0).into(),
          expansion: Some(6.0),
+         focus_pending: false,
       }
+   }
+
+   /// Ask this row to take the focus when it next draws.
+   pub fn request_focus(&mut self) {
+      self.focus_pending = true;
    }
 
    pub fn size(mut self, size: impl Into<Vec2>) -> Self {
@@ -60,6 +68,14 @@ impl WalletSelect {
          .interactive(true)
          .visuals(label_visuals)
          .sense(Sense::click());
+
+      // The trigger's node is the next widget this ui allocates, which is what a region shortcut
+      // has to ask for: the picker's own id keys the popup, not the row that holds the focus.
+      let trigger_id = ui.next_auto_id();
+
+      if std::mem::take(&mut self.focus_pending) {
+         ui.memory_mut(|memory| memory.request_focus(trigger_id));
+      }
 
       ComboBox::new(self.id, current_wallet_label)
          .visuals(combo_visuals)

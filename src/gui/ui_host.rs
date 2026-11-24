@@ -154,7 +154,20 @@ impl UiHost for GuiHost {
    fn lockout_and_shutdown(&self, msg: &str) {
       SHARED_GUI.write(|gui| {
          gui.open_msg_window(msg);
-         gui.shutdown();
+         gui.announce(msg);
+
+         // Closing the viewport in this same frame is what leaves a reader nothing to speak:
+         // the tree that carries the message is built after the frame that opens the window,
+         // so the notice is never shown while it could be heard. A sighted user has always had
+         // the immediate close and keeps it; an attached assistive technology holds the notice
+         // until its OK closes it, and the frame path (`GUI::finish_lockout_notice`) shuts
+         // down then.
+         if gui.at_active {
+            gui.lockout_notice_held = true;
+            gui.request_repaint();
+         } else {
+            gui.shutdown();
+         }
       });
    }
 }

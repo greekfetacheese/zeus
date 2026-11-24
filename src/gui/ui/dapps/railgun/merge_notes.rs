@@ -18,7 +18,10 @@ use zeus_railgun::{
 
 use crate::{
    core::ZeusContext,
-   gui::{SHARED_GUI, ui::dapps::railgun::transfer::private_merge_notes},
+   gui::{
+      SHARED_GUI,
+      ui::{common::currency_for_speech, dapps::railgun::transfer::private_merge_notes},
+   },
 };
 
 const EXPLAIN: &str = "\
@@ -27,6 +30,13 @@ Many small notes make unshields slower and can hit the circuit size limit \
 (Zeus supports up to 5 notes per transaction).\n\n\
 Merge Notes spends several small notes in one private transfer to yourself \
 and creates a single larger note. Nothing leaves from your private balance, this is not an unshield.";
+
+/// What the window says when the merge starts, and when it has turned several notes into one.
+///
+/// The card closes on the press, so the outcome would otherwise arrive with nothing on screen that
+/// says a merge was ever running.
+pub(crate) const MERGE_STARTED: &str = "Merging your private notes.";
+const MERGE_DONE: &str = "Merged your private notes into one note.";
 
 #[derive(Clone)]
 enum MergeState {
@@ -46,6 +56,8 @@ pub struct MergeNotesWindow {
    /// Cache key so stale async results are dropped.
    load_key: u64,
    size: (f32, f32),
+   /// The words this window should say, drained by the frame right after it is drawn.
+   notice: Option<String>,
 }
 
 impl MergeNotesWindow {
@@ -58,6 +70,7 @@ impl MergeNotesWindow {
          state: MergeState::Idle,
          load_key: 0,
          size: (440.0, 450.0),
+         notice: None,
       }
    }
 
@@ -102,10 +115,17 @@ impl MergeNotesWindow {
    pub fn close(&mut self) {
       self.open = false;
       self.state = MergeState::Idle;
+      // A sentence about a merge nobody can see any more is not news about the next one.
+      self.notice = None;
    }
 
    pub fn reset(&mut self) {
       self.close();
+   }
+
+   /// The words this window should say, drained by the frame right after it is drawn.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, ui: &mut Ui) {
@@ -133,9 +153,12 @@ impl MergeNotesWindow {
                );
 
                ui.label(
-                  RichText::new(format!("Token: {}", self.currency.symbol()))
-                     .size(theme.typography.normal)
-                     .strong(),
+                  RichText::new(format!(
+                     "Token: {}",
+                     currency_for_speech(&self.currency).name
+                  ))
+                  .size(theme.typography.normal)
+                  .strong(),
                );
 
                match &self.state {
@@ -157,7 +180,7 @@ impl MergeNotesWindow {
                   MergeState::Ready(None) => {
                      ui.label(
                         RichText::new(
-                           "No merge needed you already have at most one note per tree for this token.",
+                           "No merge needed. This tree already has at most one note for this token.",
                         )
                         .size(theme.typography.normal)
                         .color(theme.colors.success),
@@ -193,7 +216,7 @@ impl MergeNotesWindow {
 
       ui.label(
          RichText::new(format!(
-            "Merge {} notes -> 1 note  (circuit {})",
+            "Merge {} notes into 1 note (proof circuit {})",
             suggestion.input_count(),
             suggestion.circuit_label()
          ))
@@ -243,7 +266,7 @@ impl MergeNotesWindow {
                let v = NumericValue::format_wei(U256::from(n.amount), decimals);
                ui.label(
                   RichText::new(format!(
-                     "  {}. {} {}  (leaf {})",
+                     "Note {}: {} {} (leaf {})",
                      i + 1,
                      v.formatted(),
                      self.currency.symbol(),
@@ -296,6 +319,11 @@ impl MergeNotesWindow {
    fn start_merge(&mut self, ctx: &mut ZeusContext, amount: NumericValue) {
       self.state = MergeState::Sending;
       self.close();
+
+      // The card is gone the instant this is pressed and the work has no owner on screen, so the
+      // start is said here; the worker that knows the outcome says that.
+      self.notice = Some(MERGE_STARTED.to_string());
+
       let chain = ctx.chain;
       let currency = self.currency.clone();
       let from = self.owner;
@@ -317,12 +345,15 @@ impl MergeNotesWindow {
                Ok(_) => {
                   gui.merge_notes_window.close();
                   gui.loading_window.reset();
+                  gui.announce(MERGE_DONE);
                }
                Err(e) => {
                   gui.merge_notes_window.state = MergeState::Error(e.to_string());
                   gui.loading_window.reset();
                   gui.notification.reset();
-                  gui.msg_window.open(format!("Merge Error: {}", e));
+                  // The message window is silent on its own; this raises its words on the channel
+                  // every other prompt is heard through.
+                  gui.open_msg_window(format!("Merge Error: {}", e));
                }
             }
             gui.request_repaint();
@@ -332,6 +363,43 @@ impl MergeNotesWindow {
             c.railgun_status.set_op_in_progress(chain.id(), false);
          });
       });
+   }
+}
+
+/// The state a test cannot set from outside: opening the card runs the scan, which needs the
+/// chain and the artifact pack, so the answer it would have landed on is written here instead.
+#[cfg(test)]
+impl MergeNotesWindow {
+   /// Stand the scan's answer up as a known set of notes for one tree of WETH.
+   pub(crate) fn seed_notes_for_test(&mut self, amounts: &[u128]) {
+      self.open_notes_for_test();
+
+      let asset = AssetId::Erc20(ERC20Token::weth().address);
+      let notes: Vec<MergeCandidate> = amounts
+         .iter()
+         .enumerate()
+         .map(|(leaf_index, amount)| MergeCandidate {
+            asset,
+            amount: *amount,
+            tree_number: 0,
+            leaf_index: leaf_index as u32,
+         })
+         .collect();
+
+      self.state = MergeState::Ready(suggest_merge(asset, &notes, 5));
+   }
+
+   /// The answer a tree with nothing left to merge gets.
+   pub(crate) fn seed_no_merge_for_test(&mut self) {
+      self.open_notes_for_test();
+      self.state = MergeState::Ready(None);
+   }
+
+   fn open_notes_for_test(&mut self) {
+      self.open = true;
+      self.currency = Currency::from(ERC20Token::weth());
+      self.chain_id = 1;
+      self.owner = Address::ZERO;
    }
 }
 

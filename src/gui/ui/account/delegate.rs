@@ -5,6 +5,7 @@
 
 use crate::core::types::CredentialCheck;
 use crate::core::{ZeusContext, delegate_to};
+use crate::gui::ui::common;
 use crate::gui::{SHARED_GUI, ui::tx::address};
 use egui::{CursorIcon, FontId, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, SecureTextEdit, Spinner, Theme};
@@ -33,6 +34,11 @@ impl DelegateUi {
          credentials_form,
          syncing: false,
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      common::field_controls::credentials_form(&mut self.credentials_form, shown);
    }
 
    pub fn is_open(&self) -> bool {
@@ -188,7 +194,8 @@ impl DelegateUi {
             .hint_text(hint)
             .font(FontId::proportional(theme.typography.normal))
             .margin(Margin::same(10))
-            .desired_width(ui.available_width());
+            .desired_width(ui.available_width())
+            .accessible_name("Delegate address");
          ui.add(text);
       });
 
@@ -299,7 +306,7 @@ impl DelegateUi {
                   };
 
                   SHARED_GUI.write(|gui| {
-                     gui.loading_window.open("Wait while magic happens");
+                     gui.loading_window.open("Delegating. This can take a minute.");
                      gui.account_panel.delegate.close();
                      gui.request_repaint();
                   });
@@ -334,7 +341,7 @@ impl DelegateUi {
                }
                CredentialCheck::Mismatch => {
                   SHARED_GUI.write(|gui| {
-                     gui.open_msg_window("Credentials do not match");
+                     gui.open_msg_window("Incorrect credentials");
                      gui.loading_window.reset();
                      gui.request_repaint();
                   });
@@ -381,7 +388,7 @@ impl DelegateUi {
       if clicked {
          crate::runtime::rt().spawn(async move {
             let ctx = SHARED_GUI.write(|gui| {
-               gui.loading_window.open("Wait while magic happens");
+               gui.loading_window.open("Removing the delegation. This can take a minute.");
                gui.account_panel.delegate.close();
                gui.request_repaint();
                gui.ctx.clone()

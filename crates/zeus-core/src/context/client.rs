@@ -374,7 +374,7 @@ impl Rpc {
       if let Some(latency) = self.latency {
          format!("{}ms", latency.as_millis())
       } else {
-         "N/A".to_string()
+         "Not available".to_string()
       }
    }
 

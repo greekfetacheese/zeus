@@ -17,6 +17,7 @@ use crate::core::clear_signing::{ClearDisplay, FormattedValue};
 use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::{ApprovalDiff, BalanceDiff, TransactionAnalysis, ZeusContext};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::{name_text, token_for_speech};
 use crate::utils::truncate_hash;
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::types::ChainId;
@@ -119,7 +120,16 @@ pub fn show_analysis_buttons(
             button = button.badge(badge);
          }
 
-         clicked.events = ui.add(button).clicked();
+         // The badge is painted over the button and reserves no layout space, so the count is
+         // in neither the label nor anything else a reader can reach: it goes on the node, and
+         // the drawn text stays the one word the design uses.
+         let response = ui.add(button);
+         let name = if event_count > 0 {
+            format!("Events, {event_count}")
+         } else {
+            "Events".to_string()
+         };
+         clicked.events = response.accessible_name(name).clicked();
 
          let text = RichText::new("Calldata").size(theme.typography.large);
          let button = Button::new(text).visuals(button_visuals).min_size(size);
@@ -135,7 +145,9 @@ pub fn show_analysis_buttons(
             let text = RichText::new("State").size(theme.typography.large);
             let button = Button::new(text).badge(badge).visuals(button_visuals).min_size(size);
 
-            clicked.balance_and_approvals = ui.add(button).clicked();
+            // Both halves of the diff, balances and approvals, are what the button counts.
+            clicked.balance_and_approvals =
+               ui.add(button).accessible_name(format!("State, {diff_count}")).clicked();
          }
 
          if include_tx_options {
@@ -183,24 +195,16 @@ pub fn show_tx_diffs_modal(
                ui.set_min_height(350.0);
                ui.set_min_width(ui.available_width());
 
-               let text = if balance_diff.is_empty() {
-                  "No balance changes"
-               } else {
-                  "Balance changes"
-               };
+               // Approvals lead, as they do in the confirmation window: a spender being granted
+               // an allowance is the half of this report that can cost money after the
+               // transaction, so it is what a reader must meet first.
 
-               ui.label(RichText::new(text).size(theme.typography.large));
-
-               if !balance_diff.is_empty() {
-                  show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
-               }
-
-               ui.add_space(10.0);
-
+               // The count is drawn into the title rather than named over it: a label says one
+               // string, and a name on top of these glyphs is a second spelling of the row.
                let text = if approval_diff.is_empty() {
-                  "No approval changes"
+                  "No approval changes".to_string()
                } else {
-                  "Approval changes"
+                  format!("Approval changes ({})", approval_diff.len())
                };
 
                ui.label(RichText::new(text).size(theme.typography.large));
@@ -214,6 +218,20 @@ pub fn show_tx_diffs_modal(
                      approval_diff,
                      ui,
                   );
+               }
+
+               ui.add_space(10.0);
+
+               let text = if balance_diff.is_empty() {
+                  "No balance changes".to_string()
+               } else {
+                  format!("Balance changes ({})", balance_diff.len())
+               };
+
+               ui.label(RichText::new(text).size(theme.typography.large));
+
+               if !balance_diff.is_empty() {
+                  show_balance_diff_rows(ctx, chain, theme, icons.clone(), balance_diff, ui);
                }
             });
       });
@@ -261,7 +279,7 @@ pub fn show_tx_options_modal(
 
          if fee.tiers.is_some() {
             ui.vertical(|ui| {
-               ui.label(RichText::new("Priority Fee (Gwei)").size(theme.typography.large));
+               ui.label(RichText::new("Priority fee in gwei").size(theme.typography.large));
 
                // BSC has no priority fee to set
                if chain.is_bsc() {
@@ -289,7 +307,21 @@ pub fn show_tx_options_modal(
                      .right_text(right)
                      .min_size(vec2(ui.available_width(), 32.0));
 
-                     if ui.add(row).clicked() {
+                     // The gwei and the cost are painted beside the label, not into it, so a
+                     // reader would hear "Normal" and nothing about what it buys. The node
+                     // carries all three and the drawing stays the one line.
+                     let name = if usd.is_zero() {
+                        format!("{}, {} gwei", tier.label(), gwei.formatted)
+                     } else {
+                        format!(
+                           "{}, {} gwei, about ${}",
+                           tier.label(),
+                           gwei.formatted,
+                           usd.abbreviated()
+                        )
+                     };
+
+                     if ui.add(row).accessible_name(name).clicked() {
                         *fee.tier = tier;
                         *fee.custom = false;
                         fee_changed = true;
@@ -363,8 +395,11 @@ pub fn show_tx_options_modal(
                      reveal_ui.multiply_opacity(reveal);
                      reveal_ui.set_min_height(natural);
 
+                     // The switch above says "Custom fee"; the field it reveals has no label
+                     // of its own, so its name goes on the node.
                      let res = reveal_ui.add(
                         SecureTextEdit::singleline(fee.custom_value)
+                           .accessible_name("Custom priority fee in gwei")
                            .id_source(custom_id.with("field"))
                            .visuals(text_edit_visuals)
                            .margin(Margin::same(10))
@@ -384,13 +419,14 @@ pub fn show_tx_options_modal(
             ui.vertical(|ui| {
                ui.label(RichText::new("Gas Limit").size(theme.typography.large));
 
-               ui.add(
+               let gas = ui.add(
                   SecureTextEdit::singleline(gas_limit)
                      .visuals(text_edit_visuals)
                      .margin(Margin::same(10))
                      .desired_width(field_width)
                      .font(FontId::proportional(theme.typography.large)),
                );
+               gas.accessible_name("Gas limit");
             });
          } else {
             // Unchanged: today's two-column layout for chains with no recommendation.
@@ -398,14 +434,17 @@ pub fn show_tx_options_modal(
                ui.spacing_mut().item_spacing.x = theme.spacing.md;
 
                ui.vertical(|ui| {
-                  ui.label(RichText::new("Priority Fee (Gwei)").size(theme.typography.large));
+                  ui.label(RichText::new("Priority fee in gwei").size(theme.typography.large));
 
                   if chain.is_bsc() {
                      ui.disable();
                   }
 
+                  // With no recommendation this field is the whole priority fee, and the
+                  // drawn label above is not tied to it.
                   let res = ui.add(
                      SecureTextEdit::singleline(fee.custom_value)
+                        .accessible_name("Priority fee in gwei")
                         .visuals(text_edit_visuals)
                         .margin(Margin::same(10))
                         .desired_width(field_width)
@@ -420,19 +459,23 @@ pub fn show_tx_options_modal(
                ui.vertical(|ui| {
                   ui.label(RichText::new("Gas Limit").size(theme.typography.large));
 
-                  ui.add(
+                  let gas = ui.add(
                      SecureTextEdit::singleline(gas_limit)
                         .visuals(text_edit_visuals)
                         .margin(Margin::same(10))
                         .desired_width(field_width)
                         .font(FontId::proportional(theme.typography.large)),
                   );
+                  gas.accessible_name("Gas limit");
                });
             });
          }
 
+         // The separator is what makes the number one number to a reader: a bare `45000` is
+         // said as a stream of digits.
          let hint = format!(
-            "Simulated gas: {gas_used} — raise the limit if the transaction runs out of gas"
+            "Simulated gas: {}. Raise the limit if the transaction runs out of gas",
+            grouped_number(gas_used)
          );
          ui.label(RichText::new(hint).size(theme.typography.small).color(theme.colors.text_muted));
 
@@ -515,6 +558,11 @@ pub fn clear_display_ui(
                      amount.abbreviated()
                   };
                   let text = format!("{:.10} {}", amount_txt, token.symbol);
+                  let spoken = format!(
+                     "{:.10} {}",
+                     amount_txt,
+                     token_for_speech(&token.name, &token.symbol).name
+                  );
                   let icon = icons
                      .token_icon_x32(token.address, token.chain_id, tint)
                      .fit_to_exact_size(vec2(24.0, 24.0));
@@ -523,7 +571,8 @@ pub fn clear_display_ui(
                      .wrap()
                      .visuals(theme.label_visuals())
                      .interactive(false);
-                  ui.add(label);
+                  let response = ui.add(label);
+                  name_text(ui, &response, spoken);
                });
             });
          }
@@ -588,25 +637,54 @@ pub fn show_calldata_modal(
                   });
 
                ui.add_space(12.0);
-               ui.label(RichText::new("Raw").size(theme.typography.large));
+               let raw = ui.label(RichText::new("Raw").size(theme.typography.large));
+               // The word is the name of the field below; left in the tree as well a reader
+               // hears "Raw" on its own and then a field that has to be guessed at.
+               ui.ctx().accesskit_node_builder(raw.id, |node| node.set_hidden());
             }
 
             let edit_width = ui.available_width() * 0.9;
 
+            // The buffer is a viewer: an edit is thrown away with the next frame copy, so
+            // the field must not present itself as one a reader can type into.
             let text_edit = TextEdit::multiline(&mut calldata)
                .font(FontId::monospace(theme.typography.normal))
                .desired_width(edit_width)
-               .margin(Margin::same(10));
+               .margin(Margin::same(10))
+               .interactive(false);
 
             ScrollArea::vertical()
                .id_salt("raw_calldata")
                .max_height(edit_height)
                .show(ui, |ui| {
                   ui.set_min_width(edit_width);
-                  ui.add(text_edit);
+                  let response = ui.add(text_edit);
+                  ui.ctx().accesskit_node_builder(response.id, |node| {
+                     node.set_label("Raw calldata");
+                     node.set_description("The raw calldata of this transaction.");
+                  });
                });
          });
       });
+}
+
+/// `45000` written as `45,000`.
+///
+/// A screen reader says a five-figure number without separators as a stream of digits; the
+/// comma is the only thing that makes it one number.
+fn grouped_number(n: u64) -> String {
+   let digits = n.to_string();
+   let len = digits.len();
+   let mut out = String::with_capacity(len + len / 3);
+
+   for (index, digit) in digits.chars().enumerate() {
+      if index > 0 && (len - index).is_multiple_of(3) {
+         out.push(',');
+      }
+      out.push(digit);
+   }
+
+   out
 }
 
 pub(super) fn request_address_name(chain: u64, address: Address) {

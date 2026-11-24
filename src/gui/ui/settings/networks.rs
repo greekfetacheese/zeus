@@ -11,8 +11,8 @@ use crate::core::{
 use crate::gui::{SHARED_GUI, ui::ChainSelect, ui::show_with_fade};
 use crate::utils::state;
 use eframe::egui::{
-   Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, ScrollArea,
-   Ui, vec2,
+   Align, CornerRadius, CursorIcon, FontId, InnerResponse, Layout, Margin, RichText, Role,
+   ScrollArea, Ui, WidgetInfo, vec2,
 };
 use egui_elements::{
    Button, Checkbox, Indicator, IndicatorState, SecureTextEdit, Spinner, Theme,
@@ -28,6 +28,16 @@ enum NetworkView {
    EditRpc,
 }
 
+/// Why a row's URL is not offered for editing: reading it back could put a provider key in the
+/// accessibility tree, and the words the page says instead identify the row by its host.
+const RPC_URL_TIP: &str = "Editing it here is not offered to a reader: the URL can contain a provider key and stays masked. Remove the endpoint and add it again instead.";
+
+/// What the concurrency field says when its text is not a number in range.
+const CONCURRENCY_ERROR: &str = "Enter a whole number within the range below";
+
+/// What the add-RPC form says while its text is not a URL.
+const INVALID_URL_ERROR: &str = "Invalid URL";
+
 pub struct NetworkSettings {
    view: NetworkView,
    refreshing: bool,
@@ -38,6 +48,11 @@ pub struct NetworkSettings {
    cu_input: String,
    /// Global concurrency input; `None` until seeded from the client on first render.
    concurrency_input: Option<String>,
+   /// The inline error already spoken: the page draws these in place of a dialog, so each one is
+   /// said once, on the frame it starts showing.
+   inline_error_said: Option<&'static str>,
+   /// The words the page's last action should say, drained by the window right after it draws.
+   notice: Option<String>,
    chain_select: ChainSelect,
 }
 
@@ -55,6 +70,8 @@ impl NetworkSettings {
          rps_input: String::new(),
          cu_input: String::new(),
          concurrency_input: None,
+         inline_error_said: None,
+         notice: None,
          chain_select,
       }
    }
@@ -66,6 +83,8 @@ impl NetworkSettings {
       self.rps_input.clear();
       self.cu_input.clear();
       self.concurrency_input = None;
+      self.inline_error_said = None;
+      self.notice = None;
    }
 
    pub fn open_add_rpc(&mut self) {
@@ -89,6 +108,29 @@ impl NetworkSettings {
       self.rpc_to_edit = None;
       self.rps_input.clear();
       self.cu_input.clear();
+   }
+
+   /// The words this page's last action should say, drained by the window right after it draws.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
+   }
+
+   /// Say an inline error once, on the frame it starts showing.
+   ///
+   /// These lines are drawn in place of a dialog, so nothing else would say them, and a reader
+   /// would only find the error by re-reading the form.
+   fn say_inline_error(&mut self, text: &'static str) {
+      if self.inline_error_said != Some(text) {
+         self.inline_error_said = Some(text);
+         self.notice = Some(text.to_string());
+      }
+   }
+
+   /// Forget an inline error that is no longer drawn, so the next one is said as well.
+   fn clear_inline_error(&mut self, text: &'static str) {
+      if self.inline_error_said == Some(text) {
+         self.inline_error_said = None;
+      }
    }
 
    fn valid_url(&self) -> bool {
@@ -151,14 +193,25 @@ impl NetworkSettings {
             ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.sm);
 
             let disabled = ctx.is_chain_disabled(chain);
-            let text = match disabled {
-               true => RichText::new("Enable Network").size(theme.typography.normal),
-               false => RichText::new("Disable Network").size(theme.typography.normal),
+            // The drawn word flips with the flag; the name says what a press does now, so a reader
+            // never has to work out which chain state the drawn word was written for.
+            let (text, name) = match disabled {
+               true => (
+                  RichText::new("Enable Network").size(theme.typography.normal),
+                  "Enable this network",
+               ),
+               false => (
+                  RichText::new("Disable Network").size(theme.typography.normal),
+                  "Disable this network",
+               ),
             };
 
             let button = Button::new(text).visuals(button_visuals);
+            let toggle = ui.add(button);
 
-            if ui.add(button).clicked() {
+            toggle.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), name));
+
+            if toggle.clicked() {
                if disabled {
                   ctx.enable_chain(chain);
                } else {
@@ -187,7 +240,8 @@ impl NetworkSettings {
                   corner_radius: CornerRadius::same(25),
                   ..Default::default()
                };
-               let button = Button::image(icon).small().visuals(visuals);
+               // A picture of a refresh arrow: the text alternative says what it checks.
+               let button = Button::image(icon).small().visuals(visuals).alt("Check RPC endpoints");
                let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
 
                if res.clicked() {
@@ -222,6 +276,10 @@ impl NetworkSettings {
       ui.add_space(theme.spacing.md);
       ui.separator();
 
+      let concurrency_hint = format!(
+         "How many requests Zeus may run at once (range {MIN_CONCURRENCY}-{MAX_CONCURRENCY}). Raise it for a paid or local RPC, keep it low for public endpoints."
+      );
+
       // Kept above the RPC table: the table's scroll area consumes the remaining height, so
       // anything below it would fall off-screen on a short window.
       ui.allocate_ui_with_layout(
@@ -229,18 +287,27 @@ impl NetworkSettings {
          Layout::left_to_right(Align::Center),
          |ui| {
             ui.spacing_mut().item_spacing.x = theme.spacing.sm;
-            ui.label(RichText::new("Request Concurrency").size(theme.typography.normal));
+            let label_text = RichText::new("Request Concurrency").size(theme.typography.normal);
+            let label = ui.label(label_text);
 
             let current = z_client.concurrency();
             let input = self.concurrency_input.get_or_insert_with(|| current.to_string());
 
-            ui.add(
+            let field = ui.add(
                SecureTextEdit::singleline(input)
+                  .accessible_name("Request Concurrency")
                   .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.typography.normal))
                   .desired_width(32.0)
                   .margin(Margin::same(6)),
             );
+
+            // The sentence beside the field names it, and the range drawn below is its
+            // description: a reader hears both on the field instead of two orphans.
+            ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+            ui.ctx().accesskit_node_builder(field.id, |node| {
+               node.set_description(concurrency_hint.as_str());
+            });
 
             let parsed = self
                .concurrency_input
@@ -251,7 +318,12 @@ impl NetworkSettings {
 
             let text = RichText::new("Apply").size(theme.typography.normal);
             let button = Button::new(text).visuals(button_visuals);
-            if ui.add_enabled(valid, button).clicked()
+            let apply = ui.add_enabled(valid, button);
+            let apply_name = "Apply concurrency";
+
+            apply.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), apply_name));
+
+            if apply.clicked()
                && let Some(value) = parsed
             {
                z_client.set_concurrency(value);
@@ -264,20 +336,21 @@ impl NetworkSettings {
             }
 
             if !valid {
-               let text = RichText::new("Enter a whole number within the range below")
+               let text = RichText::new(CONCURRENCY_ERROR)
                   .size(theme.typography.small)
                   .color(theme.colors.error);
                ui.label(text);
+               self.say_inline_error(CONCURRENCY_ERROR);
+            } else {
+               self.clear_inline_error(CONCURRENCY_ERROR);
             }
          },
       );
 
       ui.label(
-         RichText::new(format!(
-            "How many requests Zeus may run at once (range {MIN_CONCURRENCY}-{MAX_CONCURRENCY}). Raise it for a paid or local RPC, keep it low for public endpoints."
-         ))
-         .size(theme.typography.small)
-         .color(theme.colors.text_muted),
+         RichText::new(concurrency_hint)
+            .size(theme.typography.small)
+            .color(theme.colors.text_muted),
       );
 
       ui.separator();
@@ -333,20 +406,41 @@ impl NetworkSettings {
             ui.horizontal(|ui| {
                ui.spacing_mut().item_spacing.x = COL_SPACING;
 
+               let host = rpc_host(&rpc.url).to_string();
                let mut url = rpc.url.to_string();
-               rpc_col(ui, url_w, ROW_H, |ui| {
+               let field = rpc_col(ui, url_w, ROW_H, |ui| {
                   ui.add(
                      SecureTextEdit::singleline(&mut url)
+                        .accessible_name(format!("RPC URL at {host}"))
                         .visuals(text_edit_visuals)
                         .font(FontId::proportional(theme.typography.small))
                         .min_size(vec2(url_w, 20.0))
                         .margin(Margin::same(5)),
-                  );
+                  )
+               });
+
+               // A URL can carry a provider key, so its text never enters the accessibility tree:
+               // the host names the row and the value is cleared before the tree is built.
+               ui.ctx().accesskit_node_builder(field.inner.id, |node| {
+                  node.set_description(RPC_URL_TIP);
+                  node.clear_value();
                });
 
                let was_enabled = rpc.enabled;
+               let box_name = format!("Enabled, {host}");
                let res = rpc_col(ui, ENABLED_W, ROW_H, |ui| {
                   ui.add(Checkbox::without_text(&mut rpc.enabled))
+               });
+
+               // The box draws no words, so it is named after the endpoint it turns on or off.
+               // The flag is read after the widget ran, so a click frame reports the new state.
+               res.inner.widget_info(|| {
+                  WidgetInfo::selected(
+                     Role::CheckBox,
+                     ui.is_enabled(),
+                     rpc.enabled,
+                     &box_name,
+                  )
                });
 
                if res.inner.clicked() {
@@ -395,8 +489,13 @@ impl NetworkSettings {
                      corner_radius: CornerRadius::same(15),
                      ..Default::default()
                   };
-                  let settings_btn = Button::image(icon).small().visuals(visuals);
-                  if ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand).clicked() {
+                  // A picture of a gear: the text alternative says whose settings it opens.
+                  let settings_name = format!("Endpoint settings for {host}");
+                  let settings_btn =
+                     Button::image(icon).small().visuals(visuals).alt(settings_name);
+                  let settings = ui.add(settings_btn).on_hover_cursor(CursorIcon::PointingHand);
+
+                  if settings.clicked() {
                      self.open_rpc_settings(rpc.clone());
                   }
 
@@ -405,7 +504,14 @@ impl NetworkSettings {
                   } else {
                      let text = RichText::new("Test").size(theme.typography.normal);
                      let button = Button::new(text).visuals(button_visuals);
-                     if ui.add(button).clicked() {
+                     let test = ui.add(button);
+                     let test_name = format!("Test {host}");
+
+                     test.widget_info(|| {
+                        WidgetInfo::labeled(Role::Button, ui.is_enabled(), &test_name)
+                     });
+
+                     if test.clicked() {
                         let rpc_clone = rpc.clone();
                         crate::runtime::rt().spawn(async move {
                            let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -419,7 +525,15 @@ impl NetworkSettings {
 
                   let button = Button::new(RichText::new("X").size(theme.typography.normal))
                      .visuals(button_visuals);
-                  if ui.add(button).clicked() {
+                  let remove = ui.add(button);
+                  let remove_name = format!("Remove {host}");
+
+                  // "X" says nothing aloud about what it deletes.
+                  remove.widget_info(|| {
+                     WidgetInfo::labeled(Role::Button, ui.is_enabled(), &remove_name)
+                  });
+
+                  if remove.clicked() {
                      let z_client = ctx.client_manager.clone();
                      z_client.remove_rpc(chain, rpc.url.clone());
 
@@ -439,7 +553,10 @@ impl NetworkSettings {
       ui.spacing_mut().item_spacing.y = theme.spacing.md;
 
       self.back_button(theme, ui);
-      ui.label(RichText::new("Endpoint Settings").size(theme.typography.large));
+
+      let name = "Endpoint Settings";
+      let title = ui.label(RichText::new(name).size(theme.typography.large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), name));
 
       if self.rpc_to_edit.is_none() {
          let text = RichText::new("No RPC selected").size(theme.typography.normal);
@@ -454,10 +571,14 @@ impl NetworkSettings {
          let rpc = self.rpc_to_edit.as_mut().unwrap();
 
          let text = RichText::new("MEV Protect").size(theme.typography.normal);
-         ui.label(text);
-         let clicked = ui.add(Checkbox::without_text(&mut rpc.mev_protect)).clicked();
+         let label = ui.label(text);
 
-         if clicked {
+         // Like the row's boxes, this one draws no words: it takes the words beside it as its own
+         // name, and that label leaves the tree, so the box is the one node that says what it sets.
+         let checkbox = ui.add(Checkbox::without_text(&mut rpc.mev_protect).name("MEV Protect"));
+         ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
+
+         if checkbox.clicked() {
             let z_client = ctx.client_manager.clone();
             z_client.write(|rpcs_map| {
                if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id)
@@ -484,23 +605,33 @@ impl NetworkSettings {
          "Range {MIN_RPC_RPS}-{MAX_RPC_RPS} req/s, {MIN_RPC_CU_PER_SECOND}-{MAX_RPC_CU_PER_SECOND} CU/s. Applied per connection."
       );
 
-      ui.label(RichText::new("Requests / second").size(theme.typography.normal));
+      let rps_name = "Requests / second";
+      let rps_text = RichText::new(rps_name).size(theme.typography.normal);
+      let rps_label = ui.label(rps_text);
       ui.add(
          SecureTextEdit::singleline(&mut self.rps_input)
+            .accessible_name(rps_name)
             .visuals(text_edit_visuals)
             .font(FontId::proportional(theme.typography.normal))
             .min_size(input_size)
             .margin(Margin::same(10)),
       );
 
-      ui.label(RichText::new("Compute units / second").size(theme.typography.normal));
+      let cu_name = "Compute units / second";
+      let cu_text = RichText::new(cu_name).size(theme.typography.normal);
+      let cu_label = ui.label(cu_text);
       ui.add(
          SecureTextEdit::singleline(&mut self.cu_input)
+            .accessible_name(cu_name)
             .visuals(text_edit_visuals)
             .font(FontId::proportional(theme.typography.normal))
             .min_size(input_size)
             .margin(Margin::same(10)),
       );
+
+      // Each field carries the words drawn beside it, so the label nodes leave the tree.
+      ui.ctx().accesskit_node_builder(rps_label.id, |node| node.set_hidden());
+      ui.ctx().accesskit_node_builder(cu_label.id, |node| node.set_hidden());
 
       let rps = self.rps_input.trim().parse::<u32>().ok();
       let cu = self.cu_input.trim().parse::<u64>().ok();
@@ -518,7 +649,12 @@ impl NetworkSettings {
 
       let text = RichText::new("Apply").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
-      if ui.add_enabled(valid, button).clicked()
+      let apply = ui.add_enabled(valid, button);
+      let apply_name = "Apply endpoint limits";
+
+      apply.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), apply_name));
+
+      if apply.clicked()
          && let (Some(rps), Some(cu)) = (rps, cu)
       {
          let z_client = ctx.client_manager.clone();
@@ -544,15 +680,18 @@ impl NetworkSettings {
       ui.spacing_mut().button_padding = theme.button_padding;
 
       self.back_button(theme, ui);
-      ui.label(RichText::new("Add RPC").size(theme.typography.large));
+
+      let title = ui.label(RichText::new("Add RPC").size(theme.typography.large));
+      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Add RPC"));
 
       let button_visuals = theme.button_visuals();
       let text_edit_visuals = theme.text_edit_visuals();
       let ui_width = ui.available_width();
 
       let hint_text = RichText::new("Enter a url").size(theme.typography.normal);
-      ui.add(
+      let field = ui.add(
          SecureTextEdit::singleline(&mut self.url_to_add)
+            .accessible_name("RPC URL")
             .visuals(text_edit_visuals)
             .hint_text(hint_text)
             .font(FontId::proportional(theme.typography.normal))
@@ -560,12 +699,21 @@ impl NetworkSettings {
             .margin(Margin::same(10)),
       );
 
+      // This one is being typed rather than read back, so the hint it draws is the description
+      // that tells a reader what to type.
+      ui.ctx().accesskit_node_builder(field.id, |node| {
+         node.set_description("Enter a url")
+      });
+
       if !self.valid_url() && !self.url_to_add.is_empty() {
          ui.label(
-            RichText::new("Invalid URL")
+            RichText::new(INVALID_URL_ERROR)
                .size(theme.typography.small)
                .color(theme.colors.error),
          );
+         self.say_inline_error(INVALID_URL_ERROR);
+      } else {
+         self.clear_inline_error(INVALID_URL_ERROR);
       }
 
       if self.refreshing {
@@ -639,6 +787,21 @@ fn validate_rpc(chain: u64, url: String) {
 
       post_enable_rpc(ctx, chain).await
    });
+}
+
+/// The endpoint's host — what the page may say instead of a URL that can carry a provider key.
+///
+/// The host is the part between `://` and the first `/` or `?`, so a key in the path never reaches
+/// the accessibility tree. A string without those parts falls back to a plain description.
+fn rpc_host(url: &str) -> &str {
+   let Some((_, rest)) = url.split_once("://") else {
+      return "RPC endpoint";
+   };
+
+   match rest.split(['/', '?']).next() {
+      Some(host) if !host.is_empty() => host,
+      _ => "RPC endpoint",
+   }
 }
 
 fn rpc_col<R>(

@@ -238,7 +238,7 @@ async fn exec_private_transfer(
    transfer_params: PrivateTransferParams,
 ) -> Result<(), anyhow::Error> {
    SHARED_GUI.write(|gui| {
-      gui.loading_window.open("Wait while magic happens");
+      gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
    });
 

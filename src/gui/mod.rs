@@ -5,6 +5,7 @@ pub mod tray;
 pub mod ui;
 pub mod ui_host;
 
+use crate::gui::ui::shortcuts::{CommandPalette, KeyBindings};
 use egui::{Context, Ui};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -13,12 +14,12 @@ use ui::settings;
 use crate::assets::icons::Icons;
 use crate::core::context::{ZeusContext, ZeusCtx};
 use crate::gui::appearance::{AppearanceSettings, load_theme_kind};
-use egui_elements::{editor::ThemeEditor, theme::*};
+use egui_elements::{Announcer, editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
 
 pub use crate::gui::ui::{
    AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, LockScreen, MsgWindow, Notification,
-   PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi,
+   PortfolioUi, RecipientSelectionWindow, RecoverHDWallet, SendCryptoUi, SettingsUi, ShortcutSheet,
    TokenSelectionWindow, TxConfirmationWindow, TxWindow, UnlockVault, UpdateWindow, WalletUi,
    common::dots_button,
    dapps::{
@@ -74,6 +75,60 @@ impl Default for SharedGUI {
    }
 }
 
+/// The page the main window is showing.
+///
+/// One variant per nav entry. The names are the words the nav draws, so a heading built from
+/// [`Page::name`] says exactly what the plate that opened it said. Shield and Unshield share
+/// [`Page::Shield`]: privacy mode flips the nav word, not the page.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Page {
+   Home,
+   Send,
+   Shield,
+   Swap,
+   Bridge,
+   Wallets,
+   Transactions,
+   Approvals,
+   Settings,
+   ConnectedDapps,
+   Dev,
+}
+
+impl Page {
+   pub fn name(&self) -> &'static str {
+      match self {
+         Self::Home => "Home",
+         Self::Send => "Send",
+         Self::Shield => "Shield",
+         Self::Swap => "Swap",
+         Self::Bridge => "Bridge",
+         Self::Wallets => "Wallets",
+         Self::Transactions => "Transactions",
+         Self::Approvals => "Approvals",
+         Self::Settings => "Settings",
+         Self::ConnectedDapps => "Connected Dapps",
+         Self::Dev => "Dev UI",
+      }
+   }
+}
+
+/// A part of the main window a keyboard shortcut can move directly to.
+///
+/// F6 walks these in the order they are declared — the account card, the nav, the page and the
+/// notification — and a region with nothing to focus is skipped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FocusRegion {
+   /// The account card: the wallet selector and the address a reader copies from.
+   Account,
+   /// The nav plates.
+   Navigation,
+   /// The page the central panel is showing.
+   Main,
+   /// The open notification.
+   Status,
+}
+
 pub struct GUI {
    pub egui_ctx: Context,
    /// Set by `bring_to_front` (a worker thread) and consumed once by `ZeusApp::logic`,
@@ -112,6 +167,49 @@ pub struct GUI {
    pub connected_dapps: ConnectedDappsUi,
    pub notification: Notification,
    pub update_window: UpdateWindow,
+   /// The `F1` sheet that lists every key the app answers.
+   pub shortcut_sheet: ShortcutSheet,
+   /// The chords the keyboard answers: every default, with whatever the user changed on top.
+   pub keymap: KeyBindings,
+   /// The command palette, which runs any action or page by name.
+   pub palette: CommandPalette,
+   /// Whether an assistive technology is attached.
+   ///
+   /// Sticky: once one has been seen the flag stays set, so prose stays reachable even
+   /// across a frame in which the platform builds no tree.
+   pub at_active: bool,
+   /// Whether the attempt-cap notice is waiting for its OK before Zeus closes.
+   ///
+   /// Set only when [`Self::at_active`]: a sighted user gets today's immediate close, while a
+   /// reader is owed the frame that lets the notice speak. [`Self::finish_lockout_notice`]
+   /// shuts down once the window is gone.
+   pub lockout_notice_held: bool,
+   /// The page whose heading last took focus, if any.
+   ///
+   /// `None` means the next pass's heading takes focus, which is what unlocking asks for: the
+   /// lock clears it, so the Home heading is focused when the page appears again.
+   last_page: Option<Page>,
+   /// A region a shortcut asked for this frame; the panel that owns it takes it as it draws.
+   pending_region: Option<FocusRegion>,
+   /// The region the last region shortcut landed in, so the next press moves on from there.
+   ///
+   /// It starts at the page, where the focus is on the first frame: the heading takes it when
+   /// the window opens.
+   focus_region: FocusRegion,
+   /// The pending announcement; the last `announce` of a frame wins.
+   announcement: String,
+   /// The label-focus model a shortcut took away for the pass it moved the focus in.
+   ///
+   /// A label is focusable only while egui's reader model is on, so `Ctrl+Tab` turns it off for
+   /// the pass it hops in — which is what leaves the next tab stop a control — and the pass after
+   /// puts it back. `None` means nothing was taken away.
+   reader_model: Option<bool>,
+   /// Keeps the live `Status` node in the tree between frames: a node created together
+   /// with its message never speaks (`egui-elements/src/announce.rs`).
+   announcer: Announcer,
+   /// The status pill's message last frame, so its transitions are announced instead of the same
+   /// sentence every frame while work runs.
+   last_status_pill: Option<String>,
    #[cfg(feature = "dev")]
    pub dev: DevUi,
    pub merge_notes_window: MergeNotesWindow,
@@ -152,6 +250,19 @@ impl GUI {
       let connected_dapps = ConnectedDappsUi::new();
       let notification = Notification::new();
       let update_window = UpdateWindow::new();
+      let shortcut_sheet = ShortcutSheet::new();
+
+      // A hand-edited file that cannot be read leaves the defaults in place, like the appearance
+      // settings: the keyboard always answers something.
+      let keymap = match KeyBindings::load_from_file() {
+         Ok(bindings) => bindings,
+         Err(e) => {
+            tracing::error!("Failed to load the keyboard shortcuts: {e:?}");
+            KeyBindings::new()
+         }
+      };
+
+      let palette = CommandPalette::new();
       let fps_metrics = FPSMetrics::new();
       let uniswap = UniswapUi::new();
       let shield_ui = ShieldUi::new();
@@ -196,6 +307,18 @@ impl GUI {
          connected_dapps,
          notification,
          update_window,
+         shortcut_sheet,
+         keymap,
+         palette,
+         at_active: false,
+         lockout_notice_held: false,
+         last_page: None,
+         pending_region: None,
+         focus_region: FocusRegion::Main,
+         announcement: String::new(),
+         reader_model: None,
+         announcer: Announcer::new("zeus"),
+         last_status_pill: None,
          #[cfg(feature = "dev")]
          dev: DevUi::new(),
          merge_notes_window,
@@ -223,11 +346,17 @@ impl GUI {
    }
 
    pub fn open_msg_window(&mut self, msg: impl Into<String>) {
+      let msg = msg.into();
+      // The dialog is drawn in the same pass the caller asked for it, and a reader is told what it says
+      // even before it is reached.
+      self.announce(msg.clone());
       self.msg_window.open(msg);
    }
 
-   /// App-wide overlay dialogs. Areas bind to the *current* viewport, so this
-   /// must run on Settings' pass as well as the main window.
+   /// App-wide overlay dialogs.
+   ///
+   /// Areas bind to the *current* viewport, and the app has one: the central panel calls this,
+   /// and the Settings window over it is drawn in the same pass.
    pub fn show_overlay_modals(&mut self, ui: &mut Ui) {
       let theme = &self.theme;
       self.msg_window.show(theme, ui);
@@ -235,6 +364,140 @@ impl GUI {
       self.confirm_window.show(theme, ui);
       self.connect_dapp_window.show(theme, ui);
       self.update_window.show(theme, ui);
+      self.shortcut_sheet.show(&self.keymap, theme, ui);
+
+      // The palette draws over the page and over the Settings window, like every other dialog. The
+      // command it hands back waits for the shortcut layer, the one pass with a `ZeusContext`.
+      let chosen = self.palette.show(&self.keymap, theme, ui);
+
+      if let Some(text) = self.palette.take_notice() {
+         self.announce(text);
+      }
+
+      if let Some(command) = chosen {
+         self.palette.set_pending(Some(command));
+      }
+
+      // The connect prompt cannot announce from inside its own draw — the frame holds the only
+      // channel — so its sentence comes back here and is said once, after the prompt has drawn.
+      if let Some(text) = self.connect_dapp_window.take_notice() {
+         self.announce(text);
+      }
+
+      // The loading window cannot announce from inside its own draw — the frame holds the only
+      // channel — so its message comes back here and is said once, after the window has drawn.
+      if let Some(text) = self.loading_window.take_notice() {
+         self.announce(text);
+      }
+   }
+
+   /// Hand every field the switch the vision-only controls follow.
+   ///
+   /// Re-applied on every pass rather than once at detection: `ExportKeyUi`, `DeleteWalletUi`,
+   /// `ChangeCredentialsUi` and `ImportDataUi` rebuild their form in `reset()`, and a form that
+   /// came back with the controls a reader cannot use would silently add the tab stops back.
+   fn set_reader_field_controls(&mut self) {
+      let shown = !self.at_active;
+      self.lock_screen.set_field_controls(shown);
+      self.unlock_vault_ui.set_field_controls(shown);
+      self.recover_wallet_ui.set_field_controls(shown);
+      self.wallet_ui.set_field_controls(shown);
+      self.settings.set_field_controls(shown);
+      self.account_panel.set_field_controls(shown);
+      self.recipient_selection.set_field_controls(shown);
+   }
+
+   /// Notice an attached screen reader and give egui its focus model.
+   ///
+   /// Runs once per frame on the root viewport pass. Nothing native sets
+   /// [`egui::Options::screen_reader`], so once an AT has been seen Zeus sets it itself:
+   /// with it on, egui makes every `Label` focusable, which is what puts prose on the
+   /// keyboard path.
+   ///
+   /// Two signals, either one enough: the tree is being built for this pass (the root
+   /// node exists only then), and an AccessKit action request in the frame's input (only
+   /// a reader can send one). The controls that exist only for sight — the show/hide
+   /// toggle, the QR buttons and the on-screen keyboard — are dropped on every pass, so a
+   /// reader is not made to Tab through tab stops that cannot help.
+   pub fn track_assistive_tech(&mut self, ui: &Ui) {
+      if !self.at_active {
+         let tree_built =
+            ui.ctx().accesskit_node_builder(egui::accesskit_root_id(), |_| ()).is_some();
+
+         let at_interacted = ui.ctx().input(|i| {
+            i.events.iter().any(|e| matches!(e, egui::Event::AccessKitActionRequest(_)))
+         });
+
+         if tree_built || at_interacted {
+            self.at_active = true;
+            ui.ctx().options_mut(|o| o.screen_reader = true);
+            tracing::info!("Screen reader attached: prose is reachable with Tab from now on");
+         }
+      }
+
+      self.set_reader_field_controls();
+
+      // The surfaces that exist only for the eye follow the same flag: the pool table in Swap
+      // and the Appearance page in Settings.
+      let attached = self.at_active;
+      self.uniswap.set_reader_attached(attached);
+      self.settings.set_reader_attached(attached);
+   }
+
+   /// Take the prose out of this pass's tab order, so the next tab stop is a control.
+   ///
+   /// `Ctrl+Tab` asks for the next control, and egui makes a label focusable only while its reader
+   /// model is on: with the option off for the pass the layer moves the focus in, the widget that
+   /// takes the focus next is a control. Nothing else would put the model back — Zeus sets the
+   /// option once, when the AT first appears, and `track_assistive_tech` never touches it again —
+   /// so the pass after calls [`Self::restore_reader_model`].
+   pub fn skip_prose_this_pass(&mut self, egui_ctx: &Context) {
+      let reader_model = egui_ctx.options(|options| options.screen_reader);
+
+      if reader_model {
+         egui_ctx.options_mut(|options| options.screen_reader = false);
+         self.reader_model = Some(reader_model);
+      }
+   }
+
+   /// Put back the label-focus model the last [`Self::skip_prose_this_pass`] took away.
+   pub fn restore_reader_model(&mut self, egui_ctx: &Context) {
+      if let Some(reader_model) = self.reader_model.take() {
+         egui_ctx.options_mut(|options| options.screen_reader = reader_model);
+      }
+   }
+
+   /// Queue `text` for the screen reader.
+   ///
+   /// One channel for the whole app, and the last call of a frame wins. It is spoken once,
+   /// when the text changes, so pass a transition ("Transaction confirmed") rather than a
+   /// state, and never a secret: any AT client can read the announcement node.
+   pub fn announce(&mut self, text: impl Into<String>) {
+      self.announcement = text.into();
+   }
+
+   /// Put this frame's announcement in the tree, once per viewport pass, after the panels.
+   ///
+   /// The text is set on every pass so the node that carries it outlives it — a live
+   /// region created together with its message never speaks — and cleared once drawn, so
+   /// the same words twice are two announcements.
+   pub fn show_announcer(&mut self, ui: &Ui) {
+      self.announcer.announce(ui, self.announcement.as_str());
+      self.announcement.clear();
+   }
+
+   /// Close Zeus once the held attempt-cap notice has been acknowledged.
+   ///
+   /// Runs once per frame on the root pass, after the panels that draw the notice. The cap
+   /// asks for a shutdown; holding it until the window is closed is what gives the notice a
+   /// frame in which a reader can speak it.
+   pub fn finish_lockout_notice(&mut self) {
+      if !self.lockout_notice_held || self.msg_window.is_open() {
+         return;
+      }
+
+      self.lockout_notice_held = false;
+      self.shutdown();
    }
 
    /// Cancel every prompt that authorizes something, answering its awaiting
@@ -265,9 +528,6 @@ impl GUI {
 
    pub fn request_repaint(&self) {
       self.egui_ctx.request_repaint();
-      if self.settings.is_open() {
-         self.egui_ctx.request_repaint_of(settings::settings_viewport_id());
-      }
    }
 
    /// Close Zeus through the normal shutdown path (`ZeusApp::on_shutdown`),
@@ -313,6 +573,77 @@ impl GUI {
    /// window a dapp prompt already brought up.
    pub fn take_show_request(&self) -> bool {
       self.show_requested.swap(false, Ordering::SeqCst)
+   }
+
+   /// The page the central panel is showing.
+   ///
+   /// Pages are checked in the order the central panel draws them — the first open one is the one
+   /// whose body a reader lands in — and a wallet with no page open is on Home. Settings is a page
+   /// like the others now, but drawn as a window over the main window rather than by the central
+   /// panel, so it is only named when no page at all is open; otherwise the heading keeps naming
+   /// the page the main window still shows.
+   pub fn current_page(&self) -> Page {
+      if self.across_bridge.is_open() {
+         return Page::Bridge;
+      }
+      if self.send_crypto.is_open() {
+         return Page::Send;
+      }
+      if self.portofolio.is_open() {
+         return Page::Home;
+      }
+      if self.uniswap.is_open() {
+         return Page::Swap;
+      }
+      if self.shield_ui.is_open() {
+         return Page::Shield;
+      }
+      if self.connected_dapps.is_open() {
+         return Page::ConnectedDapps;
+      }
+      if self.wallet_ui.is_open() {
+         return Page::Wallets;
+      }
+      if self.tx_history.is_open() {
+         return Page::Transactions;
+      }
+      if self.approvals.is_open() {
+         return Page::Approvals;
+      }
+      if self.settings.is_open() {
+         return Page::Settings;
+      }
+      #[cfg(feature = "dev")]
+      if self.dev.is_open() {
+         return Page::Dev;
+      }
+      Page::Home
+   }
+
+   /// Ask the panel that owns `region` to move the focus onto its first control this frame.
+   pub fn request_region_focus(&mut self, region: FocusRegion) {
+      self.pending_region = Some(region);
+      self.focus_region = region;
+   }
+
+   /// Take this frame's request for `region`, if that is the one a shortcut asked for.
+   pub fn take_region_focus(&mut self, region: FocusRegion) -> bool {
+      if self.pending_region != Some(region) {
+         return false;
+      }
+
+      self.pending_region = None;
+      true
+   }
+
+   /// Drop a request that no panel took this frame.
+   pub fn clear_region_focus(&mut self) {
+      self.pending_region = None;
+   }
+
+   /// The region the last region shortcut landed in.
+   pub fn last_focus_region(&self) -> FocusRegion {
+      self.focus_region
    }
 
    pub fn should_show_right_panel(&self) -> bool {

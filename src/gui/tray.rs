@@ -210,6 +210,14 @@ mod watcher {
    }
 }
 
+/// Whether a minimize hides the root window in the tray.
+///
+/// A reader's window never does: the icon it would hide behind is a pointer target, so the
+/// window would leave the keyboard and alt-tab both, with nothing but a mouse to bring it back.
+pub fn minimize_hides_window(configured: bool, at_active: bool) -> bool {
+   configured && !at_active
+}
+
 /// Hide the root window, leaving the tray icon as the only way back.
 ///
 /// Targets [`egui::ViewportId::ROOT`] explicitly rather than the context's *current*

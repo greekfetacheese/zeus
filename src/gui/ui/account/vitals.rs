@@ -7,7 +7,7 @@
 use super::PANEL_ROW_WIDTH;
 use crate::gui::SHARED_GUI;
 use crate::gui::dots_button;
-use egui::{Align, Layout, Margin, RichText, TextWrapMode, Ui, vec2};
+use egui::{Align, Layout, Margin, RichText, Role, TextWrapMode, Ui, WidgetInfo, vec2};
 use egui_elements::{Indicator, IndicatorState, Label, Menu, MenuItem, Theme};
 use std::time::{Duration, Instant};
 use sysinfo::{
@@ -272,9 +272,14 @@ fn heading(theme: &Theme, ui: &mut Ui, vitals: &SystemVitals) {
 
          let size = vec2(24.0, 12.0);
          let more = dots_button(theme, size, ui);
+         let options = "Vitals options";
+         more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
 
+         // A chosen item closes the menu: a reader activates it with Enter, which presses no
+         // pointer, so the popup would otherwise stay open over the card.
          Menu::new(("vitals_menu", "local_vitals")).show_below(&more, |ui| {
             if ui.add(MenuItem::new("Copy report")).clicked() {
+               ui.close();
                ui.ctx().copy_text(vitals.report());
             }
          });

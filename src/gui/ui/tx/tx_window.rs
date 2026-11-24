@@ -1,4 +1,4 @@
-use egui::{Id, Order, RichText, ScrollArea, Ui, vec2};
+use egui::{Id, Key, Order, RichText, ScrollArea, Ui, vec2};
 use egui_elements::{Button, Modal, Spinner, Theme};
 
 use super::{
@@ -10,9 +10,12 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing;
 use crate::core::{TransactionRich, ZeusContext};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::usable_chain;
+use crate::gui::ui::common::{hand_focus_back, heading, name_alert, usable_chain};
 
 use std::sync::Arc;
+
+/// The window's title, drawn in the modal header and carried by the heading a reader lands on.
+const TITLE: &str = "Transaction Details";
 
 /// A window to show details for a transaction that has been sent to the network
 pub struct TxWindow {
@@ -23,6 +26,10 @@ pub struct TxWindow {
    show_calldata: bool,
    show_diffs: bool,
    size: (f32, f32),
+   /// The control that opened the window, focused again when the window closes.
+   opener: Option<Id>,
+   /// True until the opening painted frame has put focus inside the window.
+   focus_pending: bool,
 }
 
 impl TxWindow {
@@ -35,6 +42,8 @@ impl TxWindow {
          show_calldata: false,
          show_diffs: false,
          size: (550.0, 400.0),
+         opener: None,
+         focus_pending: false,
       }
    }
 
@@ -47,14 +56,20 @@ impl TxWindow {
       self.tx = None;
       self.show_calldata = false;
       self.show_diffs = false;
+      self.decoded_events.close();
    }
 
-   /// Show this [TxWindow]
-   pub fn open(&mut self, tx: Option<TransactionRich>) {
+   /// Show this [TxWindow], remembering `opener` — the control whose focus the window gives
+   /// back when it closes.
+   pub fn open(&mut self, tx: Option<TransactionRich>, opener: Option<Id>) {
       self.show_calldata = false;
       self.show_diffs = false;
       self.tx = tx;
       self.open = true;
+      // A window the user has not seen yet starts on its heading, with the control that opened
+      // it remembered for when it closes.
+      self.opener = opener;
+      self.focus_pending = true;
       self.maybe_fill_clear_display();
    }
 
@@ -112,25 +127,61 @@ impl TxWindow {
       });
    }
 
+   /// Whether one of the window's own sheets is drawn over it.
+   ///
+   /// The decoded events, the calldata and the state changes are each a `Modal`, and a `Modal`
+   /// answers Escape for itself whether or not it is closable. The window reads the same key as
+   /// its way out, so it has to know when a press belongs to a sheet above it: a dismissal would
+   /// otherwise close the details the reader was still looking at.
+   fn a_sheet_is_open(&self) -> bool {
+      self.decoded_events.is_open() || self.show_calldata || self.show_diffs
+   }
+
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
       if !self.open {
          return;
       }
 
-      let title = RichText::new("Transaction Details").size(theme.typography.heading);
+      let title = RichText::new(TITLE).size(theme.typography.heading);
       let id = Id::unique("tx_window");
       let frame = theme.window_frame.fill(theme.frame1.fill);
       let mut open = self.open;
+      let mut escape = false;
+      // Read before the sheets are shown: the frame that closes one writes its flag back, and
+      // this is the state the key was pressed in.
+      let sheet_is_open = self.a_sheet_is_open();
 
       Modal::new(id, &mut open)
          .backdrop_order(Order::Middle)
          .content_order(Order::Foreground)
          .closable(false)
+         // The key is read in the body and answered as a close; the modal's own use of it is off
+         // exactly when a sheet is the one that should answer it.
+         .close_on_escape(!sheet_is_open)
          .heading(title)
          .header_separator(false)
          .center_header(true)
          .frame(frame)
          .show(ui.ctx(), |ui| {
+            // Escape is the window's own way out: `closable(false)` keeps the close button
+            // from taking focus, and the backdrop is ignored with it, so the key is read
+            // here and answered as a close — unless a sheet is drawn above it, which owns the
+            // key for that frame.
+            escape = !sheet_is_open && ui.input(|input| input.key_pressed(Key::Escape));
+
+            // A reader lands inside the window: the modal's title is in its header, which is
+            // walked past, so a zero-size heading at the top of the body is the node the focus
+            // is put on — once, on the frame the window opens, and never again, so a details
+            // view does not keep pulling it back from what the user reached next.
+            let title_heading = heading(ui, TITLE);
+            // A shrink-wrapping modal spends two invisible sizing passes before its first
+            // painted frame, and focus requested on those does not survive the pass: wait for
+            // the frame a reader can actually be handed.
+            if self.focus_pending && !ui.is_sizing_pass() {
+               title_heading.request_focus();
+               self.focus_pending = false;
+            }
+
             ui.set_width(self.size.0);
             ui.set_height(self.size.1);
 
@@ -140,6 +191,11 @@ impl TxWindow {
 
                if self.loading {
                   ui.add(Spinner::new().size(20.0));
+                  // A spinner carries no words: without this line the whole window is a
+                  // picture and a reader is told nothing about why it is empty.
+                  ui.label(
+                     RichText::new("Loading transaction details").size(theme.typography.large),
+                  );
                   return;
                }
 
@@ -148,7 +204,11 @@ impl TxWindow {
                ui.add_space(20.0);
 
                if self.tx.is_none() {
-                  ui.label(RichText::new("Transaction not found").size(theme.typography.large));
+                  // One of the three states the window exists to say, so it is an alert and
+                  // not only a line of prose that a reader may walk past.
+                  let text = "Transaction not found";
+                  let response = ui.label(RichText::new(text).size(theme.typography.large));
+                  name_alert(ui, &response, text);
                   let size = vec2(ui.available_width() * 0.8, 45.0);
 
                   let text = RichText::new("Close").size(theme.typography.normal);
@@ -169,12 +229,12 @@ impl TxWindow {
                let Some(chain_id) = usable_chain(tx.chain) else {
                   let chain = tx.chain;
                   ui.add_space(20.0);
-                  ui.label(
-                     RichText::new(format!(
-                        "This transaction is on a chain Zeus cannot use ({chain})"
-                     ))
-                     .size(theme.typography.large),
-                  );
+                  // A refusal is one of the three states the window exists to say, so it is
+                  // heard as an alert rather than as prose beside a Close button.
+                  let sentence =
+                     format!("This transaction is on a chain Zeus cannot use ({chain})");
+                  let response = ui.label(RichText::new(&sentence).size(theme.typography.large));
+                  name_alert(ui, &response, sentence);
                   ui.add_space(20.0);
 
                   let size = vec2(ui.available_width() * 0.8, 45.0);
@@ -189,6 +249,14 @@ impl TxWindow {
 
                let frame = theme.frame2;
                let frame_size = vec2(ui.available_width() * 0.95, 45.0);
+
+               // The outcome used to be a colour and nothing else, which a reader does not get:
+               // the same fact is a line of its own, before the details it belongs to.
+               let status = match tx.success {
+                  true => "Status: Confirmed",
+                  false => "Status: Failed",
+               };
+               ui.label(RichText::new(status).size(theme.typography.large));
 
                self.decoded_events.show(
                   ctx,
@@ -285,10 +353,13 @@ impl TxWindow {
                }
 
                if !tx.success {
+                  // The error colour is all that says this today, and a reader has no
+                  // colour: the same sentence becomes the node role and its name.
                   let text = "Transaction failed";
-                  ui.label(
+                  let response = ui.label(
                      RichText::new(text).size(theme.typography.large).color(theme.colors.error),
                   );
+                  name_alert(ui, &response, text);
                }
 
                let should_show_balance_diff =
@@ -392,5 +463,80 @@ impl TxWindow {
                }
             });
          });
+
+      if escape {
+         open = false;
+      }
+
+      // Every way out is `close()`: the local flag is written back here — it never was
+      // before, so Escape could not stick and the only exit was a button after the whole
+      // description — and the window takes its sub-modals with it.
+      if !open || !self.open {
+         self.close();
+      }
    }
+
+   /// Give the keyboard back to the control that opened the window.
+   ///
+   /// Called by `central_panel` once every surface of the pass has drawn: the page under the
+   /// window draws after it, and a request made here would be cleared by that page's own widgets
+   /// while the window's modal layer is still up (see [`hand_focus_back`]).
+   pub fn give_focus_back(&mut self, ctx: &egui::Context) {
+      if self.open {
+         return;
+      }
+
+      hand_focus_back(ctx, &mut self.opener);
+   }
+
+   /// The window as a notification leaves it, for the accessibility tests that render it
+   /// headlessly.
+   ///
+   /// [`Self::open`] cannot be used: it fills the clear display through `runtime::rt()` and
+   /// `SHARED_GUI`, neither of which a test frame may touch.
+   #[cfg(test)]
+   pub(crate) fn for_test(tx: Option<TransactionRich>, loading: bool) -> Self {
+      let mut window = TxWindow::new();
+      window.tx = tx;
+      window.loading = loading;
+      window.open = true;
+      window.focus_pending = true;
+
+      window
+   }
+
+   /// The window as a notification opens it, with the control whose focus it gives back.
+   #[cfg(test)]
+   pub(crate) fn for_test_with_opener(
+      tx: Option<TransactionRich>,
+      loading: bool,
+      opener: Id,
+   ) -> Self {
+      let mut window = Self::for_test(tx, loading);
+      window.opener = Some(opener);
+
+      window
+   }
+
+   /// The window with one of its sheets standing open, the way the button that opens it leaves
+   /// it: the flags are private to this module, so this is how a test outside it hands the
+   /// keyboard to a sheet.
+   #[cfg(test)]
+   pub(crate) fn with_sheet(mut self, sheet: DetailsSheet) -> Self {
+      match sheet {
+         DetailsSheet::Events => self.decoded_events.open(),
+         DetailsSheet::Calldata => self.show_calldata = true,
+         DetailsSheet::StateChanges => self.show_diffs = true,
+      }
+      self
+   }
+}
+
+/// Which of the details window's sheets a test stands open over it.
+#[cfg(test)]
+#[derive(Clone, Copy)]
+pub(crate) enum DetailsSheet {
+   Events,
+   Calldata,
+   StateChanges,
 }

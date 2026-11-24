@@ -22,8 +22,8 @@ use crate::gui::{
    ui::{ChainSelect, WalletSelect, common::*},
 };
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, ScrollArea, Shadow, Stroke,
-   TextWrapMode, Ui, pos2, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, Response, RichText, Role, ScrollArea,
+   Shadow, Stroke, TextWrapMode, Ui, WidgetInfo, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -40,6 +40,51 @@ const DELEGATE_TIP2: &str = "This wallet is not upgraded to a smart contract";
 fn short_origin(origin: &str) -> &str {
    let host = origin.split_once("://").map_or(origin, |(_, host)| host);
    host.trim_end_matches('/')
+}
+
+/// What the Railgun row says to a reader. The dot is hidden from the tree, so the row's label
+/// carries the state: the service first, then where its sync stands.
+fn railgun_row_name(state: IndicatorState) -> String {
+   let word = match state {
+      IndicatorState::On => "synced",
+      IndicatorState::Off => "off",
+      IndicatorState::Connecting => "syncing",
+   };
+
+   format!("Railgun, {word}")
+}
+
+/// What the Wallet Connector row says to a reader, in the Railgun row's shape: the dot is hidden
+/// and the label names the service and its state.
+fn wallet_connector_row_name(state: IndicatorState) -> String {
+   let word = match state {
+      IndicatorState::On => "running",
+      IndicatorState::Off => "off",
+      IndicatorState::Connecting => "starting",
+   };
+
+   format!("Wallet Connector, {word}")
+}
+
+/// Whether the delegation row draws its opener.
+///
+/// The form behind it is a free-text contract address, which a reader has no way to check by ear:
+/// one paste into the wrong contract hands the account away. A delegated account still gets the
+/// opener, because that window is the only way to undo a delegation.
+fn delegation_opener_shown(reader: bool, delegated: bool) -> bool {
+   !reader || delegated
+}
+
+/// Put a service row's one sentence on the node a reader hears.
+///
+/// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
+/// sentence replaces the drawn word there. The label gets the same sentence, so whichever of the
+/// two a consumer reads, the row says exactly one thing.
+pub(crate) fn name_service_row(ui: &Ui, label: Response, name: String) {
+   ui.ctx().accesskit_node_builder(label.id, |node| {
+      node.set_value(name.clone());
+      node.set_label(name);
+   });
 }
 
 /// Width of the panel's rows. The selectors set it; everything else matches it so
@@ -82,6 +127,13 @@ pub struct AccountPanel {
    body_heights: [f32; 2],
    /// Machine vitals for the Diagnostics tab, refreshed off the frame path.
    vitals: SystemVitals,
+   /// The words the panel itself wants said, drained by the left panel after the panel draws.
+   notice: Option<String>,
+   /// Whether the address row still has to take the focus a region shortcut asked for.
+   focus_address_pending: bool,
+   /// Whether a screen reader is attached. The parts of the panel that exist only for sight — the
+   /// diagnostics tab, the address row and the delegation opener — are dropped for a reader.
+   reader: bool,
 }
 
 impl AccountPanel {
@@ -102,6 +154,21 @@ impl AccountPanel {
          tab: 0,
          body_heights: [0.0; 2],
          vitals: SystemVitals::default(),
+         notice: None,
+         focus_address_pending: false,
+         reader: false,
+      }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.reader = !shown;
+      self.delegate.set_field_controls(shown);
+
+      // A panel left open on the diagnostics tab goes back to the overview: the strip that would
+      // have taken it back is not drawn for a reader.
+      if self.reader && self.tab != 0 {
+         self.tab = 0;
       }
    }
 
@@ -121,8 +188,44 @@ impl AccountPanel {
       self.open = true;
    }
 
+   pub fn is_open(&self) -> bool {
+      self.open
+   }
+
+   /// Show the account overview and ask its first control to take the focus when the card draws.
+   ///
+   /// A region shortcut lands on the address row, which is the panel's own identity. A reader has
+   /// no address row — it is a picture of an address and a link out — so it lands on the wallet
+   /// selector instead, the row that says which account this is.
+   pub fn focus_first_control(&mut self) {
+      if !self.open {
+         return;
+      }
+
+      self.tab = 0;
+
+      if self.reader {
+         self.wallet_select.request_focus();
+      } else {
+         self.focus_address_pending = true;
+      }
+   }
+
    pub fn set_wallet_info(&mut self, wallet_info: WalletInfo) {
       self.wallet_info = wallet_info;
+   }
+
+   /// The address the card hands over, for the shortcut that copies it from another page.
+   ///
+   /// It is the string the card's own button copies — the EVM address, or the zk one while privacy
+   /// mode is on — so a reader gets the same words whichever way they asked. `None` when privacy
+   /// mode is on and the wallet has no zk address: the card draws a note rather than an address
+   /// then, and there is nothing it could honestly hand over.
+   pub fn address_to_copy(&self, privacy_mode: bool) -> Option<String> {
+      match privacy_mode {
+         false => Some(self.wallet_info.address.to_string()),
+         true => self.wallet_info.has_zk_address().then(|| self.wallet_info.zk_address()),
+      }
    }
 
    pub fn set_current_wallet(&mut self, wallet: WalletInfo) {
@@ -132,6 +235,14 @@ impl AccountPanel {
 
    pub fn set_current_chain(&mut self, chain: ChainId) {
       self.chain_select.chain = chain;
+   }
+
+   /// The words the panel wants said, drained by the left panel right after the panel draws.
+   ///
+   /// Neither the receive window nor the header's address copy can announce on its own: the frame
+   /// holds the only channel, so each leaves its sentence here for the panel to hand up.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take().or_else(|| self.qr_window.take_notice())
    }
 
    pub fn show(&mut self, ctx: &mut ZeusContext, theme: &Theme, icons: Arc<Icons>, ui: &mut Ui) {
@@ -196,17 +307,21 @@ impl AccountPanel {
          }
 
          ui.vertical(|ui| {
-            // Tab strip: Overview (wallet/chain) and Diagnostics.
-            Tabs::new(
-               "account_tabs",
-               &mut self.tab,
-               ["Overview", "Diagnostics"],
-            )
-            .style(TabsStyle::Underline)
-            .fill_width(false)
-            .show(ui);
+            // Tab strip: Overview (wallet/chain) and Diagnostics. A reader is not given a strip to
+            // walk through: the diagnostics page is numbers and pictures of state they cannot act
+            // on, so the panel is the overview and nothing else.
+            if !self.reader {
+               Tabs::new(
+                  "account_tabs",
+                  &mut self.tab,
+                  ["Overview", "Diagnostics"],
+               )
+               .style(TabsStyle::Underline)
+               .fill_width(false)
+               .show(ui);
 
-            ui.add_space(5.0);
+               ui.add_space(5.0);
+            }
 
             match self.tab {
                0 => self.show_overview(ctx, theme, &icons, privacy_mode, chain, ui),
@@ -246,6 +361,8 @@ impl AccountPanel {
       chain: ChainId,
       ui: &mut Ui,
    ) {
+      let focus_address = std::mem::take(&mut self.focus_address_pending);
+
       ui.horizontal(|ui| {
          self.show_chain_select(ctx, theme, icons.clone(), ui);
       });
@@ -270,91 +387,110 @@ impl AccountPanel {
       // `PANEL_ROW_WIDTH` (the selectors' total width) to line up with its siblings.
       let row_width = PANEL_ROW_WIDTH - frame2.inner_margin.sum().x;
 
-      // Wallet address, on click copy it to the clipboard
-      frame2.show(ui, |ui| {
-         ui.set_width(row_width);
+      // Wallet address, on click copy it to the clipboard. The row is for sight — an address
+      // truncated to something only an eye can finish, a QR code that is a picture of it, and a
+      // link that leaves the wallet — so a reader is not walked through it. The full address
+      // reaches them on the shortcut that copies it and says the words.
+      if !self.reader {
+         frame2.show(ui, |ui| {
+            ui.set_width(row_width);
 
-         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
 
-            let address = match privacy_mode {
-               false => wallet.evm_address_truncated(),
-               true => wallet.zk_address_truncated(),
-            };
+               let address = match privacy_mode {
+                  false => wallet.evm_address_truncated(),
+                  true => wallet.zk_address_truncated(),
+               };
 
-            let full_address = match privacy_mode {
-               false => wallet.address.to_string(),
-               true => wallet.zk_address(),
-            };
+               let full_address = match privacy_mode {
+                  false => wallet.address.to_string(),
+                  true => wallet.zk_address(),
+               };
 
-            // Privacy mode on a wallet we cannot derive a zk address for: the row is
-            // a muted note. The copy / QR / explorer actions would act on the note
-            // instead of an address, so they are hidden.
-            if privacy_mode && !wallet.has_zk_address() {
-               let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
+               // Privacy mode on a wallet we cannot derive a zk address for: the row is
+               // a muted note. The copy / QR / explorer actions would act on the note
+               // instead of an address, so they are hidden.
+               if privacy_mode && !wallet.has_zk_address() {
+                  let text = RichText::new(address).size(normal).color(theme.colors.text_muted);
 
-               // Keep the clickable label's height so hiding the actions does not
-               // shift the rows below.
-               let text_height =
-                  ui.ctx().fonts_mut(|f| f.row_height(&FontId::proportional(normal)));
-               let height = (text_height + 2.0 * ui.spacing().button_padding.y)
-                  .max(ui.spacing().interact_size.y);
+                  // Keep the clickable label's height so hiding the actions does not
+                  // shift the rows below.
+                  let text_height =
+                     ui.ctx().fonts_mut(|f| f.row_height(&FontId::proportional(normal)));
+                  let height = (text_height + 2.0 * ui.spacing().button_padding.y)
+                     .max(ui.spacing().interact_size.y);
 
-               ui.allocate_ui_with_layout(
-                  vec2(ui.available_width(), height),
-                  Layout::left_to_right(Align::Center),
-                  |ui| {
-                     // Same inset as the clickable label's button padding.
-                     ui.add_space(ui.spacing().button_padding.x);
-                     ui.add(Label::new(text, None).interactive(false));
-                  },
-               );
+                  ui.allocate_ui_with_layout(
+                     vec2(ui.available_width(), height),
+                     Layout::left_to_right(Align::Center),
+                     |ui| {
+                        // Same inset as the clickable label's button padding.
+                        ui.add_space(ui.spacing().button_padding.x);
+                        ui.add(Label::new(text, None).interactive(false));
+                     },
+                  );
 
-               return;
-            }
-
-            let address_text = RichText::new(address).size(normal);
-            let label = Button::selectable(false, address_text);
-
-            if ui.add(label).clicked() {
-               ui.ctx().copy_text(full_address);
-            }
-
-            // The QR / block-explorer actions, and the separators before them, are
-            // anchored to the row's right edge: laid out after the text they would
-            // follow its width, and the zk address is shorter than the evm one, so
-            // they would slide out of line with the rows below. Right-to-left, so
-            // they are added rightmost first.
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               // Block explorer link
-               let block_explorer = chain.block_explorer();
-               let link = format!("{}/address/{}", block_explorer, wallet.address);
-               let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
-
-               let button = Button::image(icon).visuals(btn_visuals).small();
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               if res.clicked() {
-                  let url = OpenUrl::new_tab(link);
-                  ui.ctx().open_url(url);
+                  return;
                }
 
-               ui.separator();
+               let address_text = RichText::new(address).size(normal);
+               let label = Button::selectable(false, address_text);
 
-               let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
-
-               let button = Button::image(icon).visuals(btn_visuals).small();
-               let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
-
-               // QR Code Window
-               if res.clicked() {
-                  self.qr_window.open(wallet.clone());
+               let address_button = ui.add(label);
+               if focus_address {
+                  address_button.request_focus();
                }
 
-               ui.separator();
+               if address_button.clicked() {
+                  // The words name the address: a listener has no other way to check what landed on
+                  // the clipboard.
+                  self.notice = Some(copied_words(&full_address));
+                  ui.ctx().copy_text(full_address);
+               }
+
+               // The QR / block-explorer actions, and the separators before them, are
+               // anchored to the row's right edge: laid out after the text they would
+               // follow its width, and the zk address is shorter than the evm one, so
+               // they would slide out of line with the rows below. Right-to-left, so
+               // they are added rightmost first.
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                  // Block explorer link
+                  let block_explorer = chain.block_explorer();
+                  let link = format!("{}/address/{}", block_explorer, wallet.address);
+                  let icon = Lucide::ExternalLink.size(18.0).color(icon_color).image();
+
+                  // A picture of a link: the text alternative says where pressing it goes.
+                  let button = Button::image(icon)
+                     .visuals(btn_visuals)
+                     .small()
+                     .alt("Open the address in the block explorer");
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                  if res.clicked() {
+                     let url = OpenUrl::new_tab(link);
+                     ui.ctx().open_url(url);
+                  }
+
+                  ui.separator();
+
+                  let icon = Lucide::QrCode.size(18.0).color(icon_color).image();
+
+                  // A picture of a QR code: the text alternative names what pressing it opens, in
+                  // the words the dialog's own button carries.
+                  let button = Button::image(icon).visuals(btn_visuals).small().alt("Show QR Code");
+                  let res = ui.add(button).on_hover_cursor(CursorIcon::PointingHand);
+
+                  // QR Code Window
+                  if res.clicked() {
+                     self.qr_window.open(wallet.clone(), Some(res.id));
+                  }
+
+                  ui.separator();
+               });
             });
          });
-      });
+      }
 
       // Wallet delegated status
       frame2.show(ui, |ui| {
@@ -385,21 +521,27 @@ impl AccountPanel {
                false => IndicatorState::On,
             };
 
-            let indicator = Indicator::new(state).size(12.0);
+            // The dot is Off precisely when the wallet is delegated, and it tells a reader
+            // "status: off", the opposite of the word beside it. The word is the row's only node.
+            let indicator = ui.add(Indicator::new(state).size(12.0));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
-            ui.add(indicator);
             ui.add(label).on_hover_text(tip_text);
 
-            // Align this separator with the one above it.
-            ui.add_space(1.2);
+            if delegation_opener_shown(self.reader, deleg_addr.is_some()) {
+               // Align this separator with the one above it.
+               ui.add_space(1.2);
 
-            ui.separator();
+               ui.separator();
 
-            let size = vec2(24.0, 12.0);
-            let more = dots_button(theme, size, ui);
+               let size = vec2(24.0, 12.0);
+               let more = dots_button(theme, size, ui);
+               let options = "Delegation options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
 
-            if more.clicked() && !self.delegate.is_open() {
-               self.delegate.open();
+               if more.clicked() && !self.delegate.is_open() {
+                  self.delegate.open();
+               }
             }
          });
       });
@@ -485,12 +627,14 @@ impl AccountPanel {
                sync_state = IndicatorState::Off;
             }
 
-            ui.add(Indicator::new(sync_state));
+            let indicator = ui.add(Indicator::new(sync_state));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
             ui.add_space(10.0);
 
             let label = RichText::new("Railgun").size(theme.typography.small);
-            ui.label(label);
+            let label = ui.label(label);
+            name_service_row(ui, label, railgun_row_name(sync_state));
 
             ui.add_space(10.0);
 
@@ -509,8 +653,13 @@ impl AccountPanel {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
+               let options = "Railgun options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
+               // A chosen item closes the menu: a reader activates it with Enter, which presses
+               // no pointer, so the popup would otherwise stay open over what it opened.
                Menu::new(("svc_menu", "railgun_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("View last error")).clicked() {
+                     ui.close();
                      let error_opt = ctx.railgun_status().sync_error(chain.id());
                      let error =
                         error_opt.unwrap_or("No errors for now everything looks good".to_string());
@@ -524,6 +673,7 @@ impl AccountPanel {
                   }
 
                   if ui.add(MenuItem::new("Settings")).clicked() {
+                     ui.close();
                      crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.ctx.clone().write(|ctx| {
@@ -554,18 +704,23 @@ impl AccountPanel {
                false => IndicatorState::Connecting,
             };
 
-            ui.add(Indicator::new(state));
+            let indicator = ui.add(Indicator::new(state));
+            ui.ctx().accesskit_node_builder(indicator.id, |node| node.set_hidden());
 
             ui.add_space(10.0);
 
             let label = RichText::new("Wallet Connector").size(theme.typography.small);
-            ui.label(label);
+            let label = ui.label(label);
+            name_service_row(ui, label, wallet_connector_row_name(state));
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);
                let more = dots_button(theme, size, ui);
+               let options = "Wallet Connector options";
+               more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), options));
                Menu::new(("svc_menu", "wallet_connector_id")).show_below(&more, |ui| {
                   if ui.add(MenuItem::new("Settings")).clicked() {
+                     ui.close();
                      crate::runtime::rt().spawn_blocking(move || {
                         SHARED_GUI.write(|gui| {
                            gui.msg_window.open("Not implemented yet");
@@ -613,5 +768,64 @@ impl AccountPanel {
             switch_wallet(ctx, self.wallet_select.wallet.clone());
          }
       });
+   }
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A service row's dot is hidden from the tree, so its one node is the label: the service and
+   /// its state, in reading order, never the dot's "status: on".
+   #[test]
+   fn the_railgun_row_says_the_service_and_its_state() {
+      assert_eq!(
+         railgun_row_name(IndicatorState::On),
+         "Railgun, synced"
+      );
+      assert_eq!(
+         railgun_row_name(IndicatorState::Connecting),
+         "Railgun, syncing"
+      );
+      assert_eq!(
+         railgun_row_name(IndicatorState::Off),
+         "Railgun, off"
+      );
+   }
+
+   /// The form behind the delegation row takes a contract address from the clipboard, and a
+   /// reader cannot tell one address from another by ear. It is not offered to them — unless the
+   /// account is already delegated, where the same window is the only way out.
+   #[test]
+   fn the_delegation_opener_is_not_offered_to_a_reader() {
+      assert!(
+         !delegation_opener_shown(true, false),
+         "a reader must not be offered a form they cannot check"
+      );
+      assert!(
+         delegation_opener_shown(true, true),
+         "a delegated account keeps the way out"
+      );
+      assert!(
+         delegation_opener_shown(false, false),
+         "the row is unchanged for a sighted user"
+      );
+   }
+
+   /// The Wallet Connector row follows the same shape, with the words that connector uses.
+   #[test]
+   fn the_wallet_connector_row_says_the_service_and_its_state() {
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::On),
+         "Wallet Connector, running"
+      );
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::Connecting),
+         "Wallet Connector, starting"
+      );
+      assert_eq!(
+         wallet_connector_row_name(IndicatorState::Off),
+         "Wallet Connector, off"
+      );
    }
 }

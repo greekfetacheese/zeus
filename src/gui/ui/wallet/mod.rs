@@ -1,11 +1,16 @@
 use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, WalletValue, ZeusContext};
+use crate::gui::ui::common::{
+   address_for_speech, chain_label, clickable_row, copied_words, push_chain_label,
+   spoken_wallet_name,
+};
 use crate::gui::{
    SHARED_GUI, dots_button,
    ui::{WalletListByValue, show_with_fade, switch_wallet},
 };
 use eframe::egui::{
-   Align, Context, FontId, Id, Layout, Margin, Order, RichText, ScrollArea, Ui, Vec2, vec2,
+   Align, Context, FontId, Id, Layout, Margin, Order, RichText, Role, ScrollArea, Ui, Vec2,
+   WidgetInfo, vec2,
 };
 use egui_elements::Modal;
 use egui_elements::{
@@ -35,6 +40,15 @@ pub struct WalletUi {
    rename_wallet: bool,
    new_wallet_name: String,
    wallet_to_rename: Option<WalletInfo>,
+   /// Whether the rename field still has to take the focus the dialog's Close button is given when
+   /// it opens.
+   rename_focus_field: bool,
+   /// The control the rename dialog was opened from: the card's options button, which takes the
+   /// keyboard back when the dialog closes.
+   rename_opener: Option<Id>,
+   /// The control the keyboard goes back to on the first frame the page draws after the rename
+   /// dialog closes, since the dialog's own controls are gone with it.
+   rename_return_focus: Option<Id>,
    pub add_wallet_ui: AddWalletUi,
    search_query: String,
    export_key_ui: ExportKeyUi,
@@ -51,6 +65,11 @@ pub struct WalletUi {
    wallet_value: HashMap<Address, WalletValue>,
    /// Chains that the wallet has balance on
    wallet_chains: HashMap<Address, Vec<u64>>,
+   /// The one sentence the page wants said this frame. A page cannot announce from inside its own
+   /// draw, so the panel drains this after the page is drawn.
+   notice: Option<String>,
+   /// The last count the page said, so a count that did not change is not repeated.
+   spoken_count: Option<String>,
    size: (f32, f32),
 }
 
@@ -62,6 +81,9 @@ impl WalletUi {
          rename_wallet: false,
          new_wallet_name: String::new(),
          wallet_to_rename: None,
+         rename_focus_field: false,
+         rename_opener: None,
+         rename_return_focus: None,
          add_wallet_ui: AddWalletUi::new(),
          search_query: String::new(),
          export_key_ui: ExportKeyUi::new(),
@@ -71,8 +93,17 @@ impl WalletUi {
          visible_key: None,
          wallet_value: HashMap::new(),
          wallet_chains: HashMap::new(),
+         notice: None,
+         spoken_count: None,
          size: (550.0, 600.0),
       }
+   }
+
+   /// Draw or drop the field controls that only a sighted user can use.
+   pub fn set_field_controls(&mut self, shown: bool) {
+      self.add_wallet_ui.set_field_controls(shown);
+      self.export_key_ui.set_field_controls(shown);
+      self.delete_wallet_ui.set_field_controls(shown);
    }
 
    pub fn erase(&mut self, ctx: &Context) {
@@ -85,15 +116,40 @@ impl WalletUi {
       self.open
    }
 
-   pub fn open_rename_wallet(&mut self, wallet: Option<WalletInfo>) {
+   /// Whether a dialog of this page is over it: page shortcuts keep out of their way.
+   pub fn dialog_open(&self) -> bool {
+      self.add_wallet_ui.is_open()
+         || self.export_key_ui.is_open()
+         || self.delete_wallet_ui.is_open()
+         || self.rename_wallet
+   }
+
+   /// Open the rename dialog on `wallet`, remembering `opener` — the control whose focus the
+   /// dialog gives back when it closes.
+   pub fn open_rename_wallet(&mut self, wallet: Option<WalletInfo>, opener: Option<Id>) {
+      // The field opens on the name in use, so a reader can hear what is there and change it
+      // instead of retyping it from memory.
+      self.new_wallet_name =
+         wallet.as_ref().map(|wallet| wallet.name().to_string()).unwrap_or_default();
+
       self.rename_wallet = true;
       self.wallet_to_rename = wallet;
+      self.rename_focus_field = true;
+      self.rename_opener = opener;
    }
 
    pub fn close_rename_wallet(&mut self) {
+      // The dialog's own controls go with it and the menu item that opened it went with the menu,
+      // so the card's options button takes the keyboard back. The request waits for the frame: the
+      // rename is saved on a worker, which closes the dialog between frames.
+      if self.rename_wallet {
+         self.rename_return_focus = self.rename_opener.take();
+      }
+
       self.rename_wallet = false;
       self.wallet_to_rename = None;
       self.new_wallet_name.clear();
+      self.rename_focus_field = false;
    }
 
    pub fn open(&mut self) {
@@ -117,9 +173,7 @@ impl WalletUi {
          .wallets
          .iter()
          .filter(|wallet| *wallet != current_wallet)
-         .filter(|wallet| {
-            query.is_empty() || wallet.name().to_lowercase().contains(&query)
-         })
+         .filter(|wallet| query.is_empty() || wallet.name().to_lowercase().contains(&query))
          .cloned()
          .collect();
 
@@ -128,6 +182,14 @@ impl WalletUi {
 
    pub fn close(&mut self) {
       self.open = false;
+      // How many wallets the page holds is said when it arrives, so the last count is forgotten
+      // with the page rather than being compared against on the next visit.
+      self.spoken_count = None;
+   }
+
+   /// The sentence the page wants said, for the frame's announcement channel.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    /// Close the wallet UI and drop the secrets it is holding.
@@ -137,6 +199,10 @@ impl WalletUi {
    pub fn lock(&mut self, ctx: &Context) {
       self.close();
       self.close_rename_wallet();
+      // A focus handed back before the lock is not about the page the user comes back to.
+      self.rename_return_focus = None;
+      // A sentence raised before the lock is not about the page the user comes back to.
+      self.notice = None;
       self.export_key_ui.lock(ctx);
       // The delete form carries a verified-credentials flag that authorizes the
       // delete; it must not survive the lock.
@@ -153,8 +219,32 @@ impl WalletUi {
 
       self.rename_wallet(theme, ui);
       self.add_wallet_ui.show(ctx, theme, icons.clone(), ui);
+
+      if let Some(opener) = self.rename_return_focus.take() {
+         ui.ctx().memory_mut(|memory| memory.request_focus(opener));
+      }
+
+      // The add-wallet dialog draws after the page, so its sentence is the last one raised here.
+      if let Some(notice) = self.add_wallet_ui.take_notice() {
+         self.notice = Some(notice);
+      }
+
       self.export_key_ui.show(ctx, theme, ui);
+
+      // The export dialog draws after the page, so its sentence is the last one raised this frame
+      // and the one the announcement channel keeps: what the dialog just did replaces whatever the
+      // page said above.
+      if let Some(notice) = self.export_key_ui.take_notice() {
+         self.notice = Some(notice);
+      }
+
       self.delete_wallet_ui.show(ctx, theme, ui);
+
+      // The delete dialog draws after the export dialog, so its sentence is the last one raised
+      // this frame and the one the announcement channel keeps.
+      if let Some(notice) = self.delete_wallet_ui.take_notice() {
+         self.notice = Some(notice);
+      }
    }
 
    /// This is the first Ui we show to the user when this [WalletUi] is open.
@@ -201,17 +291,26 @@ impl WalletUi {
 
                let hint = RichText::new("Search...").color(theme.colors.text_muted).size(normal);
 
+               // The field draws its hint and nothing else, so it is named for what it narrows.
                ui.allocate_ui(vec2(content_width, 45.0), |ui| {
                   SecureTextEdit::singleline(&mut self.search_query)
+                     .accessible_name("Search wallets")
                      .hint_text(hint)
                      .margin(Margin::same(10))
                      .font(FontId::proportional(normal))
                      .desired_width(ui.available_width())
-                     .show(ui);
+                     .show(ui)
                });
 
                if self.loading {
-                  ui.add(Spinner::new().size(17.0));
+                  let spinner = ui.add(Spinner::new().size(17.0));
+                  spinner.widget_info(|| {
+                     WidgetInfo::labeled(
+                        Role::ProgressIndicator,
+                        ui.is_enabled(),
+                        "Loading wallet values",
+                     )
+                  });
                   return;
                }
 
@@ -226,6 +325,15 @@ impl WalletUi {
 
                if stale {
                   self.refresh_visible_wallets(&current_wallet);
+               }
+
+               // The answer to the search is said when it changes, and never while the values are
+               // loading: the rows below this point are the ones the count is about.
+               let count = count_sentence(self.visible_wallets.len());
+
+               if self.spoken_count.as_deref() != Some(count.as_str()) {
+                  self.spoken_count = Some(count.clone());
+                  self.notice = Some(count);
                }
 
                let row_height = 80.0;
@@ -254,6 +362,10 @@ impl WalletUi {
                            content_width,
                            ui,
                         ) {
+                           self.notice = Some(format!(
+                              "Switched to {}.",
+                              spoken_wallet_name(&wallet)
+                           ));
                            switch_wallet(ctx, wallet);
                         }
                      }
@@ -279,99 +391,227 @@ impl WalletUi {
       width: f32,
       ui: &mut Ui,
    ) -> bool {
-      let tint = theme.image_tint_recommended;
-
-      let visuals = theme.frame2_visuals();
       let inner = theme.inner_margin;
       let corner = theme.corner_radius;
+      let current = ctx.is_current_wallet(wallet.address);
 
       let frame = Frame::new()
-         .interactive(!ctx.is_current_wallet(wallet.address))
+         .interactive(!current)
          .inner_margin(inner)
          .corner_radius(corner)
-         .visuals(visuals);
+         .visuals(theme.frame2_visuals());
 
-      let response = frame.show(ui, |ui| {
-         ui.set_width(width);
-         ui.spacing_mut().button_padding = theme.button_padding;
+      // The card says its name and its value once, so both are built before the frame draws: the
+      // two labels that put them on screen are hidden below.
+      let empty = WalletValue::default();
+      let value = self.wallet_value.get(&wallet.address).unwrap_or(&empty);
 
-         let small = theme.typography.small;
-         let normal = theme.typography.normal;
+      let value_fmt = if ctx.privacy_mode {
+         format!("${:.10}", value.private.abbreviated())
+      } else {
+         format!("${:.10}", value.public.abbreviated())
+      };
 
-         ui.horizontal(|ui| {
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               let id = format!("{}_more_options", wallet.address);
-               let more = dots_button(theme, MORE_BUTTON_SIZE, ui);
-               let enabled = !wallet.is_master();
+      let spoken = spoken_wallet_name(wallet);
+      let name = format!("{spoken}, {value_fmt}");
 
-               Menu::new(id).show_below(&more, |ui| {
-                  if ui.add(MenuItem::new("Export")).clicked() {
-                     self.export_key_ui.open(wallet.clone());
-                  }
+      // The chain icons are not a sentence on their own, so the card says what they mean. The ids
+      // the icons draw are filtered once here and handed to the body, which draws exactly these:
+      // a body that walked the map again would filter it twice and could say a chain it does not
+      // draw.
+      let chains: Vec<u64> = self
+         .wallet_chains
+         .get(&wallet.address)
+         .map(|chains| {
+            chains.iter().copied().filter(|chain| !ctx.is_chain_disabled(*chain)).collect()
+         })
+         .unwrap_or_default();
 
-                  if ui.add(MenuItem::new("Rename")).clicked() {
-                     self.open_rename_wallet(Some(wallet.clone()));
-                  }
+      let description = (!chains.is_empty()).then(|| {
+         let mut sentence = String::from("On ");
 
-                  if ui.add(MenuItem::new("Show QR Code")).clicked() {
-                     on_show_wallet_qr(wallet.clone());
-                  }
-
-                  if ui.add_enabled(enabled, MenuItem::new("Delete")).clicked() {
-                     self.delete_wallet_ui.open(wallet.clone());
-                  }
-               });
-
-               ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                  let text = RichText::new(wallet.name_with_source()).size(normal);
-                  let label = Label::new(text, None).interactive(false);
-                  ui.add(label);
-               });
-            });
-         });
-
-         ui.horizontal(|ui| {
-            let text = RichText::new(wallet.evm_address_truncated()).size(small);
-            let label = Button::selectable(false, text);
-
-            if ui.add(label).clicked() {
-               ui.ctx().copy_text(wallet.address.to_string());
+         for (index, chain) in chains.iter().enumerate() {
+            if index > 0 {
+               sentence.push_str(", ");
             }
 
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-               ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+            push_chain_label(&mut sentence, *chain);
+         }
 
-               let empty = WalletValue::default();
-               let value = self.wallet_value.get(&wallet.address).unwrap_or(&empty);
+         sentence
+      });
 
-               let value_fmt = if ctx.privacy_mode {
-                  format!("${:.10}", value.private.abbreviated())
-               } else {
-                  format!("${:.10}", value.public.abbreviated())
-               };
+      if current {
+         let card = frame.show(ui, |ui| {
+            self.wallet_body(
+               theme,
+               icons.clone(),
+               wallet,
+               width,
+               &spoken,
+               &value_fmt,
+               &chains,
+               ui,
+            )
+         });
 
-               let value_text = RichText::new(value_fmt).size(small);
+         card
+            .response
+            .widget_info(|| WidgetInfo::labeled(Role::Group, ui.is_enabled(), &name));
 
-               let label = Label::new(value_text, None).interactive(false);
-               ui.add(label);
+         if let Some(description) = &description {
+            ui.ctx().accesskit_node_builder(card.response.id, |node| {
+               node.set_description(description.as_str());
+            });
+         }
 
-               let chains = self.wallet_chains.get(&wallet.address).cloned().unwrap_or_default();
-               ui.horizontal(|ui| {
-                  ui.spacing_mut().item_spacing.x = theme.spacing.xs;
-                  for chain in chains {
-                     if ctx.is_chain_disabled(chain) {
-                        continue;
-                     }
+         for covered in card.inner {
+            ui.ctx().accesskit_node_builder(covered, |node| node.set_hidden());
+         }
 
-                     let icon = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
-                     ui.add(icon);
-                  }
-               });
+         return false;
+      }
+
+      // A row here is never the selected one: the list holds the wallets Zeus is not on — the one
+      // it is on is the card above the search field — so there is no selection to report.
+      clickable_row(ui, frame, name, description, false, |ui| {
+         self.wallet_body(
+            theme,
+            icons.clone(),
+            wallet,
+            width,
+            &spoken,
+            &value_fmt,
+            &chains,
+            ui,
+         )
+      })
+      .clicked()
+   }
+
+   /// The card's contents: the options button, the name, the address, the value and the chains the
+   /// wallet holds something on.
+   ///
+   /// Returns the ids of the labels whose words the card's own name already says.
+   fn wallet_body(
+      &mut self,
+      theme: &Theme,
+      icons: Arc<Icons>,
+      wallet: &WalletInfo,
+      width: f32,
+      spoken: &str,
+      value_fmt: &str,
+      chains: &[u64],
+      ui: &mut Ui,
+   ) -> Vec<Id> {
+      let tint = theme.image_tint_recommended;
+      let small = theme.typography.small;
+      let normal = theme.typography.normal;
+
+      let mut covered = Vec::new();
+
+      ui.set_width(width);
+      ui.spacing_mut().button_padding = theme.button_padding;
+
+      ui.horizontal(|ui| {
+         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let id = format!("{}_more_options", wallet.address);
+            let more = dots_button(theme, MORE_BUTTON_SIZE, ui);
+            let enabled = !wallet.is_master();
+
+            let options = format!("Options for {spoken}");
+            more.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &options));
+
+            // A chosen item closes the menu. A popup closes itself only on the pointer's click,
+            // and a reader activates an item with Enter, which never presses a pointer: the open
+            // menu would then stay over the card, above the dialog the item opened, and be the
+            // next thing the keyboard could reach.
+            Menu::new(id).show_below(&more, |ui| {
+               if ui.add(MenuItem::new("Export key")).clicked() {
+                  ui.close();
+                  self.export_key_ui.open(wallet.clone());
+               }
+
+               if ui.add(MenuItem::new("Rename")).clicked() {
+                  ui.close();
+                  self.open_rename_wallet(Some(wallet.clone()), Some(more.id));
+               }
+
+               let show_qr = ui.add(MenuItem::new("Show address QR code"));
+
+               if show_qr.clicked() {
+                  ui.close();
+                  // The menu item is gone once the menu closes; the dots button that opened it
+                  // is still on the card when the QR window gives the focus back.
+                  on_show_wallet_qr(wallet.clone(), more.id);
+               }
+
+               let delete = ui.add_enabled(enabled, MenuItem::new("Delete"));
+
+               // The one wallet Zeus will not delete says why where a reader can reach it.
+               if !enabled {
+                  ui.ctx().accesskit_node_builder(delete.id, |node| {
+                     node.set_description("The master wallet cannot be deleted.");
+                  });
+               }
+
+               if delete.clicked() {
+                  ui.close();
+                  self.delete_wallet_ui.open(wallet.clone());
+               }
+            });
+
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+               let text = RichText::new(wallet.name_with_source()).size(normal);
+               let label = Label::new(text, None).interactive(false);
+               covered.push(ui.add(label).id);
             });
          });
       });
 
-      response.response.clicked()
+      ui.horizontal(|ui| {
+         let text = RichText::new(wallet.evm_address_truncated()).size(small);
+         let label = Button::selectable(false, text);
+         let copy = ui.add(label);
+
+         // The drawn address keeps both of its ends; what is copied is the whole of it, which is
+         // what the node keeps behind the button's own name.
+         let copy_name = format!("Copy address of {spoken}");
+         let address = address_for_speech(None, &wallet.address.to_string());
+
+         copy.widget_info(|| WidgetInfo::labeled(Role::Button, ui.is_enabled(), &copy_name));
+         ui.ctx().accesskit_node_builder(copy.id, |node| {
+            if let Some(whole) = &address.description {
+               node.set_description(whole.as_str());
+            }
+         });
+
+         if copy.clicked() {
+            self.notice = Some(copied_words(&wallet.address.to_string()));
+            ui.ctx().copy_text(wallet.address.to_string());
+         }
+
+         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+
+            let value_text = RichText::new(value_fmt).size(small);
+            let label = Label::new(value_text, None).interactive(false);
+            covered.push(ui.add(label).id);
+
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+               for &chain in chains {
+                  let image = icons.chain_icon(chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
+                  let icon = ui.add(image);
+
+                  let label = chain_label(chain);
+                  icon.widget_info(|| WidgetInfo::labeled(Role::Image, ui.is_enabled(), &label));
+               }
+            });
+         });
+      });
+
+      covered
    }
 
    /// Rename wallet UI
@@ -381,6 +621,7 @@ impl WalletUi {
       }
 
       let mut open = self.rename_wallet;
+      let mut name_field = None;
 
       let normal = theme.typography.normal;
       let large = theme.typography.large;
@@ -413,13 +654,19 @@ impl WalletUi {
                ui.label(RichText::new("Wallet Name").size(large));
 
                let field_size = vec2(ui.available_width() * 0.9, 45.0);
-               ui.allocate_ui(field_size, |ui| {
-                  SecureTextEdit::singleline(&mut self.new_wallet_name)
-                     .font(FontId::proportional(normal))
-                     .margin(Margin::same(10))
-                     .desired_width(ui.available_width())
-                     .show(ui);
-               });
+               name_field = Some(
+                  ui.allocate_ui(field_size, |ui| {
+                     // The field draws no label of its own, so it is named for what it holds.
+                     SecureTextEdit::singleline(&mut self.new_wallet_name)
+                        .accessible_name("New wallet name")
+                        .font(FontId::proportional(normal))
+                        .margin(Margin::same(10))
+                        .desired_width(ui.available_width())
+                        .show(ui)
+                  })
+                  .inner
+                  .response,
+               );
 
                let text = RichText::new("Rename").size(large);
                let rename_button = Button::new(text).min_size(field_size);
@@ -430,9 +677,68 @@ impl WalletUi {
             });
          });
 
+      // The dialog spends its first passes sizing, where its body is invisible and cannot hold the
+      // focus, so the field asks for it on the first pass that is drawn. It asks after the dialog
+      // has drawn, so the dialog's own opening grab — which moves focus to its Close button —
+      // cannot take it back.
+      if let Some(field) = name_field.filter(|field| field.visible() && self.rename_focus_field) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(field.id));
+         self.rename_focus_field = false;
+      }
+
       if !open {
          self.close_rename_wallet();
       }
+   }
+}
+
+#[cfg(test)]
+impl WalletUi {
+   /// Open the page on `current`, with `others` under it, and build the rows the list paints —
+   /// without the worker that reads the vault.
+   pub(crate) fn for_test(&mut self, current: &WalletInfo, others: Vec<WalletInfo>) {
+      self.open = true;
+      self.loading = false;
+      self.wallets = std::iter::once(current.clone()).chain(others).collect();
+      self.refresh_visible_wallets(current);
+   }
+
+   /// The value and the chains the loader would have written back for one wallet.
+   pub(crate) fn set_value_for_test(
+      &mut self,
+      address: Address,
+      value: WalletValue,
+      chains: Vec<u64>,
+   ) {
+      self.wallet_value.insert(address, value);
+      self.wallet_chains.insert(address, chains);
+   }
+
+   pub(crate) fn set_query_for_test(&mut self, query: &str) {
+      self.search_query = query.to_string();
+   }
+
+   pub(crate) fn rename_is_open_for_test(&self) -> bool {
+      self.rename_wallet
+   }
+
+   /// The export dialog, for a tree test that opens it without the worker its own `open` runs.
+   pub(crate) fn export_key_ui_for_test(&mut self) -> &mut ExportKeyUi {
+      &mut self.export_key_ui
+   }
+
+   /// The delete dialog, for a tree test that opens its confirmation with no vault behind it.
+   pub(crate) fn delete_wallet_ui_for_test(&mut self) -> &mut DeleteWalletUi {
+      &mut self.delete_wallet_ui
+   }
+}
+
+/// The sentence that says how many wallets the search left.
+fn count_sentence(count: usize) -> String {
+   match count {
+      0 => "No wallets found".to_string(),
+      1 => "1 wallet".to_string(),
+      count => format!("{count} wallets"),
    }
 }
 
@@ -455,10 +761,10 @@ fn on_calc_wallet_value() {
    });
 }
 
-fn on_show_wallet_qr(wallet: WalletInfo) {
+fn on_show_wallet_qr(wallet: WalletInfo, opener: Id) {
    crate::runtime::rt().spawn_blocking(move || {
       SHARED_GUI.write(|gui| {
-         gui.account_panel.qr_window.open(wallet);
+         gui.account_panel.qr_window.open(wallet, Some(opener));
          gui.request_repaint();
       });
    });
@@ -468,6 +774,26 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
    crate::runtime::rt().spawn_blocking(move || {
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
       let old_vault = ctx.get_vault();
+
+      let Some(mut new_wallet) = ctx.get_wallet(old_wallet_addr) else {
+         SHARED_GUI.write(|gui| {
+            gui.open_msg_window("Wallet not found");
+            gui.request_repaint();
+         });
+         return;
+      };
+
+      // The field opens on the name in use, so asking for that same name is neither an error nor a
+      // reason to rewrite the vault: the page says the wallet already answers to it.
+      if new_wallet_name == new_wallet.name {
+         SHARED_GUI.write(|gui| {
+            gui.wallet_ui.close_rename_wallet();
+            let notice = format!("This wallet is already called {new_wallet_name}.");
+            gui.wallet_ui.notice = Some(notice);
+            gui.request_repaint();
+         });
+         return;
+      }
 
       if old_vault.wallet_name_exists(&new_wallet_name) {
          SHARED_GUI.write(|gui| {
@@ -501,13 +827,6 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
          return;
       }
 
-      let Some(mut new_wallet) = ctx.get_wallet(old_wallet_addr) else {
-         SHARED_GUI.write(|gui| {
-            gui.open_msg_window("Wallet not found");
-            gui.request_repaint();
-         });
-         return;
-      };
       new_wallet.name = new_wallet_name;
 
       let mut new_vault = old_vault.clone();
@@ -573,4 +892,17 @@ fn on_rename_wallet(new_wallet_name: String, old_wallet_addr: Address) {
          gui.wallet_ui.calc_wallet_value();
       });
    });
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   #[test]
+   fn the_count_says_how_many_wallets_the_search_left() {
+      assert_eq!(count_sentence(0), "No wallets found");
+      assert_eq!(count_sentence(1), "1 wallet");
+      assert_eq!(count_sentence(2), "2 wallets");
+      assert_eq!(count_sentence(11), "11 wallets");
+   }
 }

@@ -4,8 +4,11 @@ use crate::assets::Icons;
 use crate::core::context::handle::MutexHandle;
 use crate::core::{DiscoveredWallets, WalletPortfolio, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
+use crate::gui::ui::common::{chain_label, name_text};
 use crate::utils::malloc_trim;
-use eframe::egui::{Align2, FontId, Id, Margin, Order, RichText, Stroke, Ui, vec2};
+use eframe::egui::{
+   Align2, FontId, Id, Margin, Order, Response, RichText, Role, Stroke, Ui, WidgetInfo, vec2,
+};
 use egui_elements::{
    Button, ChipRole, Frame, Modal, SecureTextEdit, Spinner, Theme, Toast,
    layout::{Column, Table, TableScroll},
@@ -29,6 +32,16 @@ use tokio::{sync::Semaphore, task::JoinHandle};
 
 const CHILD_VALUE_TTL: Duration = Duration::from_secs(1);
 
+/// The wallets one page holds: what the dialog shows without scrolling.
+///
+/// egui places no row the table's viewport cannot show, and a row that is never placed cannot take
+/// the keyboard, so a page holds the rows it shows and every one of them is reachable.
+const WALLETS_PER_PAGE: usize = 5;
+
+/// How many wallets one `Generate` press derives. It is not the page size: a short page is a
+/// reading choice, and deriving five at a time would only make discovery slower.
+const GENERATE_BATCH: usize = 10;
+
 struct ChildValueCache {
    chains: Vec<u64>,
    total_value: f64,
@@ -49,12 +62,23 @@ pub struct DiscoverChildWallets {
    adding_wallet: HashSet<Address>,
    pub loading: bool,
    add_wallet_window: bool,
+   /// Whether the name field still has to take the focus the window's close button is given when it
+   /// opens.
+   focus_name_field: bool,
    index_to_add: u32,
    wallet_name: String,
    pub current_page: usize,
-   items_per_page: usize,
    size: (f32, f32),
    child_value_cache: HashMap<Address, ChildValueCache>,
+   /// The one sentence the flow wants said. A dialog cannot announce from inside its own draw, so
+   /// the window above drains this after the flow is drawn.
+   notice: Option<String>,
+   /// The sentence waiting for a pass egui keeps. The results table asks for a discard on the pass
+   /// it measures, and a pass that is thrown away reaches no reader, so what the flow raised waits
+   /// here until a pass that is drawn.
+   pending_notice: Option<String>,
+   /// The last count said, so a count that did not change is not repeated.
+   spoken_count: Option<String>,
 }
 
 impl DiscoverChildWallets {
@@ -68,12 +92,15 @@ impl DiscoverChildWallets {
          adding_wallet: HashSet::new(),
          loading: false,
          add_wallet_window: false,
+         focus_name_field: false,
          index_to_add: 0,
          wallet_name: String::new(),
          current_page: 0,
-         items_per_page: 10,
          size: (600.0, 450.0),
          child_value_cache: HashMap::new(),
+         notice: None,
+         pending_notice: None,
+         spoken_count: None,
       }
    }
 
@@ -84,6 +111,8 @@ impl DiscoverChildWallets {
    pub fn open(&mut self) {
       self.open = true;
       self.loading = true;
+      // A sentence the flow that ended before left behind is not about the list this one loads.
+      self.pending_notice = None;
 
       crate::runtime::rt().spawn_blocking(move || {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
@@ -120,11 +149,24 @@ impl DiscoverChildWallets {
 
    pub fn close(&mut self) {
       self.open = false;
+      // A sentence raised before the flow closed is not about the list the user comes back to.
+      self.notice = None;
+      self.pending_notice = None;
+      // The count is said again when the flow is opened on a list.
+      self.spoken_count = None;
+   }
+
+   /// The sentence the flow wants said, for the page's announcement channel.
+   pub fn take_notice(&mut self) -> Option<String> {
+      self.notice.take()
    }
 
    fn open_add_wallet_window(&mut self, index_to_add: u32) {
       self.index_to_add = index_to_add;
       self.add_wallet_window = true;
+      // The field asks for the focus the window's close button is given on the pass it opens, so a
+      // reader lands in the box that names the wallet.
+      self.focus_name_field = true;
    }
 
    fn close_add_wallet_window(&mut self) {
@@ -182,21 +224,25 @@ impl DiscoverChildWallets {
             ui.vertical_centered(|ui| {
                if self.loading {
                   ui.label(RichText::new("Loading...").size(theme.typography.normal));
-                  ui.add(Spinner::new().size(15.0));
+
+                  let spinner = ui.add(Spinner::new().size(15.0));
+                  spinner.widget_info(|| {
+                     WidgetInfo::labeled(
+                        Role::ProgressIndicator,
+                        ui.is_enabled(),
+                        "Loading discovered wallets",
+                     )
+                  });
+
                   return;
                }
 
                let len = self.discovered_wallets.wallets.len();
-               let items_per_page = self.items_per_page;
 
-               let total_pages = if items_per_page == 0 {
-                  0
-               } else {
-                  len.div_ceil(items_per_page)
-               };
+               let total_pages = len.div_ceil(WALLETS_PER_PAGE);
 
-               let start = self.current_page * items_per_page;
-               let end = (start + items_per_page).min(len);
+               let start = self.current_page * WALLETS_PER_PAGE;
+               let end = (start + WALLETS_PER_PAGE).min(len);
                let text = if len == 0 {
                   "No wallets found".to_string()
                } else {
@@ -212,9 +258,18 @@ impl DiscoverChildWallets {
 
                ui.label(RichText::new(text).size(theme.typography.normal));
 
+               // The count is the answer a page press or a generate gets, so it is said when the
+               // page or the number of wallets changes, and once per change.
+               let count = count_sentence(start, end, len);
+
+               if self.spoken_count.as_deref() != Some(count.as_str()) {
+                  self.spoken_count = Some(count.clone());
+                  self.pending_notice = Some(count);
+               }
+
                ui.add_space(10.0);
 
-               let batch_size = self.items_per_page;
+               let batch_size = GENERATE_BATCH;
 
                let n = 2.0;
                let content_width = ui.available_width() * 0.9;
@@ -233,13 +288,22 @@ impl DiscoverChildWallets {
                   ui.horizontal(|ui| {
                      ui.spacing_mut().item_spacing.x = theme.spacing.md;
                      if ui.add(gen_button).clicked() {
+                        self.pending_notice = Some(format!("Generating {batch_size} wallets."));
                         self.generate_wallets(batch_size);
                      }
 
                      if self.syncing {
-                        ui.add(Spinner::new().size(20.0));
+                        let spinner = ui.add(Spinner::new().size(20.0));
+                        spinner.widget_info(|| {
+                           WidgetInfo::labeled(
+                              Role::ProgressIndicator,
+                              ui.is_enabled(),
+                              "Syncing balances",
+                           )
+                        });
                      } else {
                         if ui.add(sync_button).clicked() {
+                           self.pending_notice = Some("Syncing balances.".to_string());
                            self.refresh_balance(start, end);
                         }
                      }
@@ -299,6 +363,14 @@ impl DiscoverChildWallets {
          });
          self.reset();
       }
+
+      // A pass egui is going to throw away reaches no reader, and the results table asks for one on
+      // the pass it measures, so the sentence waits for one that is kept.
+      let kept = !ui.ctx().will_discard();
+
+      if kept && let Some(text) = self.pending_notice.take() {
+         self.notice = Some(text);
+      }
    }
 
    fn refresh_balance(&mut self, start: usize, end: usize) {
@@ -310,16 +382,17 @@ impl DiscoverChildWallets {
 
       crate::runtime::rt().spawn(async move {
          let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
+         let synced = sync_wallets_balance(ctx, addresses, concurrency).await;
 
-         match sync_wallets_balance(ctx, addresses, concurrency).await {
-            Ok(_) => {}
-            Err(e) => {
-               tracing::error!("Error syncing wallets: {:?}", e);
-            }
+         if let Err(e) = &synced {
+            tracing::error!("Error syncing wallets: {:?}", e);
          }
 
          SHARED_GUI.write(|gui| {
-            gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui.syncing = false;
+            let ui = &mut gui.wallet_ui.add_wallet_ui.discover_child_wallets_ui;
+            ui.syncing = false;
+            // The spinner going away says nothing on its own, so the end of the work is a sentence.
+            ui.pending_notice = Some(balance_sync_sentence(synced.is_ok()).to_string());
          });
       });
    }
@@ -449,8 +522,17 @@ impl DiscoverChildWallets {
       let mut add_wallet_clicked = false;
       let mut index_to_add = 0;
 
+      // A selectable label hands its drawn text to the tree as a `TextRun` under its own node, and
+      // a reader reads both: the row said its index and then spelled the whole path, and went on
+      // through every row spelling the addresses. The cells name themselves here, so the glyphs
+      // stay on screen and out of the reading.
+      let selectable_labels = ui.style().interaction.selectable_labels;
+      ui.style_mut().interaction.selectable_labels = false;
+
+      // The row is a card, not a control: an interactive frame is a focusable plate with no name,
+      // and a Tab that lands on one strands the keyboard in that row — the next Tab re-enters it
+      // at its first cell. The row has nothing to click, so it asks for no interaction at all.
       let row_frame = Frame::new()
-         .interactive(true)
          .inner_margin(theme.inner_margin)
          .corner_radius(theme.corner_radius)
          .visuals(theme.frame1_visuals());
@@ -508,22 +590,39 @@ impl DiscoverChildWallets {
                let explorer = current_chain.block_explorer();
                let link = format!("{}/address/{}", explorer, address);
 
+               // A row's place on its page repeats on every page, so the name uses the number the
+               // derivation path ends with: "Add wallet 7" for m/44'/60'/0'/0/7.
+               let wallet_number = child_index.saturating_sub(BIP32_HARDEN);
+               let add_name = format!("Add wallet {wallet_number}");
+
                r.cell(|ui| {
                   if !enabled {
                      ui.disable();
                   }
-                  ui.label(RichText::new(&path).size(theme.typography.small));
+                  let drawn = ui.label(RichText::new(&path).size(theme.typography.small));
+
+                  // A derivation path is read one digit and apostrophe at a time; the row is named
+                  // by the index it ends with, the number its button adds.
+                  name_text(ui, &drawn, wallet_number.to_string());
                });
 
                r.cell(|ui| {
                   if !enabled {
                      ui.disable();
                   }
-                  ui.hyperlink_to(
+                  let drawn = ui.hyperlink_to(
                      RichText::new(&address_short)
                         .size(theme.typography.small)
                         .color(theme.colors.info),
                      &link,
+                  );
+
+                  // The glyphs are a shortening nobody can follow by ear, so the link says where
+                  // it leads and which wallet it is about; the address is never read out.
+                  name_text(
+                     ui,
+                     &drawn,
+                     format!("Wallet {wallet_number} address on the block explorer"),
                   );
                });
 
@@ -534,13 +633,20 @@ impl DiscoverChildWallets {
                   ui.spacing_mut().item_spacing.x = theme.spacing.xs;
                   for chain in &chains {
                      let icon = icons.chain_icon(*chain, tint).fit_to_exact_size(vec2(16.0, 16.0));
-                     ui.add(icon);
+                     let icon = ui.add(icon);
+                     let label = chain_label(*chain);
+                     icon.widget_info(|| WidgetInfo::labeled(Role::Image, ui.is_enabled(), &label));
                   }
-                  ui.label(
-                     RichText::new(format!("${:.10}", value.abbreviated()))
+
+                  let value_text = format!("${:.10}", value.abbreviated());
+                  let drawn = ui.label(
+                     RichText::new(&value_text)
                         .color(theme.colors.text_muted)
                         .size(theme.typography.small),
                   );
+
+                  // The figure is one wallet's holdings, and a bare amount does not say whose.
+                  name_text(ui, &drawn, format!("Value {value_text}"));
                });
 
                r.cell(|ui| {
@@ -553,13 +659,25 @@ impl DiscoverChildWallets {
 
                   if wallet_is_being_added {
                      ui.add(spinner);
-                  } else if ui.add(button).clicked() {
-                     add_wallet_clicked = true;
-                     index_to_add = child_index;
+                  } else {
+                     let add = ui.add(button);
+
+                     // Every row draws the same word, so the name says which wallet it adds; the
+                     // address behind it is not read out.
+                     add.widget_info(|| {
+                        WidgetInfo::labeled(Role::Button, ui.is_enabled(), &add_name)
+                     });
+
+                     if add.clicked() {
+                        add_wallet_clicked = true;
+                        index_to_add = child_index;
+                     }
                   }
                });
             });
          });
+
+      ui.style_mut().interaction.selectable_labels = selectable_labels;
 
       if add_wallet_clicked {
          self.open_add_wallet_window(index_to_add);
@@ -572,6 +690,7 @@ impl DiscoverChildWallets {
       }
 
       let mut open = self.add_wallet_window;
+      let mut name_field: Option<Response> = None;
 
       let title = RichText::new("Add Wallet").size(theme.typography.heading);
       let window_frame = theme.window_frame;
@@ -595,14 +714,23 @@ impl DiscoverChildWallets {
 
             ui.vertical_centered(|ui| {
                let text = RichText::new("Wallet Name (Optional)").size(theme.typography.large);
-               ui.label(text);
+               let drawn = ui.label(text);
 
-               SecureTextEdit::singleline(&mut self.wallet_name)
+               // The field carries this instruction as its name, so the drawn label is not a
+               // second stop.
+               ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
+
+               // The parentheses of the drawn label are read aloud, so the field is named without
+               // them.
+               let field = SecureTextEdit::singleline(&mut self.wallet_name)
+                  .accessible_name("Wallet name, optional")
                   .visuals(text_edit_visuals)
                   .font(FontId::proportional(theme.typography.normal))
                   .margin(Margin::same(10))
                   .min_size(vec2(ui.available_width() * 0.9, 25.0))
                   .show(ui);
+
+               name_field = Some(field.response);
 
                let text = RichText::new("Add Wallet").size(theme.typography.large);
                let button = Button::new(text).visuals(button_visuals);
@@ -759,10 +887,57 @@ impl DiscoverChildWallets {
             });
          });
 
+      // The window spends its first passes sizing its body, where nothing is visible and a focus
+      // request is dropped, so the field asks on the first pass that is drawn — after the window
+      // has drawn.
+      if let Some(field) = name_field.filter(|field| field.visible() && self.focus_name_field) {
+         ui.ctx().memory_mut(|memory| memory.request_focus(field.id));
+         self.focus_name_field = false;
+      }
+
       if !open {
          self.close_add_wallet_window();
          self.wallet_name.clear();
       }
+   }
+}
+
+/// The sentence that says which wallets of the list are on this page, and that there are none.
+fn count_sentence(start: usize, end: usize, total: usize) -> String {
+   match total {
+      0 => "No wallets found.".to_string(),
+      total => format!("Wallets {} to {} of {}.", start + 1, end, total),
+   }
+}
+
+/// How the end of a balance sync is said: the spinner going away on its own tells a reader
+/// nothing.
+fn balance_sync_sentence(succeeded: bool) -> &'static str {
+   match succeeded {
+      true => "Balances synced.",
+      false => "Balance sync failed.",
+   }
+}
+
+#[cfg(test)]
+impl DiscoverChildWallets {
+   /// Open the flow on `discovered_wallets` without the worker its own `open` runs, for a tree
+   /// test that has no vault behind it.
+   pub(crate) fn for_test(&mut self, discovered_wallets: DiscoveredWallets) {
+      self.open = true;
+      self.loading = false;
+      self.current_page = 0;
+      self.set_discovered_wallets(discovered_wallets);
+   }
+
+   /// Turn the page the way the `Next` button does.
+   pub(crate) fn next_page_for_test(&mut self) {
+      self.current_page += 1;
+   }
+
+   /// Show a balance sync in flight, the state the worker leaves it in while it runs.
+   pub(crate) fn set_syncing_for_test(&mut self) {
+      self.syncing = true;
    }
 }
 
@@ -831,4 +1006,34 @@ async fn sync_wallets_balance(
    }
 
    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// The count says which wallets of the list the page holds, and that the list has none.
+   #[test]
+   fn the_count_says_which_wallets_the_page_holds() {
+      assert_eq!(count_sentence(0, 0, 0), "No wallets found.");
+      assert_eq!(count_sentence(0, 3, 3), "Wallets 1 to 3 of 3.");
+      assert_eq!(
+         count_sentence(0, 10, 43),
+         "Wallets 1 to 10 of 43."
+      );
+      assert_eq!(
+         count_sentence(40, 43, 43),
+         "Wallets 41 to 43 of 43."
+      );
+   }
+
+   /// The end of a balance sync is a sentence, not the spinner disappearing.
+   #[test]
+   fn a_finished_balance_sync_says_how_it_ended() {
+      assert_eq!(balance_sync_sentence(true), "Balances synced.");
+      assert_eq!(
+         balance_sync_sentence(false),
+         "Balance sync failed."
+      );
+   }
 }

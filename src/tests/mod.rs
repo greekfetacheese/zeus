@@ -15,7 +15,11 @@
 //!
 //! What they are still good for: exercising a real swap, bridge, ENS or NFT flow end to end against
 //! a chain, and catching the wiring that a unit test cannot see.
+//!
+//! `accessibility` is the exception: it renders screens headlessly and asserts their
+//! accessibility tree, so it runs with the normal suite.
 
+mod accessibility;
 mod bridge;
 mod connector;
 mod dev_feature;
@@ -26,7 +30,6 @@ mod nft;
 mod permit2_revoke;
 mod swap;
 
-#[cfg(test)]
 pub fn unlock_ctx() -> crate::core::ZeusCtx {
    use crate::core::Vault;
    use crate::core::WalletState;
@@ -70,7 +73,6 @@ pub fn unlock_ctx() -> crate::core::ZeusCtx {
 /// seeds are left disabled and unmeasured, while `Rpc::get_best_rpc` needs one that is enabled *and*
 /// working. Mark one usable, preferring a builtin so a test never depends on an endpoint that was
 /// added by hand. Shared by the swap and bridge regressions.
-#[cfg(test)]
 pub fn test_ctx(chain: u64) -> crate::core::ZeusCtx {
    let ctx = unlock_ctx();
    let client = ctx.get_client_manager();

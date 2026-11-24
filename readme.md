@@ -128,6 +128,43 @@ I have done my best to make Zeus as efficient as possible when making RPC calls 
 
 ---
 
+## Accessibility
+
+Zeus builds an accessibility tree through [AccessKit](https://accesskit.dev/), so a screen reader can read the window and operate it without a mouse. The tree describes what is on screen and nothing else: a control is named for what it does, its state is part of the node, and anything a sighted user only learns by hovering is also written into the node's description.
+
+What a screen reader hears:
+
+- every page, dialog and control by name, with the page heading taking focus when a page opens;
+- amounts and balances as numbers with their unit, and every address in full and grouped in fours — never the shortened form;
+- a disabled button under its own name, with the reason it is blocked as a sentence above it;
+- with a screen reader attached, the controls that exist only for sight — the show/hide toggle, the QR buttons and the on-screen keyboard — are dropped, because each is a tab stop that cannot help;
+- waits that say what they are doing ("Sending your transaction…", "Generating the private proof. This takes a few seconds and cannot be cancelled.") and results that are said once rather than on every frame.
+
+Keyboard: Tab and Shift+Tab move through the page and into an open picker, Enter or Space activates the focused control (or picks the focused option), and Escape closes whatever is on top — a dialog, a picker, or the Settings window. Every prompt has a way out that is not its primary action, and its copy says which one that is.
+
+### What is not accessible, and what to do instead
+
+| Surface | Why it cannot be spoken | What Zeus does instead |
+|---|---|---|
+| Private keys and recovery words | Speech is persisted — screen-reader logs, speech viewers, a headset | The export dialog copies the key to the clipboard from a named button. The key is never spoken and never enters the tree |
+| Passwords | Reading one back is the same leak as echoing it | The field says its name and how many characters it holds |
+| QR codes | A QR is a picture | Every QR surface draws the address as text beside it, with a button that copies the whole address |
+| A private (`0zk`) address | It cannot be checked by ear | It is read as its length and last characters; use Copy, or the QR, to move it between devices |
+| OS file dialogs, the clipboard, the tray icon | They belong to the desktop, not to Zeus | Their accessibility is the platform's |
+
+Developed against Orca on Linux, which needs the AT-SPI bridge (GNOME and KDE start it; a bare window manager needs `at-spi2-core`). The same tree reaches Narrator and NVDA on Windows through AccessKit's platform adapter; those passes are less exercised, so reports are welcome.
+
+### Reporting an accessibility problem
+
+The tree a reader is handed can be dumped from the test suite:
+
+```
+ZEUS_ACCESSIBILITY_DUMP=1 cargo test --features dev --bin zeus accessibility
+```
+
+This writes `logs/accessibility-tree.txt`, one line per node with its role, name, value, description and actions. It is taken from a headless test frame rather than the running app, so it shows what the interface *would* say on that screen. Please attach it to the issue, with the screen you were on and what you expected to hear.
+
+---
 
 ## Security
 - **Strong encryption:** Zeus uses the [Argon2Id](https://github.com/P-H-C/phc-winner-argon2) as a KDF and [xChaCha20Poly1305](https://en.wikipedia.org/wiki/ChaCha20-Poly1305) as the encryption algorithm to derive the master wallet and encrypt the `Vault`.

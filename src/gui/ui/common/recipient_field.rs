@@ -9,10 +9,14 @@ use crate::assets::icons::Icons;
 use crate::core::ZeusContext;
 use crate::gui::ui::{ContactsUi, RecipientSelectionWindow};
 use crate::utils::TimeStamp;
-use eframe::egui::{CursorIcon, FontId, Margin, OpenUrl, RichText, Sense, Ui, vec2};
+use eframe::egui::{
+   CursorIcon, FontId, Key, Margin, OpenUrl, RichText, Role, Sense, Ui, WidgetInfo, vec2,
+};
 use egui_elements::{SecureTextEdit, Theme};
 use egui_lucide::Lucide;
+use std::str::FromStr;
 use std::sync::Arc;
+use zeus_eth::alloy_primitives::Address;
 use zeus_eth::types::ChainId;
 
 /// Show the recipient picker and its field.
@@ -60,11 +64,24 @@ pub fn recipient_field(
    let now = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
    let name_lapsed = !recipient.name_binding_trusted(now);
 
+   // A typed address the book already knows is not an unknown one: the row says the name the
+   // address goes by, even though no picker bound that name to the recipient.
+   let typed_address = if privacy_mode {
+      &recipient.zk_address
+   } else {
+      &recipient.evm_address
+   };
+   let known_name = known_recipient_name(ctx, privacy_mode, send_chain, typed_address);
+
    theme.frame2.show(ui, |ui| {
       ui.set_width(ui.available_width());
 
       ui.horizontal(|ui| {
-         ui.label(RichText::new("Recipient").size(theme.typography.large));
+         let drawn = ui.label(RichText::new("Recipient").size(theme.typography.large));
+
+         // The field carries this word as its name, so the label is not a second destination.
+         ui.ctx().accesskit_node_builder(drawn.id, |node| node.set_hidden());
+
          ui.add_space(10.0);
 
          if !recipient.is_empty(privacy_mode) {
@@ -86,6 +103,8 @@ pub fn recipient_field(
                      .color(theme.colors.error),
                   );
                }
+            } else if let Some(name) = &known_name {
+               ui.label(RichText::new(name).size(theme.typography.large).color(theme.colors.info));
             } else {
                ui.label(
                   RichText::new("Unknown Address")
@@ -111,6 +130,17 @@ pub fn recipient_field(
 
                let res = ui.add(icon).on_hover_cursor(CursorIcon::PointingHand);
 
+               // The link is a picture with a click sense: no role and no words, so a reader has
+               // nothing to land on. A clickable response is focusable and Enter or Space presses
+               // it, so naming it is the whole of what it was missing.
+               res.widget_info(|| {
+                  WidgetInfo::labeled(
+                     Role::Button,
+                     ui.is_enabled(),
+                     "Open the recipient in the block explorer",
+                  )
+               });
+
                if res.clicked() {
                   let url = OpenUrl::new_tab(link);
                   ui.ctx().open_url(url);
@@ -134,8 +164,14 @@ pub fn recipient_field(
             &mut recipient_selection.recipient.evm_address
          };
 
+         let field_name = match privacy_mode {
+            true => "Recipient 0zk address",
+            false => "Recipient address",
+         };
+
          let res = ui.add(
             SecureTextEdit::singleline(address)
+               .accessible_name(field_name)
                .visuals(theme.text_edit_visuals())
                .hint_text(hint)
                .min_size(vec2(ui.available_width(), 25.0))
@@ -152,9 +188,90 @@ pub fn recipient_field(
             recipient_selection.recipient.forget_name_binding();
          }
 
-         if res.clicked() {
-            recipient_selection.open();
+         // The node says how much of an address the field holds and how it ends, never the address:
+         // the whole thing is on screen, and the ending is what can be checked by ear against the
+         // address meant to be pasted. The resolved name is the description, so the field can be
+         // recognised without the address being read back.
+         let typed = if privacy_mode {
+            &recipient_selection.recipient.zk_address
+         } else {
+            &recipient_selection.recipient.evm_address
+         };
+         let held = recipient_value(typed);
+         let resolved = recipient_selection.recipient.name.clone().or_else(|| known_name.clone());
+         let description = match &resolved {
+            Some(name) => format!("{name}. Press Enter to choose a recipient."),
+            None => "Press Enter to choose a recipient.".to_string(),
+         };
+
+         ui.ctx().accesskit_node_builder(res.id, |node| {
+            if let Some(value) = &held {
+               node.set_value(value.as_str());
+            } else {
+               node.clear_value();
+            }
+
+            node.set_description(description.as_str());
+         });
+
+         // The picker was reachable by clicking this field and by nothing else, so someone typing
+         // an address could never get to their contacts. A single-line edit gives its focus up on
+         // Enter rather than inserting anything, which leaves that key free: it opens the same
+         // picker the click does, and the field's description says so. The field is also the
+         // control the picker hands the keyboard back to, so it goes with the opening.
+         let entered = res.lost_focus() && ui.input(|input| input.key_pressed(Key::Enter));
+
+         if res.clicked() || entered {
+            recipient_selection.open(res.id);
          }
       });
    });
+}
+
+/// The name a typed address is already known by, when the picker did not bind one.
+///
+/// A pasted wallet or contact address is not unknown: the address book holds the labels the user
+/// and the app gave it, and a `0zk` address is looked up among the vault's wallets and contacts
+/// instead. The name is display only — it is never written back onto the recipient, so what is
+/// sent and what the confirmation re-checks stay exactly the address that was typed.
+fn known_recipient_name(
+   ctx: &ZeusContext,
+   privacy_mode: bool,
+   send_chain: u64,
+   typed: &str,
+) -> Option<String> {
+   if typed.is_empty() {
+      return None;
+   }
+
+   if privacy_mode {
+      if let Some(wallet) = ctx.get_wallet_info_by_zk_address(typed) {
+         return Some(wallet.name_with_source());
+      }
+
+      return ctx.get_contact_by_zk_address(typed).map(|contact| contact.name);
+   }
+
+   let address = Address::from_str(typed).ok()?;
+
+   ctx.get_address_name(send_chain, address).map(|name| name.to_string())
+}
+
+/// What the recipient field says it holds: how many characters, and the four it ends with.
+///
+/// The address is on screen, so the node does not repeat it — a reader would hear the whole field
+/// back on every keystroke. The ending is what can be checked by ear against the address meant to
+/// be pasted, and at four characters or fewer it is the whole string, which is then said as it is.
+fn recipient_value(address: &str) -> Option<String> {
+   let characters: Vec<char> = address.chars().collect();
+   let count = characters.len();
+
+   match count {
+      0 => None,
+      1..=4 => Some(address.to_string()),
+      count => {
+         let ending: String = characters[count - 4..].iter().collect();
+         Some(format!("{count} characters, ends {ending}"))
+      }
+   }
 }
