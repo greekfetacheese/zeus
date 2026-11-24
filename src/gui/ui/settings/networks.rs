@@ -39,6 +39,13 @@ const CONCURRENCY_ERROR: &str = "Enter a whole number within the range below";
 /// What the add-RPC form says while its text is not a URL.
 const INVALID_URL_ERROR: &str = "Invalid URL";
 
+/// The margin a row's URL field draws inside its cell.
+///
+/// It is part of the field's box, so the cell has to give it back: a field sized at the cell's
+/// own width overran its column by both margins, and the page then drew wider than the width
+/// the window had measured for it — which widened the window a little more on every frame.
+const RPC_URL_MARGIN: i8 = 5;
+
 pub struct NetworkSettings {
    view: NetworkView,
    refreshing: bool,
@@ -367,7 +374,10 @@ impl NetworkSettings {
       const STATUS_W: f32 = 52.0;
       const ARCHIVE_W: f32 = 60.0;
       const MEV_W: f32 = 88.0;
-      const LATENCY_W: f32 = 64.0;
+      // Wide enough for "Not available", the longest reading a latency cell draws. At 64 the
+      // word overran its cell by a word's width, which pushed the actions column of every row
+      // without a reading to the right of the one row that had it.
+      const LATENCY_W: f32 = 88.0;
       const ACTIONS_W: f32 = 148.0;
       const N_GAPS: f32 = 6.0;
 
@@ -399,7 +409,15 @@ impl NetworkSettings {
          });
       });
 
-      ScrollArea::vertical().auto_shrink([false; 2]).content_margin(5).show(ui, |ui| {
+      // The rows are sized from the width this page is given, so the area they scroll in keeps no
+      // horizontal room of its own: a margin on that axis made every row wider than the width the
+      // page had been measured for, and the Settings window — which sizes itself from its content
+      // — grew by that margin on every frame until it took the whole screen.
+      let rows = ScrollArea::vertical()
+         .auto_shrink([false; 2])
+         .content_margin(Margin::symmetric(0, 5));
+
+      rows.show(ui, |ui| {
          ui.set_width(ui.available_width());
          ui.spacing_mut().item_spacing = vec2(COL_SPACING, theme.spacing.sm);
 
@@ -415,8 +433,11 @@ impl NetworkSettings {
                         .accessible_name(format!("RPC URL at {host}"))
                         .visuals(text_edit_visuals)
                         .font(FontId::proportional(theme.typography.small))
-                        .min_size(vec2(url_w, 20.0))
-                        .margin(Margin::same(5)),
+                        .min_size(vec2(
+                           url_w - 2.0 * f32::from(RPC_URL_MARGIN),
+                           20.0,
+                        ))
+                        .margin(Margin::same(RPC_URL_MARGIN)),
                   )
                });
 

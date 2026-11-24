@@ -160,10 +160,8 @@ impl SettingsUi {
       }
    }
 
-   pub fn close(&mut self, ctx: &mut ZeusContext) {
+   pub fn close(&mut self) {
       if self.open {
-         self.general.save_settings(ctx);
-         self.promote_general_notice();
          self.promote_network_notice();
          self.promote_contacts_notice();
          self.promote_keyboard_notice();
@@ -211,13 +209,6 @@ impl SettingsUi {
       self.general.take_shortcuts_request()
    }
 
-   /// Hand a notice the General page raised up to the window, where the app drains it.
-   fn promote_general_notice(&mut self) {
-      if let Some(text) = self.general.take_notice() {
-         self.notice = Some(text);
-      }
-   }
-
    /// Hand a notice the Networks page raised up to the window, where the app drains it.
    fn promote_network_notice(&mut self) {
       if let Some(text) = self.network.take_notice() {
@@ -258,10 +249,6 @@ impl SettingsUi {
    }
 
    fn set_page(&mut self, page: SettingsPage, ctx: &mut ZeusContext) {
-      if self.page == SettingsPage::General && page != SettingsPage::General {
-         self.general.save_settings(ctx);
-         self.promote_general_notice();
-      }
       if page == SettingsPage::Security {
          self.encryption.sync_from_ctx(ctx);
          self.autolock.sync_from_ctx(ctx);
@@ -298,7 +285,7 @@ impl SettingsUi {
       if ctx.locked {
          // A locked wallet must not leave Settings usable.
          if self.open {
-            self.close(ctx);
+            self.close();
          }
          return;
       }
@@ -324,7 +311,7 @@ impl SettingsUi {
          });
 
       if !open || escaped {
-         self.close(ctx);
+         self.close();
          self.focus_return = true;
       }
    }
@@ -523,9 +510,8 @@ impl SettingsUi {
             .memory_mut(|memory| memory.interested_in_focus(plate.id, plate.layer_id));
       }
 
-      // A page's save, reset, copy or inline error raised its words; hand them up now, so the app
-      // can say them in the frame that drew the page.
-      self.promote_general_notice();
+      // A page's reset, copy or inline error raised its words; hand them up now, so the app can
+      // say them in the frame that drew the page.
       self.promote_network_notice();
       self.promote_contacts_notice();
       self.promote_keyboard_notice();

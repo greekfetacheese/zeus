@@ -165,10 +165,12 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          ui,
       );
 
-      // A window the user closed must not take the focus with it: the plate that opened it takes
-      // the focus back, so the nav stays where the user left it.
+      // Settings is closed, return the focus to the sidebar
+      // TODO FIX: When the top panel notification runs it takes the focus and we cannot close the window
+      // with Esc
       if focus_return {
          plate.request_focus();
+         ui.ctx().memory_mut(|memory| memory.surrender_focus(plate.id));
       }
 
       nav_plate(
@@ -298,6 +300,13 @@ fn nav_plate(
 
    let mut visuals = theme.frame2_visuals();
    visuals.bg = Fill::Solid(theme.frame1.fill);
+   // A plate that holds the keyboard — the Settings entry after its window closes, or whichever
+   // one F6 lands on — must not read as pressed. An interactive `Frame` paints its click fill
+   // while it has the focus, and that fill is the window background in every theme: a band
+   // darker than the panel, which looks like a press that never ended. The fill stays idle and a
+   // click draws no stroke of its own, so the hover tint is the only chrome a plate has.
+   visuals.bg_click = Fill::Solid(theme.frame1.fill);
+   visuals.border_click = Stroke::NONE;
    visuals.border = Stroke::NONE;
    visuals.shadow = Shadow::NONE;
 

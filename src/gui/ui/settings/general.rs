@@ -4,7 +4,7 @@ use crate::core::ZeusContext;
 use crate::core::urls::{UrlPurpose, purpose_tip};
 use crate::gui::ui::common::section_heading;
 use egui::{Align, Layout, RichText, Ui, vec2};
-use egui_elements::{Button, Checkbox, Chip, ChipRole, Slider, Theme};
+use egui_elements::{Button, Checkbox, Chip, ChipRole, Theme};
 use std::sync::OnceLock;
 
 const ICONS_TIP: &str = "Allow Zeus to download token icons and NFT images";
@@ -42,12 +42,6 @@ pub struct GeneralSettings {
    check_for_updates: bool,
    minimize_to_tray: bool,
    desktop_integration: bool,
-   concurrency_for_syncing_balances: usize,
-   concurrency_for_discovering_pools: usize,
-   batch_size_for_syncing_balances: usize,
-   batch_size_for_updating_pools_state: usize,
-   /// The words the last reset or save should say, drained by the window and announced by the app.
-   notice: Option<String>,
    /// Whether the shortcut button was pressed since the last draw.
    shortcuts_requested: bool,
 }
@@ -60,11 +54,6 @@ impl GeneralSettings {
          check_for_updates: false,
          minimize_to_tray: true,
          desktop_integration: false,
-         concurrency_for_syncing_balances: 1,
-         concurrency_for_discovering_pools: 1,
-         batch_size_for_syncing_balances: 1,
-         batch_size_for_updating_pools_state: 1,
-         notice: None,
          shortcuts_requested: false,
       };
       this.sync_from_ctx(ctx);
@@ -90,31 +79,11 @@ impl GeneralSettings {
    }
 
    pub fn sync_from_ctx(&mut self, ctx: &mut ZeusContext) {
-      let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
       self.fetch_asset_images = ctx.misc_config.fetch_asset_images();
       self.fetch_contract_names = ctx.misc_config.fetch_contract_names();
       self.check_for_updates = ctx.misc_config.check_for_updates();
       self.minimize_to_tray = ctx.misc_config.minimize_to_tray();
       self.desktop_integration = ctx.misc_config.desktop_integration();
-      self.concurrency_for_syncing_balances = balance_manager.concurrency();
-      self.concurrency_for_discovering_pools = pool_manager.concurrency();
-      self.batch_size_for_syncing_balances = balance_manager.batch_size();
-      self.batch_size_for_updating_pools_state = pool_manager.batch_size_for_updating_pools_state();
-   }
-
-   fn reset_settings(&mut self, ctx: &mut ZeusContext) {
-      let pool_manager = ctx.pool_manager.clone();
-      let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
-      pool_manager.reset_default_settings();
-      balance_manager.reset_default_settings();
-      self.sync_from_ctx(ctx);
-      self.notice = Some("Pool and balance settings reset to their defaults.".to_string());
-   }
-
-   /// The words this page's last action should say, drained by the window right after it draws.
-   pub fn take_notice(&mut self) -> Option<String> {
-      self.notice.take()
    }
 
    /// Whether the shortcut button was pressed since the last call.
@@ -170,8 +139,6 @@ impl GeneralSettings {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.lg);
       ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
-      let button_visuals = theme.button_visuals();
-      let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
       ui.add_space(10.0);
 
       section_heading(ui, theme.typography.very_large, "Keyboard");
@@ -308,157 +275,6 @@ impl GeneralSettings {
                ui.ctx().accesskit_node_builder(chip.id, |node| node.set_hidden());
             },
          );
-
-         ui.separator();
-         ui.add_space(10.0);
-      }
-
-      section_heading(ui, theme.typography.very_large, "Pool Manager");
-
-      let text = RichText::new("Reset Settings").size(theme.typography.normal);
-      let button = Button::new(text).visuals(button_visuals);
-
-      if ui.add(button).clicked() {
-         self.reset_settings(ctx);
-      }
-
-      let sentence = "Concurrency for Discovering & Updating Pools";
-      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
-      let slider = ui
-         .allocate_ui(slider_size, |ui| {
-            ui.add(
-               Slider::new(
-                  &mut self.concurrency_for_discovering_pools,
-                  1..=10,
-               )
-               .width(ui.spacing().slider_width),
-            )
-         })
-         .inner;
-
-      // One node per control: the sentence belongs to the slider, not to a sibling label nobody
-      // ties to it, and its range is the part a reader cannot guess from the value.
-      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
-      ui.ctx().accesskit_node_builder(slider.id, |node| {
-         node.set_label(sentence);
-         node.set_description("1 to 10");
-      });
-
-      let sentence = "Batch Size when updating pools state";
-      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
-      let slider = ui
-         .allocate_ui(slider_size, |ui| {
-            ui.add(
-               Slider::new(
-                  &mut self.batch_size_for_updating_pools_state,
-                  1..=50,
-               )
-               .width(ui.spacing().slider_width),
-            )
-         })
-         .inner;
-
-      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
-      ui.ctx().accesskit_node_builder(slider.id, |node| {
-         node.set_label(sentence);
-         node.set_description("1 to 50");
-      });
-
-      ui.separator();
-      ui.add_space(10.0);
-
-      section_heading(ui, theme.typography.very_large, "Balance Manager");
-
-      let sentence = "Concurrency for syncing balances";
-      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
-      let slider = ui
-         .allocate_ui(slider_size, |ui| {
-            ui.add(
-               Slider::new(&mut self.concurrency_for_syncing_balances, 1..=10)
-                  .width(ui.spacing().slider_width),
-            )
-         })
-         .inner;
-
-      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
-      ui.ctx().accesskit_node_builder(slider.id, |node| {
-         node.set_label(sentence);
-         node.set_description("1 to 10");
-      });
-
-      let sentence = "Batch Size for syncing balances";
-      let label = ui.label(RichText::new(sentence).size(theme.typography.normal));
-      let slider = ui
-         .allocate_ui(slider_size, |ui| {
-            ui.add(
-               Slider::new(&mut self.batch_size_for_syncing_balances, 1..=50)
-                  .width(ui.spacing().slider_width),
-            )
-         })
-         .inner;
-
-      ui.ctx().accesskit_node_builder(label.id, |node| node.set_hidden());
-      ui.ctx().accesskit_node_builder(slider.id, |node| {
-         node.set_label(sentence);
-         node.set_description("1 to 50");
-      });
-   }
-
-   pub fn save_settings(&mut self, ctx: &mut ZeusContext) {
-      let mut saved = false;
-      let mut save_misc = false;
-      if self.fetch_asset_images != ctx.misc_config.fetch_asset_images() {
-         ctx.misc_config.set_fetch_asset_images(self.fetch_asset_images);
-         save_misc = true;
-      }
-      if self.fetch_contract_names != ctx.misc_config.fetch_contract_names() {
-         ctx.misc_config.set_fetch_contract_names(self.fetch_contract_names);
-         save_misc = true;
-      }
-      if self.check_for_updates != ctx.misc_config.check_for_updates() {
-         ctx.misc_config.set_check_for_updates(self.check_for_updates);
-         save_misc = true;
-      }
-      if self.minimize_to_tray != ctx.misc_config.minimize_to_tray() {
-         ctx.misc_config.set_minimize_to_tray(self.minimize_to_tray);
-         save_misc = true;
-      }
-      if self.desktop_integration != ctx.misc_config.desktop_integration() {
-         ctx.misc_config.set_desktop_integration(self.desktop_integration);
-         Self::apply_desktop_integration(self.desktop_integration);
-         save_misc = true;
-      }
-      if save_misc {
-         Self::persist_misc(ctx);
-         saved = true;
-      }
-
-      // Balance settings live in the vault and are written on vault save / shutdown.
-      let balance_manager = ctx.read_wallet_state(|ws| ws.balance_manager.clone());
-      if self.concurrency_for_syncing_balances != balance_manager.concurrency() {
-         balance_manager.set_concurrency(self.concurrency_for_syncing_balances);
-         saved = true;
-      }
-      if self.batch_size_for_syncing_balances != balance_manager.batch_size() {
-         balance_manager.set_batch_size(self.batch_size_for_syncing_balances);
-         saved = true;
-      }
-
-      if self.concurrency_for_discovering_pools != ctx.pool_manager.concurrency() {
-         ctx.pool_manager.set_concurrency(self.concurrency_for_discovering_pools);
-         saved = true;
-      }
-      if self.batch_size_for_updating_pools_state
-         != ctx.pool_manager.batch_size_for_updating_pools_state()
-      {
-         ctx.pool_manager
-            .set_batch_size_for_updating_pools_state(self.batch_size_for_updating_pools_state);
-         saved = true;
-      }
-
-      // A close or a page change that wrote nothing stays silent.
-      if saved {
-         self.notice = Some("Settings saved.".to_string());
       }
    }
 }
