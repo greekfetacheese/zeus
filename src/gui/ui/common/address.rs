@@ -87,7 +87,10 @@ pub fn copied_words(address: &str) -> String {
 ///
 /// One lookup answers both: a named address is drawn as its name, an unnamed one as the shortened
 /// address, and the spoken name is that same string — the whole address waits in the description.
+/// A name that is blank counts as no name here too, exactly as it does in [`address_for_speech`],
+/// so a stored empty name cannot blank the row that drew the address.
 pub fn drawn_and_spoken(name: Option<&str>, address: &str) -> (String, SpokenAddress) {
+   let name = name.map(str::trim).filter(|name| !name.is_empty());
    let drawn = match name {
       Some(name) => name.to_string(),
       None => truncate_address(address.to_string()),
@@ -216,7 +219,12 @@ mod tests {
       let unnamed = address_for_speech(None, VITALIK);
 
       for blank in ["", " ", "   ", "\t\n"] {
-         let spoken = address_for_speech(Some(blank), VITALIK);
+         let (drawn, spoken) = drawn_and_spoken(Some(blank), VITALIK);
+
+         assert_eq!(
+            drawn, unnamed.name,
+            "a blank name ({blank:?}) must leave the row drawn as the address"
+         );
 
          assert_eq!(
             spoken.name, unnamed.name,
