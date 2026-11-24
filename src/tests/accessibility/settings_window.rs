@@ -106,6 +106,39 @@ fn the_settings_window_closes_on_escape_and_says_so_to_the_left_panel() {
    );
 }
 
+/// The keyboard a closed window hands back is not marked: a band or an outline for a focus the
+/// user did not reach for is the only thing the window would leave behind, so the plate it lands on
+/// is drawn untouched until the user reaches for the keyboard.
+#[test]
+fn a_handed_back_focus_is_not_marked_until_the_keyboard_is_used() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::Escape)],
+   );
+   assert!(
+      !gui.settings.is_open(),
+      "Escape must close the window"
+   );
+
+   // The left panel takes the request as it draws the plate that gets the focus back.
+   render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   assert!(
+      gui.nav_focus_quiet,
+      "the focus the close handed back must be drawn unmarked"
+   );
+
+   render_nav(&ctx, &mut gui, &zeus, vec![key_press(Key::Tab)]);
+   assert!(
+      !gui.nav_focus_quiet,
+      "the first key must bring the mark back"
+   );
+}
+
 /// A locked wallet must not leave Settings usable: the window closes and nothing of it is drawn.
 #[test]
 fn a_locked_wallet_hides_the_settings_window() {

@@ -166,9 +166,22 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
       );
 
       // A window the user closed must not take the focus with it: the plate that opened it takes
-      // the focus back, so the nav stays where the user left it.
+      // the focus back, so the nav stays where the user left it. The mark that says where the
+      // keyboard is stays off it — see `GUI::nav_focus_quiet` — so nothing of the window is left
+      // drawn on a plate the user did not reach for.
       if focus_return {
+         gui.nav_focus_quiet = true;
          plate.request_focus();
+      }
+
+      // Reaching for the keyboard is what puts the mark back: whatever it lands on is a focus the
+      // user asked for.
+      if gui.nav_focus_quiet
+         && ui.input(|input| {
+            input.events.iter().any(|event| matches!(event, egui::Event::Key { .. }))
+         })
+      {
+         gui.nav_focus_quiet = false;
       }
 
       nav_plate(
@@ -304,7 +317,10 @@ fn nav_plate(
    // darker than the panel, which looks like a press that never ended. The fill stays idle and a
    // one-point accent outline is what says where the keyboard is.
    visuals.bg_click = Fill::Solid(theme.frame1.fill);
-   visuals.border_click = Stroke::new(1.0, theme.colors.accent);
+   visuals.border_click = match gui.nav_focus_quiet {
+      true => Stroke::NONE,
+      false => Stroke::new(1.0, theme.colors.accent),
+   };
    visuals.border = Stroke::NONE;
    visuals.shadow = Shadow::NONE;
 
