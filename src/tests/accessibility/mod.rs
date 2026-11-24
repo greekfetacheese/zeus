@@ -13,4 +13,5 @@ mod app;
 mod harness;
 mod lock;
 mod nav;
+mod settings_pages;
 mod settings_window;
