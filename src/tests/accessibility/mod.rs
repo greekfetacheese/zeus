@@ -26,3 +26,4 @@ mod settings_pages;
 mod settings_window;
 mod token_picker;
 mod tx;
+mod wallet;
