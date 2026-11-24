@@ -2,4 +2,5 @@
 //! and the page that rebinds them.
 
 pub(super) mod keys;
+mod palette;
 pub(super) mod sheet;
