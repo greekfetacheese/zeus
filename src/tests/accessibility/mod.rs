@@ -10,6 +10,7 @@
 mod account_panel;
 mod all;
 mod app;
+mod common_widgets;
 mod harness;
 mod lock;
 mod nav;
