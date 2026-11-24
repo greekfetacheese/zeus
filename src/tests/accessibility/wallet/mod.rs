@@ -5,6 +5,7 @@ mod delete;
 mod discovery;
 mod export;
 mod page;
+mod recovery;
 
 use super::harness::frame_nodes;
 use crate::core::ZeusCtx;
