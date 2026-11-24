@@ -19,11 +19,11 @@ use crate::assets::icons::Icons;
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::{
    SHARED_GUI, SettingsPage,
-   ui::{ChainSelect, WalletSelect, common::*},
+   ui::{ChainSelect, WalletSelect, common, common::*},
 };
 use egui::{
-   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, Response, RichText, Role, ScrollArea,
-   Shadow, Stroke, TextWrapMode, Ui, WidgetInfo, pos2, vec2,
+   Align, CursorIcon, FontId, Layout, Margin, OpenUrl, Rect, RichText, Role, ScrollArea, Shadow,
+   Stroke, TextWrapMode, Ui, WidgetInfo, pos2, vec2,
 };
 use std::sync::Arc;
 use zeus_eth::types::ChainId;
@@ -73,18 +73,6 @@ fn wallet_connector_row_name(state: IndicatorState) -> String {
 /// opener, because that window is the only way to undo a delegation.
 fn delegation_opener_shown(reader: bool, delegated: bool) -> bool {
    !reader || delegated
-}
-
-/// Put a service row's one sentence on the node a reader hears.
-///
-/// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
-/// sentence replaces the drawn word there. The label gets the same sentence, so whichever of the
-/// two a consumer reads, the row says exactly one thing.
-pub(crate) fn name_service_row(ui: &Ui, label: Response, name: String) {
-   ui.ctx().accesskit_node_builder(label.id, |node| {
-      node.set_value(name.clone());
-      node.set_label(name);
-   });
 }
 
 /// Width of the panel's rows. The selectors set it; everything else matches it so
@@ -634,7 +622,7 @@ impl AccountPanel {
 
             let label = RichText::new("Railgun").size(theme.typography.small);
             let label = ui.label(label);
-            name_service_row(ui, label, railgun_row_name(sync_state));
+            common::name_text(ui, &label, railgun_row_name(sync_state));
 
             ui.add_space(10.0);
 
@@ -711,7 +699,7 @@ impl AccountPanel {
 
             let label = RichText::new("Wallet Connector").size(theme.typography.small);
             let label = ui.label(label);
-            name_service_row(ui, label, wallet_connector_row_name(state));
+            common::name_text(ui, &label, wallet_connector_row_name(state));
 
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                let size = vec2(24.0, 12.0);

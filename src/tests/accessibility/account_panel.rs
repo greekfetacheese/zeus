@@ -160,7 +160,7 @@ fn a_service_row_label_carries_the_whole_sentence() {
 
    let nodes = frame(&ctx, |ui| {
       let label = ui.label("Railgun");
-      crate::gui::ui::account::name_service_row(ui, label, "Railgun, syncing".to_string());
+      crate::gui::ui::common::name_text(ui, &label, "Railgun, syncing");
    });
 
    let label = nodes

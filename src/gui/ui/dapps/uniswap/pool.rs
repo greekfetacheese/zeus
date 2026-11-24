@@ -9,9 +9,7 @@ use egui::{
 use crate::assets::icons::Icons;
 use crate::core::{PoolManagerHandle, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common::{
-   currency_for_speech, name_alert, name_picker, name_text, next_widget_id,
-};
+use crate::gui::ui::common::{currency_for_speech, name_alert, name_picker, name_text};
 use crate::utils::truncate_symbol_or_name;
 use egui_elements::{
    Button, ChipRole, ComboBox, Label, Modal, SecureTextEdit, Spinner, Theme, Toast,
@@ -889,7 +887,7 @@ fn version_combo(
 
    // The trigger's node is the next widget this ui allocates, and the crate keeps the popup under
    // an id it takes before the list is drawn, so the id is read here first.
-   let trigger_id = next_widget_id(ui);
+   let trigger_id = ui.next_auto_id();
    let mut selected = None;
 
    ComboBox::new(id, selected_label).width(VERSION_COMBO_WIDTH).show_ui(ui, |ui| {
@@ -976,7 +974,7 @@ fn fee_combo(
    let selected_text = RichText::new(selected_text).size(theme.typography.normal);
    let selected_label = Label::new(selected_text, None).sense(Sense::click()).interactive(true);
 
-   let trigger_id = next_widget_id(ui);
+   let trigger_id = ui.next_auto_id();
 
    ComboBox::new("add_pool_fee_combo", selected_label)
       .width(160.0)
