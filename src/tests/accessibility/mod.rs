@@ -16,5 +16,6 @@ mod harness;
 mod lock;
 mod nav;
 mod recipient_field;
+mod send;
 mod settings_pages;
 mod settings_window;
