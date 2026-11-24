@@ -1,6 +1,6 @@
-//! The heading that names the open page to a screen reader.
+//! The headings that name a page, or a section, to a screen reader.
 
-use egui::{Rect, Response, Role, Sense, Ui, Vec2, WidgetInfo};
+use egui::{Rect, Response, RichText, Role, Sense, Ui, Vec2, WidgetInfo};
 
 /// Mark `text` as the heading of what the surrounding page draws.
 ///
@@ -19,6 +19,21 @@ pub fn heading(ui: &mut Ui, text: impl Into<String>) -> Response {
    let id = ui.scope_id().with(("heading", text.as_str()));
    let rect = Rect::from_min_size(ui.next_widget_position(), Vec2::ZERO);
    let response = ui.interact(rect, id, Sense::focusable_noninteractive());
+
+   response.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text.clone()));
+
+   response
+}
+
+/// Draw a section heading and name it to a reader as one.
+///
+/// The label a sighted user reads and the node a reader hears are the same text, so both come
+/// from one call: no caller can draw one string and announce another. `size` is the caller's
+/// typography token — the settings pages and the dapps do not share one — so each page keeps the
+/// exact row height it drew before.
+pub fn section_heading(ui: &mut Ui, size: f32, text: impl Into<String>) -> Response {
+   let text = text.into();
+   let response = ui.label(RichText::new(text.as_str()).size(size));
 
    response.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text.clone()));
 

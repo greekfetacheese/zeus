@@ -17,9 +17,9 @@ use crate::core::types::{
    MIN_THICKNESS,
 };
 use crate::gui::appearance::{AmbientKind, AppearanceSettings, SECOND_COLOUR_ALPHA, accent_at};
+use crate::gui::ui::common::section_heading;
 use egui::{
-   Align, CollapsingHeader, Color32, Layout, Response, RichText, Role, Sense, Ui, UiBuilder,
-   WidgetInfo, vec2,
+   Align, CollapsingHeader, Color32, Layout, Response, RichText, Sense, Ui, UiBuilder, vec2,
 };
 use egui_elements::{
    Button, Checkbox, Chip, ChipRole, ComboBox, HoldBurst, HoldSettings, Label, Slider, Theme,
@@ -164,9 +164,7 @@ impl AppearanceSettingsUi {
 
       ui.add_space(theme.spacing.xl);
       ui.vertical_centered(|ui| {
-         let text = "Preview";
-         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+         section_heading(ui, theme.typography.very_large, "Preview");
       });
 
       let preview = Self::preview_settings(appearance, theme.colors.accent);

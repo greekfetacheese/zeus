@@ -19,7 +19,7 @@ use crate::core::{
 use crate::{
    gui::ui::common::{
       blocked_announcement, blocked_reason_line, currency_for_speech, name_text, notices,
-      show_with_fade,
+      section_heading, show_with_fade,
    },
    utils::{TimeStamp, write_private_atomic},
 };
@@ -523,13 +523,10 @@ impl ShieldUi {
                   let ui_size = vec2(ui.available_width(), 20.0);
                   ui.allocate_ui(ui_size, |ui| {
                      ui.vertical_centered(|ui| {
-                        let heading = ui.label(RichText::new(title).size(theme.typography.heading));
+                        let heading = section_heading(ui, theme.typography.heading, title);
 
                         // The form's own title is a heading of the page, and the word alone does
                         // not say which way the funds would move.
-                        heading.widget_info(|| {
-                           WidgetInfo::labeled(Role::Heading, ui.is_enabled(), title)
-                        });
                         ui.ctx().accesskit_node_builder(heading.id, |node| {
                            node.set_description(direction)
                         });

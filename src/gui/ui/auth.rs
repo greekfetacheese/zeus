@@ -8,7 +8,7 @@ use crate::core::{
    types::{MiscConfig, RailgunConfig},
 };
 use crate::gui::SHARED_GUI;
-use crate::gui::ui::common;
+use crate::gui::ui::common::{self, DeferredFocus};
 use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
@@ -29,8 +29,7 @@ use secure_types::SecureString;
 pub struct UnlockVault {
    pub credentials_form: CredentialsForm,
    pub size: (f32, f32),
-   /// True until the window's first painted frame has put the focus on its heading.
-   focus_pending: bool,
+   focus: DeferredFocus,
 }
 
 impl UnlockVault {
@@ -43,7 +42,7 @@ impl UnlockVault {
       Self {
          credentials_form,
          size: (550.0, 350.0),
-         focus_pending: true,
+         focus: DeferredFocus::requested(),
       }
    }
 
@@ -69,7 +68,7 @@ impl UnlockVault {
       // A page change after the prompt appeared owns the focus: the prompt asks once, on the
       // page it opened on, and never takes the reader back from a page they moved to.
       if !allow_focus {
-         self.focus_pending = false;
+         self.focus.cancel();
       }
 
       let frame = theme.frame1;
@@ -95,13 +94,9 @@ impl UnlockVault {
                let title = ui.label(heading_text);
 
                // The page behind this window draws first and its heading takes the focus when a
-               // page changes; the prompt asks for it back here, on the first frame it paints and
-               // after that heading, so the first thing a reader is handed is what it is for.
-               // Its earlier passes are sizing, where the body is invisible and cannot hold it.
-               if self.focus_pending && !ui.is_sizing_pass() {
-                  title.request_focus();
-                  self.focus_pending = false;
-               }
+               // page changes; the prompt asks for it back here, after that heading, so the first
+               // thing a reader is handed is what it is for.
+               self.focus.grab(ui, title.id);
 
                ui.scope(|ui| {
                   ui.spacing_mut().button_padding = vec2(theme.spacing.xs, theme.spacing.xs);

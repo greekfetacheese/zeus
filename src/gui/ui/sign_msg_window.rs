@@ -12,14 +12,16 @@ use crate::core::{SignMsgType, ZeusContext};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
 use crate::gui::ui::common::{
-   address::name_address, address_for_speech, delayed_action_remaining, heading, name_alert,
+   DeferredFocus, DelayedAction, address::name_address, address_for_speech, heading, name_alert,
    name_text, token_for_speech, wallet_identity,
 };
 use crate::gui::ui::tx::{address, chain};
 
 use serde_json::{Value, to_string_pretty};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(test)]
+use std::time::Instant;
 use zeus_eth::{
    alloy_dyn_abi::{Eip712Types, TypedData},
    alloy_primitives::{Address, U256},
@@ -39,15 +41,9 @@ pub struct SignMsgWindow {
    msg: Option<SignMsgType>,
    formatted_msg: Option<String>,
    signed: Option<bool>,
-   opened_at: Option<Instant>,
-   /// True until the opening painted frame has put focus on the message heading.
-   ///
-   /// The modal spends two invisible sizing passes before it paints, and focus requested on
-   /// those does not survive the pass, so the flag is cleared only once the frame a reader can
-   /// be handed has drawn.
-   focus_pending: bool,
-   /// The countdown's one announcement has been raised for this prompt.
-   ready_announced: bool,
+   /// The wait before Sign is usable, and the one announcement that says the wait ended.
+   delayed: DelayedAction,
+   focus: DeferredFocus,
    /// The words this window hands back to the frame, which owns the announcement channel.
    notice: Option<String>,
    size: (f32, f32),
@@ -64,9 +60,8 @@ impl SignMsgWindow {
          msg: None,
          formatted_msg: None,
          signed: None,
-         opened_at: None,
-         focus_pending: false,
-         ready_announced: false,
+         delayed: DelayedAction::default(),
+         focus: DeferredFocus::default(),
          notice: None,
          size: (500.0, 750.0),
       }
@@ -90,10 +85,9 @@ impl SignMsgWindow {
       self.signed = None;
       // A prompt the user has not seen yet starts with its action focused, the countdown still
       // to say, and nothing of the previous prompt's words left over.
-      self.focus_pending = true;
-      self.ready_announced = false;
+      self.focus.request();
       self.notice = None;
-      self.opened_at = Some(Instant::now());
+      self.delayed.start();
    }
 
    pub fn close(&mut self) {
@@ -200,13 +194,7 @@ impl SignMsgWindow {
             // body, focused once when the window opens and never again — a prompt must not keep
             // pulling the focus back from what the user reached next.
             let title_heading = heading(ui, self.title());
-            // A shrink-wrapping modal spends two invisible sizing passes before its first painted
-            // frame, and focus requested on those does not survive the pass: wait for the frame a
-            // reader can actually be handed.
-            if self.focus_pending && !ui.is_sizing_pass() {
-               title_heading.request_focus();
-               self.focus_pending = false;
-            }
+            self.focus.grab(ui, title_heading.id);
 
             ui.set_width(self.size.0);
             ui.set_max_height(self.size.1);
@@ -361,9 +349,8 @@ impl SignMsgWindow {
                         // The countdown changes the button's description, never its name: a name
                         // that moves every second makes the same control a new one each frame, and
                         // "Sign" is the one word that says what the click does.
-                        let remaining = delayed_action_remaining(self.opened_at);
-                        let sign_ready = remaining.is_none();
-                        if remaining.is_some() {
+                        let sign_ready = self.delayed.is_ready();
+                        if !sign_ready {
                            ui.ctx().request_repaint_after(Duration::from_millis(100));
                         }
 
@@ -388,18 +375,17 @@ impl SignMsgWindow {
 
                         // A disabled control is still a node, and its description is the one part
                         // of it a reader can reach: the wait while it runs goes there.
-                        if let Some(secs) = remaining {
+                        if let Some(description) = self.delayed.description() {
                            ui.ctx().accesskit_node_builder(response.id, |node| {
-                              node.set_description(format!("Available in {secs} seconds"));
+                              node.set_description(description);
                            });
                         }
 
                         // Say the wait once, and only when it actually opens the button.
-                        if self.opened_at.is_some() && sign_ready && !self.ready_announced {
-                           self.ready_announced = true;
-                           if actionable {
-                              self.notice = Some("Sign is now available.".to_string());
-                           }
+                        if let Some(words) = self.delayed.announcement(sign_ready, "Sign")
+                           && actionable
+                        {
+                           self.notice = Some(words);
                         }
 
                         if response.clicked() && actionable {
@@ -502,8 +488,8 @@ impl SignMsgWindow {
       window.chain = chain;
       window.account = account;
       window.msg = Some(msg);
-      window.opened_at = opened_at;
-      window.focus_pending = true;
+      window.delayed.set(opened_at);
+      window.focus.request();
       window.open = true;
 
       window

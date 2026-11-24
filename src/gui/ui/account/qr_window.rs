@@ -6,7 +6,7 @@
 use crate::core::{WalletInfo, ZeusContext};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::{
-   address_for_speech, copied_words, name_address, name_text, spoken_wallet_name,
+   DeferredFocus, address_for_speech, copied_words, name_address, name_text, spoken_wallet_name,
 };
 use egui::{Id, Order, Response, RichText, Ui, vec2};
 use egui_elements::{Button, Modal, QrImage, Spinner, Theme, components::QrEncoding};
@@ -26,8 +26,7 @@ pub struct QrWindow {
    notice: Option<String>,
    /// The control that opened the window, focused again when the window closes.
    opener: Option<Id>,
-   /// True until the opening painted frame has put focus on the window's first control.
-   focus_pending: bool,
+   focus: DeferredFocus,
 }
 
 impl QrWindow {
@@ -40,7 +39,7 @@ impl QrWindow {
          size: (450.0, 400.0),
          notice: None,
          opener: None,
-         focus_pending: false,
+         focus: DeferredFocus::default(),
       }
    }
 
@@ -80,7 +79,7 @@ impl QrWindow {
       self.open = true;
       self.wallet = Some(wallet_clone);
       self.opener = opener;
-      self.focus_pending = true;
+      self.focus.request();
    }
 
    pub fn close(&mut self) {
@@ -238,14 +237,8 @@ impl QrWindow {
    }
 
    /// Put the focus on the window's first control once, on the frame a reader can be handed.
-   ///
-   /// A shrink-wrapping modal spends its first passes sizing, where its body is invisible and
-   /// cannot hold the focus, so the request waits for the frame it actually paints.
    fn focus_first_control(&mut self, first: Response, ui: &Ui) {
-      if self.focus_pending && !ui.is_sizing_pass() {
-         first.request_focus();
-         self.focus_pending = false;
-      }
+      self.focus.grab(ui, first.id);
    }
 
    /// Give the focus back to the control that opened the window.
@@ -276,7 +269,7 @@ impl QrWindow {
    pub(crate) fn open_for_test(&mut self, wallet: Option<WalletInfo>) {
       self.open = true;
       self.wallet = wallet;
-      self.focus_pending = true;
+      self.focus.request();
    }
 
    /// Open on `wallet` with the button that opened it, so a test can check the focus comes back.

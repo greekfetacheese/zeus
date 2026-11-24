@@ -3,7 +3,7 @@ use crate::core::ZeusContext;
 use crate::gui::ui::common::amount_field::{AmountField, AmountFieldParams};
 use crate::gui::ui::common::{
    blocked_announcement, blocked_reason_line, currency_for_speech, name_picker, name_text,
-   next_widget_id, token_for_speech,
+   token_for_speech,
 };
 use crate::gui::ui::dapps::uniswap::ProtocolVersion;
 use crate::gui::ui::token_selection::{InOrOut, TokenSelectionWindow};
@@ -476,7 +476,7 @@ impl SwapUi {
 
       // The trigger's node is the next widget this ui allocates, and the crate keeps the popup under
       // an id it takes before the list is drawn, so the id is read here first.
-      let trigger_id = next_widget_id(ui);
+      let trigger_id = ui.next_auto_id();
 
       ComboBox::new("protocol_version", label)
          .width(100.0)

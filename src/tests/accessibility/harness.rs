@@ -11,7 +11,7 @@ pub(super) fn frame(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<Node> {
 
 /// Run one AccessKit-enabled frame with `events` in its input, keeping the id each node is
 /// addressed by: a reader sends an action back to that id, so a test that drives a widget needs it.
-pub(super) fn frame_nodes(
+pub(crate) fn frame_nodes(
    ctx: &Context,
    events: Vec<Event>,
    add: impl FnMut(&mut Ui),
@@ -87,6 +87,12 @@ pub(super) fn named(nodes: &[(NodeId, Node)], id: Option<NodeId>) -> Option<Stri
       .find(|(node_id, _)| *node_id == id)
       .and_then(|(_, node)| node.label())
       .map(str::to_string)
+}
+
+/// Whether a node carries `name` as its label or its value: a drawn word lands on one or the
+/// other.
+pub(crate) fn is_named(node: &Node, name: &str) -> bool {
+   node.label() == Some(name) || node.value() == Some(name)
 }
 
 /// What a reader hears for the node the keyboard is on: a control's name, or a line's text.
@@ -257,6 +263,11 @@ pub(super) fn spoken_text(nodes: &[(NodeId, Node)]) -> Vec<&str> {
       .filter(|(_, node)| node.role() == Role::Label && !node.is_hidden())
       .filter_map(|(_, node)| node.value())
       .collect()
+}
+
+/// Every name and description in the tree, for a failure message.
+pub(crate) fn spoken(nodes: &[(NodeId, Node)]) -> Vec<String> {
+   nodes.iter().flat_map(|(_, node)| node_texts(node)).map(str::to_owned).collect()
 }
 
 /// A button a test knows the id of, drawn before a dialog: it is where the dialog has to put the

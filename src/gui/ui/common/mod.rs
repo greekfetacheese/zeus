@@ -3,11 +3,14 @@
 pub mod address;
 pub mod amount_field;
 pub mod autolock_timing;
+pub mod blocked;
 pub mod chain_select;
 pub mod chain_switch;
 pub mod fade;
 pub mod field_controls;
+pub mod focus;
 pub mod heading;
+pub mod naming;
 pub mod notices;
 pub mod recipient_field;
 pub mod spoken_row;
@@ -25,10 +28,13 @@ pub use address::{
 };
 pub use amount_field::{AmountField, AmountFieldParams};
 pub use autolock_timing::{GRACE_NOTICE, LockNotices, effective_idle_secs};
+pub use blocked::{blocked_announcement, blocked_reason_line};
 pub use chain_select::ChainSelect;
 pub use chain_switch::switch_chain;
 pub use fade::{panel_fade, show_with_fade};
-pub use heading::heading;
+pub use focus::{DeferredFocus, FocusHome, hand_focus_back};
+pub use heading::{heading, section_heading};
+pub use naming::{clickable_row, name_alert, name_picker, name_text, place_in_list};
 pub use recipient_field::recipient_field;
 pub use spoken_row::spoken_row;
 pub use token_speech::{SpokenToken, currency_for_speech, name_token, token_for_speech};
@@ -41,10 +47,8 @@ pub use windows::{ConfirmWindow, ConfirmWindowClaim, LoadingWindow, MsgWindow, U
 use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
-use egui::{
-   Align, FocusDirection, Id, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2,
-};
-use egui_elements::{Button, Frame, Switch, Theme, ToggleVisuals};
+use egui::{Align, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
+use egui_elements::{Button, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
 use std::time::{Duration, Instant};
 use zeus_eth::types::ChainId;
@@ -105,59 +109,83 @@ pub fn delayed_action_remaining(opened_at: Option<Instant>) -> Option<u64> {
    }
 }
 
+/// The sentence a delayed action says while it waits, or `None` once it is available.
+///
+/// One wording for every prompt, and the long one: `Available in 2 seconds` is what a reader
+/// hears, so no prompt abbreviates the wait on its own.
+pub fn delayed_action_description(opened_at: Option<Instant>) -> Option<String> {
+   delayed_action_remaining(opened_at).map(|secs| format!("Available in {secs} seconds"))
+}
+
 /// `(enabled, label)` for Sign/Confirm. `None` means no delay (in-app Zeus prompts).
 pub fn delayed_action_label(opened_at: Option<Instant>, ready_label: &str) -> (bool, String) {
-   match delayed_action_remaining(opened_at) {
-      Some(secs) => (false, format!("Available in {secs}s")),
+   match delayed_action_description(opened_at) {
+      Some(description) => (false, description),
       None => (true, ready_label.to_string()),
    }
 }
 
-/// Put the keyboard back on the control a dialog was opened from.
+/// The wait before a prompt's action is available, and the one announcement that it ended.
 ///
-/// A window cannot do this from its own `show`: on the frame a dialog closes, the page under it
-/// still draws behind the dialog's modal layer, and egui clears the focus of a widget drawn in that
-/// state — `Context::create_widget` calls `Memory::ignore_focus` for anything not allowed
-/// interaction yet. A request made from inside the window is therefore wiped by the page's own
-/// widgets, which draw after it. The frame hands the focus back at the end of the pass instead —
-/// see `central_panel::show` — where nothing follows but the announcer.
-pub fn hand_focus_back(ctx: &egui::Context, opener: &mut Option<Id>) {
-   if let Some(id) = opener.take() {
-      ctx.memory_mut(|memory| memory.request_focus(id));
+/// A prompt that puts its Sign/Connect/Confirm button behind [`ACTION_UNLOCK_DELAY`] holds one of
+/// these instead of an `Option<Instant>` and a flag: it starts the wait when the prompt becomes
+/// visible, asks for the sentence that describes the wait while it runs, and asks for the
+/// announcement once. Every question is answered by [`delayed_action_remaining`], so one countdown
+/// stands behind all of them and none of the prompts can drift from another.
+#[derive(Default)]
+pub struct DelayedAction {
+   /// When the prompt became visible. `None` skips the delay (in-app Zeus prompts).
+   opened_at: Option<Instant>,
+   /// The countdown's one announcement has been raised.
+   announced: bool,
+}
+
+impl DelayedAction {
+   /// Start the wait now, for a prompt the user is about to see.
+   pub fn start(&mut self) {
+      self.set(Some(Instant::now()));
    }
-}
 
-/// Draw the sentence that says why an action is blocked, directly above its button.
-///
-/// A disabled button takes no focus, so a reader could not reach the reason while it lived in
-/// the button's label — exactly when it mattered. The line is drawn in the button's own column,
-/// so a long sentence wraps where the button ends, and nothing is drawn while nothing is
-/// blocking. The Send form and the transaction confirmation share it, so both say a block the
-/// same way.
-pub fn blocked_reason_line(ui: &mut Ui, theme: &Theme, reason: &str) {
-   let width = ui.available_width() * 0.8;
-   let text = RichText::new(reason).size(theme.typography.normal).color(theme.colors.error);
+   /// Put the wait where the caller needs it: starting now, or not at all.
+   ///
+   /// The confirmation window learns from whoever raised the prompt whether it waits at all, and
+   /// only knows that once it has fetched the analysis; a test stands a prompt up either still
+   /// counting or already run out. Both hand the start in rather than waiting for it.
+   pub fn set(&mut self, opened_at: Option<Instant>) {
+      self.opened_at = opened_at;
+      self.announced = false;
+   }
 
-   ui.allocate_ui_with_layout(
-      vec2(width, 0.0),
-      Layout::top_down(Align::Center),
-      |ui| {
-         ui.label(text);
-      },
-   );
-}
+   /// The whole seconds left before the action is available, or `None` when it is.
+   pub fn remaining(&self) -> Option<u64> {
+      delayed_action_remaining(self.opened_at)
+   }
 
-/// The sentence to announce for a blocked action whose reason changed between two frames.
-///
-/// `None` when there is nothing to say: no reason before and none now, or the same reason still
-/// blocking. A reason that goes away says nothing either — an enabled button is its own news, and
-/// announcing the loss of a sentence nobody asked about would talk over what the user is doing.
-pub fn blocked_announcement(previous: Option<&str>, current: Option<&str>) -> Option<String> {
-   match (previous, current) {
-      (None, None) => None,
-      (Some(previous), Some(current)) if previous == current => None,
-      (Some(_), None) => None,
-      (None, Some(current)) | (Some(_), Some(current)) => Some(current.to_string()),
+   /// Whether the delayed action can be used now.
+   pub fn is_ready(&self) -> bool {
+      self.remaining().is_none()
+   }
+
+   /// The sentence for a control that cannot be used yet, or `None` once it can.
+   pub fn description(&self) -> Option<String> {
+      delayed_action_description(self.opened_at)
+   }
+
+   /// The sentence for the frame the wait ended, once per prompt.
+   ///
+   /// `ready` is the caller's own answer to the same countdown, and a prompt that never waited — an
+   /// in-app Zeus one — has no wait to have ended, so neither gets anything. `label` names the
+   /// action. The prompt is marked announced before the sentence is handed back, not when the
+   /// caller speaks it: a caller that decides it cannot — a wallet that still cannot pay must not be
+   /// told Confirm is available — has spent the one announcement either way, so a later frame says
+   /// nothing.
+   pub fn announcement(&mut self, ready: bool, label: &str) -> Option<String> {
+      if self.opened_at.is_none() || !ready || self.announced {
+         return None;
+      }
+
+      self.announced = true;
+      Some(format!("{label} is now available."))
    }
 }
 
@@ -311,227 +339,6 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
    resp
 }
 
-/// The id the next widget drawn on this `ui` will be registered under.
-///
-/// A popped list keeps its trigger in a node under an id the crate takes before the popup is drawn,
-/// so a widget that wants to name that node later has to read the id here first. Reading it does not
-/// advance the counter: the next widget still gets this id.
-pub fn next_widget_id(ui: &Ui) -> Id {
-   ui.next_auto_id()
-}
-
-/// Name a picker's node from the face it shows: `"{caption}: {value}"`.
-///
-/// A picker names its own node from the closed face alone, which is the value, so two pickers on one
-/// form both read as bare values and a picker beside its own caption reads as the value twice. The
-/// caption is the word the row already draws; this puts it on the node the picker owns. The shape
-/// came from `chain_select.rs`, where a chain picker had the same gap.
-pub fn name_picker(ui: &Ui, id: Id, caption: &str, value: &str) {
-   ui.ctx().accesskit_node_builder(id, |node| {
-      node.set_label(format!("{caption}: {value}"))
-   });
-}
-
-/// Put one sentence on the node behind a themed label, whatever the label reported for itself.
-///
-/// AccessKit names a `Role::Label` node from the node's value rather than its label, so the
-/// sentence goes in both: whichever of the two a consumer reads, the label says exactly the one
-/// thing it was given. A widget that made no node of its own is given a label node here, so the
-/// drawn text is never the only thing a reader gets; one that did keeps the role it has and only
-/// takes the words.
-pub fn name_text(ui: &Ui, response: &Response, text: impl Into<String>) {
-   let text = text.into();
-   let egui_ctx = ui.ctx();
-
-   if !egui_ctx.has_accesskit_node(response.id) {
-      let name = text.as_str();
-      response.widget_info(|| WidgetInfo::labeled(Role::Label, ui.is_enabled(), name));
-   }
-
-   egui_ctx.accesskit_node_builder(response.id, |node| {
-      if node.role() == Role::Label {
-         node.set_value(text.clone());
-      }
-
-      node.set_label(text.clone());
-   });
-}
-
-/// Make a drawn line the alert that says `sentence` — once.
-///
-/// A label's words are already in its node's value, and a widget given the alert role needs them as
-/// the node's name as well. That naming left the sentence in both places, and the Windows reader
-/// says both: the unlimited-allowance warning came out doubled. The name is what an alert is
-/// announced by, so the value is let go.
-pub fn name_alert(ui: &Ui, response: &Response, sentence: impl Into<String>) {
-   let sentence = sentence.into();
-
-   response.widget_info(|| WidgetInfo::labeled(Role::Alert, ui.is_enabled(), sentence.as_str()));
-
-   ui.ctx().accesskit_node_builder(response.id, |node| node.set_value(""));
-}
-
-/// A plate that is one clickable row to a reader: the frame, its contents, and the node behind them.
-///
-/// A row drawn as a frame with a click sense bolted on afterwards is a hit target and nothing more:
-/// a reader finds no role, no name, and no way to activate it. The frame's own widget carries all
-/// three here — [`WidgetInfo::selected`] gives it the button role, the name the caller writes and,
-/// when the caller says so, the selected state that tells a reader which row the surface points at.
-///
-/// The frame registers itself with an empty sense before its contents, under the id it is about to
-/// take, and that withdraws the focus a Tab put on it: a row reached by keyboard would lose focus
-/// every frame and Space/Enter would never reach it. `show` is `begin` + the contents + `end`, so
-/// writing the three out leaves a moment to put the focus back before the final registration, which
-/// is the one that makes the row focusable again.
-///
-/// That final registration happens *after* the contents, and egui walks the focus in the order the
-/// widgets ask for it: the row's own controls — the options button, the copy button — would take
-/// every Tab a step before the row itself, so a keyboard user reaches the settings of the thing
-/// before the thing. The row therefore asks for the focus here, between `begin` and the contents,
-/// and the buttons inside it follow it in the order they are drawn.
-///
-/// Asking twice has a price the second ask has to be watched for: it arrives while egui is handing
-/// the focus to the next widget, and can take that hand-off, which leaves Tab from a row's copy
-/// button coming back to the row instead of moving on. A row that did not hold the focus before the
-/// ask and holds it after it is exactly that case, and the hand-off is passed on there.
-///
-/// `covered` is the ids of the nodes the contents added for words the row's own name already says:
-/// they are hidden, so a reader hears the row once instead of once per label inside it.
-pub fn clickable_row(
-   ui: &mut Ui,
-   frame: Frame,
-   name: impl Into<String>,
-   description: Option<String>,
-   selected: bool,
-   add_contents: impl FnOnce(&mut Ui) -> Vec<Id>,
-) -> Response {
-   let focused_before = ui.ctx().memory(|memory| memory.focused());
-
-   // Read before `begin` takes the frame: a row that cannot take a click cannot take a Tab either,
-   // and pre-registering it would leave a focus stop that does nothing.
-   let focusable = frame.sense.is_focusable();
-   let layer_id = ui.layer_id();
-
-   let mut row = frame.begin(ui);
-   let id = ui.next_auto_id();
-
-   if focused_before == Some(id) {
-      ui.ctx().memory_mut(|memory| memory.request_focus(id));
-   }
-
-   // Ahead of the contents, so Tab reaches the row before the buttons drawn inside it.
-   if focusable {
-      ui.ctx().memory_mut(|memory| memory.interested_in_focus(id, layer_id));
-   }
-
-   let covered = add_contents(&mut row.content_ui);
-
-   // The frame asks for the focus again when it ends — a focusable widget has to, or it loses the
-   // focus it already had — and that ask arrives while egui is handing the focus to the next widget.
-   // It can take that hand-off, and Tab from a row's own button would then come back to the row
-   // instead of moving on to the next one. Holding the focus is the tell: a row that did not hold it
-   // before the ask and holds it after took the hand-off, and passes it on.
-   let held_before = ui.ctx().memory(|memory| memory.focused()) == Some(id);
-   let response = row.end(ui);
-
-   if focusable && !held_before && ui.ctx().memory(|memory| memory.focused()) == Some(id) {
-      ui.ctx().memory_mut(|memory| {
-         memory.surrender_focus(id);
-         memory.move_focus(FocusDirection::Next);
-      });
-   }
-
-   let name = name.into();
-
-   response.widget_info(|| WidgetInfo::selected(Role::Button, ui.is_enabled(), selected, &name));
-
-   if let Some(description) = description {
-      ui.ctx().accesskit_node_builder(response.id, |node| {
-         node.set_description(description)
-      });
-   }
-
-   for covered in covered {
-      ui.ctx().accesskit_node_builder(covered, |node| node.set_hidden());
-   }
-
-   response
-}
-
-/// Put a list row at its place, and give the list its size.
-///
-/// AccessKit puts the position on the item (`set_position_in_set`, zero-based) and the count on
-/// the container the items belong to (`set_size_of_set`), unlike ARIA where the size sits on the
-/// item too. The container is the `Ui` the rows are drawn into: egui's node for a `Ui` is keyed
-/// by its `unique_id`, so that is where the count goes. A widget id no widget registered would
-/// put the count beside the real node instead of on it.
-pub fn place_in_list(ui: &Ui, row_id: Id, index: usize, len: usize) {
-   let egui_ctx = ui.ctx();
-
-   egui_ctx.accesskit_node_builder(ui.unique_id(), |node| node.set_size_of_set(len));
-   egui_ctx.accesskit_node_builder(row_id, |node| node.set_position_in_set(index));
-}
-
-/// Where the keyboard goes when a picker closes: back to the control it was opened from.
-///
-/// A dialog takes the keyboard while it is up, so the control that opened it loses it — and a pick
-/// closes the picker from inside its own body, which is a close no dialog hands the focus back from
-/// on its own. The opener is recorded once per opening, and given the focus back on the first frame
-/// the dialog layer no longer covers: the layer outlives the close by a frame, and every widget
-/// drawn behind it withdraws a focus it is handed.
-#[derive(Default, Clone, Copy)]
-pub enum FocusHome {
-   /// Nothing recorded for this opening yet.
-   #[default]
-   Unrecorded,
-   /// What had the keyboard when the picker opened, if anything did.
-   Opened(Option<Id>),
-   /// The picker has closed; this control takes the keyboard back on the next frame.
-   Closing(Id),
-}
-
-impl FocusHome {
-   /// Record the control a picker is opened from, when the opener knows its own id.
-   ///
-   /// [`Self::note`] reads the keyboard on the picker's first frame, which serves an opener that
-   /// keeps its focus. A text field gives its focus up on the key that opens the picker, so that
-   /// frame has nothing to read and the field's id has to be handed over instead.
-   pub fn open_from(&mut self, opener: Id) {
-      *self = Self::Opened(Some(opener));
-   }
-
-   /// Note the control a picker is opened from. Only the first note of an opening counts: the dialog
-   /// takes the keyboard later in that same frame, and that must not become the home.
-   pub fn note(&mut self, ui: &Ui) {
-      if matches!(*self, Self::Unrecorded) {
-         *self = Self::Opened(ui.memory(|memory| memory.focused()));
-      }
-   }
-
-   /// The picker is closing: its opener takes the keyboard back once the dialog layer has gone.
-   pub fn close(&mut self) {
-      *self = match *self {
-         Self::Opened(Some(id)) => Self::Closing(id),
-         _ => Self::Unrecorded,
-      };
-   }
-
-   /// The control that takes the keyboard back now, once the dialog layer has gone.
-   ///
-   /// The layer outlives the frame a picker closes on — it is still in force on the frame after —
-   /// and every widget drawn behind it withdraws a focus it is handed, so the hand-back waits for
-   /// it to clear instead of racing it.
-   pub fn take_closing(&mut self, ui: &Ui) -> Option<Id> {
-      match *self {
-         Self::Closing(id) if ui.memory(|memory| memory.allows_interaction(ui.layer_id())) => {
-            *self = Self::Unrecorded;
-            Some(id)
-         }
-         _ => None,
-      }
-   }
-}
-
 #[cfg(test)]
 mod tests {
    use super::*;
@@ -618,39 +425,5 @@ mod tests {
 
       assert!(usable_chain(137).is_none());
       assert!(usable_chain(u64::MAX).is_none());
-   }
-
-   /// The rule the Send form follows: a reason that appears or changes is a new sentence, the same
-   /// reason a frame later is not, and a block that lifts says nothing.
-   #[test]
-   fn a_blocked_reason_is_said_when_it_changes() {
-      assert_eq!(blocked_announcement(None, None), None);
-
-      assert_eq!(
-         blocked_announcement(None, Some("Amount is not valid")).as_deref(),
-         Some("Amount is not valid")
-      );
-
-      assert_eq!(
-         blocked_announcement(
-            Some("Amount is not valid"),
-            Some("Amount is not valid")
-         ),
-         None
-      );
-
-      assert_eq!(
-         blocked_announcement(
-            Some("Amount is not valid"),
-            Some("Insufficient ETH Balance")
-         )
-         .as_deref(),
-         Some("Insufficient ETH Balance")
-      );
-
-      assert_eq!(
-         blocked_announcement(Some("Amount is not valid"), None),
-         None
-      );
    }
 }

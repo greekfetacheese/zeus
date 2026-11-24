@@ -168,9 +168,7 @@ impl DeleteContact {
          ui.spacing_mut().item_spacing.y = theme.spacing.md;
          ui.spacing_mut().button_padding = theme.button_padding;
 
-         let title = ui.label(RichText::new("Delete contact").size(theme.typography.heading));
-         title
-            .widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Delete contact"));
+         common::section_heading(ui, theme.typography.heading, "Delete contact");
 
          ui.label(
             RichText::new("Are you sure you want to delete this contact?")
@@ -399,8 +397,7 @@ impl QrWindow {
 
             // The page's only statement of which address is on screen, so it is a heading a
             // reader can move to rather than one more line of prose.
-            let heading = ui.label(RichText::new(text).size(theme.typography.large));
-            heading.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+            common::section_heading(ui, theme.typography.large, text);
 
             let address = match privacy_mode {
                false => contact.evm_address.clone(),
@@ -596,11 +593,7 @@ impl ContactsUi {
             self.back_row(theme, ui);
             ui.vertical_centered(|ui| {
                ui.spacing_mut().item_spacing.y = theme.spacing.md;
-               let title =
-                  ui.label(RichText::new("Contact QR Code").size(theme.typography.heading));
-               title.widget_info(|| {
-                  WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Contact QR Code")
-               });
+               common::section_heading(ui, theme.typography.heading, "Contact QR Code");
                self.qr_window.body(ctx, theme, ui);
             });
          },

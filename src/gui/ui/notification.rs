@@ -1078,8 +1078,9 @@ fn format_amount(amount: &NumericValue) -> String {
 mod tests {
    use super::*;
    use crate::core::ZeusCtx;
+   use crate::tests::accessibility::harness::{frame_nodes, spoken};
    use egui::accesskit::{Action, ActionRequest, Node, NodeId, Role, TreeId};
-   use egui::{Context, Event, RawInput, Rect, pos2, vec2};
+   use egui::{Context, Event};
    use egui_elements::ThemeKind;
 
    const TITLE: &str = "Transfer";
@@ -1122,45 +1123,26 @@ mod tests {
       }
 
       /// One frame of the window with `before` drawn first, which is how a dialog is put over it.
+      ///
+      /// The frame itself is the harness's; a closed window's pass still produces a tree, so the
+      /// wrapper only adds the sentence the window queued for the reader during it.
       fn draw_frame_with(
          &self,
          notification: &mut Notification,
          events: Vec<Event>,
          mut before: impl FnMut(&mut Ui),
       ) -> (Vec<(NodeId, Node)>, Option<String>) {
-         self.ctx.enable_accesskit();
-
          let mut said = None;
 
-         let mut output = self.ctx.run_ui(
-            RawInput {
-               screen_rect: Some(Rect::from_min_size(
-                  pos2(0.0, 0.0),
-                  vec2(1290.0, 950.0),
-               )),
-               events,
-               ..Default::default()
-            },
-            |ui| {
-               before(ui);
+         let nodes = frame_nodes(&self.ctx, events, |ui| {
+            before(ui);
 
-               self.handle.write(|zeus| {
-                  notification.show(zeus, &self.theme, self.icons.clone(), ui);
+            self.handle.write(|zeus| {
+               notification.show(zeus, &self.theme, self.icons.clone(), ui);
 
-                  said = notification.take_notice();
-               });
-            },
-         );
-
-         // A pass with nothing to draw produces no nodes, which is what a closed window is.
-         let nodes = output
-            .platform_output
-            .accesskit_update
-            .take()
-            .map(|update| update.nodes.into_iter().collect::<Vec<_>>())
-            .unwrap_or_default();
-
-         output.drop_without_applying_deltas();
+               said = notification.take_notice();
+            });
+         });
 
          (nodes, said)
       }
@@ -1202,16 +1184,6 @@ mod tests {
          NotificationType::Other(String::new()),
          None,
       );
-   }
-
-   /// Every name and description in the tree, for a failure message.
-   fn spoken(nodes: &[(NodeId, Node)]) -> Vec<String> {
-      nodes
-         .iter()
-         .flat_map(|(_, node)| [node.label(), node.value(), node.description()])
-         .flatten()
-         .map(str::to_string)
-         .collect()
    }
 
    /// The id of the node a reader finds by this name.

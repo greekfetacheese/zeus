@@ -21,10 +21,11 @@ pub use palette::{Command, CommandPalette};
 
 use crate::core::ZeusContext;
 use crate::gui::ui::common::address::copied_words;
+use crate::gui::ui::common::section_heading;
 use crate::gui::ui::panels::left_panel;
 use crate::gui::ui::settings::SettingsPage;
 use crate::gui::{FocusRegion, GUI, Page};
-use egui::{Context, Event, FocusDirection, Id, Key, RichText, Role, ScrollArea, Ui, WidgetInfo};
+use egui::{Context, Event, FocusDirection, Id, Key, RichText, ScrollArea, Ui};
 use egui_elements::{Modal, Theme};
 
 /// The page each `Alt` digit opens, in the order the nav draws them.
@@ -485,8 +486,7 @@ fn section(theme: &Theme, ui: &mut Ui, title: &'static str, lines: &[(&str, &str
 
 /// A section's name, drawn and marked as a heading so a reader hears where one list ends.
 fn section_title(theme: &Theme, ui: &mut Ui, text: &'static str) {
-   let title = ui.label(RichText::new(text).size(theme.typography.large));
-   title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+   section_heading(ui, theme.typography.large, text);
 }
 
 /// One binding as a single node: the keys and what they do are said together, so a reader walking

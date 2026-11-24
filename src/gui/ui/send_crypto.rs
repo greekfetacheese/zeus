@@ -25,7 +25,7 @@ use crate::gui::{
       ContactsUi, RecipientSelectionWindow, TokenSelectionWindow,
       common::{
          AmountField, AmountFieldParams, blocked_announcement, blocked_reason_line,
-         recipient_field, show_with_fade,
+         recipient_field, section_heading, show_with_fade,
       },
       dapps::railgun::{RailgunAsset, private_transfer},
       token_selection::{PickerMode, nft_collection_name},
@@ -284,12 +284,8 @@ impl SendCryptoUi {
                   } else {
                      "Send Crypto"
                   };
-                  let title = ui.label(RichText::new(title_text).size(theme.typography.heading));
-
                   // The form's own title is a heading of the page, not a line of prose beside it.
-                  title.widget_info(|| {
-                     WidgetInfo::labeled(Role::Heading, ui.is_enabled(), title_text)
-                  });
+                  section_heading(ui, theme.typography.heading, title_text);
 
                   let owner = ctx.current_wallet_info().address;
                   let owner_zk = ctx.current_wallet_info().zk_address();

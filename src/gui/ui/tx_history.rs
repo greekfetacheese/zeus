@@ -1077,44 +1077,17 @@ mod tests {
    /// The page's accessible tree: what a reader is handed for a page holding known rows.
    ///
    /// `PublicHistoryRow` and `TxHistory` are private to this file, so the fixtures live here rather
-   /// than widening the row type for the shared accessibility suite. The frame below reads the same
-   /// `platform_output.accesskit_update` value that suite reads.
+   /// than widening the row type for the shared accessibility suite; the frame is the suite's.
    mod accessibility {
       use super::*;
       use crate::core::ZeusCtx;
+      use crate::tests::accessibility::harness::{frame_nodes, is_named, spoken};
+      use egui::Context;
       use egui::accesskit::{Node, NodeId, Role};
-      use egui::{Context, RawInput, Rect, pos2, vec2};
       use egui_elements::ThemeKind;
       use zeus_eth::alloy_primitives::address;
 
       const WALLET: Address = address!("1111111111111111111111111111111111111111");
-
-      /// Run one AccessKit-enabled frame and return the node ids and nodes it produced.
-      fn frame_nodes(ctx: &Context, add: impl FnMut(&mut Ui)) -> Vec<(NodeId, Node)> {
-         ctx.enable_accesskit();
-
-         let mut output = ctx.run_ui(
-            RawInput {
-               screen_rect: Some(Rect::from_min_size(
-                  pos2(0.0, 0.0),
-                  vec2(1290.0, 950.0),
-               )),
-               ..Default::default()
-            },
-            add,
-         );
-
-         let update = output
-            .platform_output
-            .accesskit_update
-            .take()
-            .expect("an AccessKit-enabled frame must produce a tree update");
-
-         let nodes = update.nodes.into_iter().collect();
-         output.drop_without_applying_deltas();
-
-         nodes
-      }
 
       /// The pieces the page needs: the installed theme and a context with no wallet behind it.
       fn page_harness() -> (Context, ZeusCtx, Theme) {
@@ -1140,7 +1113,7 @@ mod tests {
          let mut nodes = Vec::new();
 
          for _ in 0..4 {
-            nodes = frame_nodes(ctx, |ui| {
+            nodes = frame_nodes(ctx, Vec::new(), |ui| {
                handle.write(|zeus| {
                   page.show(zeus, theme, ui);
 
@@ -1152,21 +1125,6 @@ mod tests {
          }
 
          nodes
-      }
-
-      /// Whether a node is named by the given word, either way egui spells a label for AccessKit.
-      fn is_named(node: &Node, name: &str) -> bool {
-         node.label() == Some(name) || node.value() == Some(name)
-      }
-
-      /// Every name and description in the tree, for a failure message.
-      fn spoken(nodes: &[(NodeId, Node)]) -> Vec<String> {
-         nodes
-            .iter()
-            .flat_map(|(_, node)| [node.label(), node.value(), node.description()])
-            .flatten()
-            .map(str::to_string)
-            .collect()
       }
 
       /// The label node that carries `text` as its description.
