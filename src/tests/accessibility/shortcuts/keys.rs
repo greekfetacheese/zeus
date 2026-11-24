@@ -272,7 +272,7 @@ fn an_alt_digit_does_not_type_into_a_focused_field() {
 ///
 /// The copy tests draw the card the shortcut copies from and not the pages behind it: those read a
 /// wallet cache and an RPC this test does not stand up.
-pub(crate) fn render_account_card(
+pub(super) fn render_account_card(
    ctx: &Context,
    gui: &mut GUI,
    zeus: &ZeusCtx,
