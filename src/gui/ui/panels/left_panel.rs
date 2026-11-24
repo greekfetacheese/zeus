@@ -298,6 +298,13 @@ fn nav_plate(
 
    let mut visuals = theme.frame2_visuals();
    visuals.bg = Fill::Solid(theme.frame1.fill);
+   // A plate that holds the keyboard — the Settings entry after its window closes, or whichever
+   // one F6 lands on — must not read as pressed. An interactive `Frame` paints its click fill
+   // while it has the focus, and that fill is the window background in every theme: a band
+   // darker than the panel, which looks like a press that never ended. The fill stays idle and a
+   // one-point accent outline is what says where the keyboard is.
+   visuals.bg_click = Fill::Solid(theme.frame1.fill);
+   visuals.border_click = Stroke::new(1.0, theme.colors.accent);
    visuals.border = Stroke::NONE;
    visuals.shadow = Shadow::NONE;
 
