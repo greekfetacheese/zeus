@@ -16,6 +16,7 @@ mod harness;
 mod lock;
 mod nav;
 mod portfolio;
+mod receive;
 mod recipient_field;
 mod recipient_picker;
 mod send;
