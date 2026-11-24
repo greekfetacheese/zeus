@@ -12,6 +12,7 @@ mod all;
 mod app;
 mod common_widgets;
 mod contacts;
+mod dapps;
 #[cfg(feature = "dev")]
 mod dev_dump;
 mod harness;
