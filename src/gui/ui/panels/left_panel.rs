@@ -184,6 +184,19 @@ pub fn show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
          gui.nav_focus_quiet = false;
       }
 
+      // The plate a window hands the keyboard to must not ignore the pointer either: a focused
+      // `Frame` paints its press chrome over the hover colour, so while the focus sits there the
+      // entry never lights up under the cursor. The pointer asking for anything ends the
+      // hand-back — the plate gives the focus up and its own hover and press chrome come back —
+      // while a user who never touches the mouse keeps the keyboard where the window left it.
+      if gui.nav_focus_quiet
+         && (ui.rect_contains_pointer(ui.max_rect())
+            || ui.input(|input| input.pointer.any_pressed()))
+      {
+         ui.ctx().memory_mut(|memory| memory.surrender_focus(plate.id));
+         gui.nav_focus_quiet = false;
+      }
+
       nav_plate(
          gui,
          ctx,

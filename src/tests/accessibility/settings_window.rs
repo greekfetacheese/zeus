@@ -5,8 +5,8 @@ use super::app::{
 use super::harness::{accesskit_action, drawn_names, focused_node, key_press};
 use crate::gui::Page;
 use crate::gui::ui::settings::SettingsPage;
-use egui::Key;
 use egui::accesskit::{Action, Node, NodeId, Role, Toggled};
+use egui::{Event, Key};
 
 /// Settings is a window in the tree: one named window node a reader can hear, and the Close button
 /// egui draws for it. Neither existed while Settings was a second OS window.
@@ -136,6 +136,41 @@ fn a_handed_back_focus_is_not_marked_until_the_keyboard_is_used() {
    assert!(
       !gui.nav_focus_quiet,
       "the first key must bring the mark back"
+   );
+}
+
+/// The plate a closed window hands the keyboard to must not go inert: a focused `Frame` paints its
+/// press chrome over the hover colour, so while the focus sits there the entry never lights up under
+/// the cursor. The pointer asking for anything gives that focus up, and with it the plate's own
+/// hover and press chrome comes back.
+#[test]
+fn the_pointer_gives_the_handed_back_focus_up() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![key_press(Key::Escape)],
+   );
+
+   render_nav(&ctx, &mut gui, &zeus, Vec::new());
+   assert!(
+      gui.nav_focus_quiet,
+      "the close must hand the focus back before the pointer can take it"
+   );
+
+   let pointer = Event::PointerMoved(egui::pos2(120.0, 240.0));
+   render_nav(&ctx, &mut gui, &zeus, vec![pointer]);
+
+   assert!(
+      !gui.nav_focus_quiet,
+      "the pointer must end the hand-back"
+   );
+   assert!(
+      ctx.memory(|memory| memory.focused()).is_none(),
+      "the plate must give the focus up so its own hover chrome is back"
    );
 }
 
