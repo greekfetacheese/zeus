@@ -229,69 +229,101 @@ impl Action {
 
    /// What the action is called in the palette, the settings page and a refusal.
    pub fn label(self) -> &'static str {
-      match self {
-         Self::OpenPalette => "Command palette",
-         Self::NextRegion => "Next part of the window",
-         Self::PreviousRegion => "Previous part of the window",
-         Self::NextControl => "Next control",
-         Self::PreviousControl => "Previous control",
-         Self::ReviewSend => "Press Send",
-         Self::OpenNotification => "Open the notification",
-         Self::CopyAddress => "Copy address",
-         Self::ShowShortcuts => "Keyboard shortcuts",
-      }
+      self.spec().label
    }
 
    /// What the `F1` sheet says the key does, after the key: `Ctrl+Shift+C: copy your address`.
    pub fn description(self) -> &'static str {
-      match self {
-         Self::OpenPalette => "list every command, and run one by name",
-         Self::NextRegion => {
-            "go to the next part: the account, the navigation, the page, the notification"
-         }
-         Self::PreviousRegion => "go back to the previous part",
-         Self::NextControl => "the next control, skipping the text between them",
-         Self::PreviousControl => "the previous control, skipping the text between them",
-         Self::ReviewSend => "press Send on the Send page",
-         Self::OpenNotification => "go to the open notification",
-         Self::CopyAddress => "copy your address",
-         Self::ShowShortcuts => "show or hide this list",
-      }
+      self.spec().description
    }
 
    /// The chord the action answers until the user changes it.
    pub fn default_binding(self) -> Binding {
-      match self {
-         Self::OpenPalette => Binding::new(Key::K, Chord::Command),
-         Self::NextRegion => Binding::new(Key::F6, Chord::Plain),
-         Self::PreviousRegion => Binding::new(Key::F6, Chord::Shift),
-         Self::NextControl => Binding::new(Key::Tab, Chord::Ctrl),
-         Self::PreviousControl => Binding::new(Key::Tab, Chord::CtrlShift),
-         Self::ReviewSend => Binding::new(Key::Enter, Chord::Command),
-         Self::OpenNotification => Binding::new(Key::N, Chord::Alt),
-         Self::CopyAddress => Binding::new(Key::C, Chord::CommandShift),
-         Self::ShowShortcuts => Binding::new(Key::F1, Chord::Plain),
-      }
+      self.spec().default
    }
 
    /// The name the saved file uses for the action.
    pub fn name(self) -> &'static str {
+      self.spec().name
+   }
+
+   /// Everything the table says about one action: one arm per variant, all four columns together.
+   ///
+   /// The four columns used to be four matches over the same variants, so a label could move
+   /// without the description or the saved name following it. A row here cannot drift apart.
+   fn spec(self) -> ActionSpec {
       match self {
-         Self::OpenPalette => "command_palette",
-         Self::NextRegion => "next_region",
-         Self::PreviousRegion => "previous_region",
-         Self::NextControl => "next_control",
-         Self::PreviousControl => "previous_control",
-         Self::ReviewSend => "press_send",
-         Self::OpenNotification => "open_notification",
-         Self::CopyAddress => "copy_address",
-         Self::ShowShortcuts => "keyboard_shortcuts",
+         Self::OpenPalette => ActionSpec {
+            label: "Command palette",
+            description: "list every command, and run one by name",
+            default: Binding::new(Key::K, Chord::Command),
+            name: "command_palette",
+         },
+         Self::NextRegion => ActionSpec {
+            label: "Next part of the window",
+            description: "go to the next part: the account, the navigation, the page, \
+                          the notification",
+            default: Binding::new(Key::F6, Chord::Plain),
+            name: "next_region",
+         },
+         Self::PreviousRegion => ActionSpec {
+            label: "Previous part of the window",
+            description: "go back to the previous part",
+            default: Binding::new(Key::F6, Chord::Shift),
+            name: "previous_region",
+         },
+         Self::NextControl => ActionSpec {
+            label: "Next control",
+            description: "the next control, skipping the text between them",
+            default: Binding::new(Key::Tab, Chord::Ctrl),
+            name: "next_control",
+         },
+         Self::PreviousControl => ActionSpec {
+            label: "Previous control",
+            description: "the previous control, skipping the text between them",
+            default: Binding::new(Key::Tab, Chord::CtrlShift),
+            name: "previous_control",
+         },
+         Self::ReviewSend => ActionSpec {
+            label: "Press Send",
+            description: "press Send on the Send page",
+            default: Binding::new(Key::Enter, Chord::Command),
+            name: "press_send",
+         },
+         Self::OpenNotification => ActionSpec {
+            label: "Open the notification",
+            description: "go to the open notification",
+            default: Binding::new(Key::N, Chord::Alt),
+            name: "open_notification",
+         },
+         Self::CopyAddress => ActionSpec {
+            label: "Copy address",
+            description: "copy your address",
+            default: Binding::new(Key::C, Chord::CommandShift),
+            name: "copy_address",
+         },
+         Self::ShowShortcuts => ActionSpec {
+            label: "Keyboard shortcuts",
+            description: "show or hide this list",
+            default: Binding::new(Key::F1, Chord::Plain),
+            name: "keyboard_shortcuts",
+         },
       }
    }
 
    pub fn from_name(name: &str) -> Option<Self> {
       Self::ALL.into_iter().find(|action| action.name() == name)
    }
+}
+
+/// What the table says about one action: the four columns every reader asks it for.
+///
+/// Private, because the accessors on [`Action`] are how a row is read.
+struct ActionSpec {
+   label: &'static str,
+   description: &'static str,
+   default: Binding,
+   name: &'static str,
 }
 
 /// Why a chord cannot be bound to an action.
