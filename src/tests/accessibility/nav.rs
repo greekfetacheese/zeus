@@ -1,8 +1,8 @@
-use super::all::{press_shortcut, render_shortcuts};
 use super::app::{main_window, render_central, render_nav, wallet_in_cache};
 use super::harness::{
    accesskit_action, drawn_names, focused_node, frame_nodes, is_text_input, key_press,
 };
+use super::shortcuts::keys::{press_shortcut, render_shortcuts};
 use egui::accesskit::{Action, Node, Role, Toggled};
 use egui::{Key, Modifiers};
 

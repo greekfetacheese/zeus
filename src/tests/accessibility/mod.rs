@@ -25,6 +25,7 @@ mod recipient_picker;
 mod send;
 mod settings_pages;
 mod settings_window;
+mod shortcuts;
 mod token_picker;
 mod tx;
 mod wallet;
