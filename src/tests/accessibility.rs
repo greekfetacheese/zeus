@@ -5886,7 +5886,7 @@ fn the_fee_is_said_once() {
       "the figure must be said once: {spoken:?}"
    );
    assert!(
-      !spoken.iter().any(|text| *text == "Cost"),
+      !spoken.contains(&"Cost"),
       "a title that only says \"cost\" was the row's second spelling: {spoken:?}"
    );
 
@@ -7782,7 +7782,13 @@ fn a_wallet_row_click_switches_and_the_page_says_so() {
    let master = master_wallet("Main");
    let savings = wallet_named("Savings");
 
-   seed_wallet_page(&mut gui, &zeus, &master, &[savings.clone()], &[1]);
+   seed_wallet_page(
+      &mut gui,
+      &zeus,
+      &master,
+      std::slice::from_ref(&savings),
+      &[1],
+   );
 
    let nodes = draw_wallet_page(&ctx, &mut gui, &zeus);
    let row = "Savings, imported wallet, $0.00";
@@ -13028,7 +13034,7 @@ fn ctrl_k_lists_every_command() {
       );
 
       assert!(
-         names.iter().any(|name| *name == expected.as_str()),
+         names.contains(&expected.as_str()),
          "the palette must list {expected:?}: {names:?}"
       );
    }

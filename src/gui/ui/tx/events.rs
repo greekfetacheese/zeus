@@ -748,8 +748,8 @@ fn shield_event_ui(
                   Some(icon),
                   &words,
                   &token.symbol,
-                  &figure,
-                  &value,
+                  figure,
+                  value,
                );
             });
          } else if let AssetId::Erc721(collection, token_id)
@@ -802,8 +802,8 @@ fn shield_event_ui(
                Some(icon),
                &words,
                &token.symbol,
-               &figure,
-               &value,
+               figure,
+               value,
             );
          });
       });
@@ -862,8 +862,8 @@ fn unshield_event_ui(
                   Some(icon),
                   &words,
                   &token.symbol,
-                  &figure,
-                  &value,
+                  figure,
+                  value,
                );
             });
          } else if matches!(
@@ -918,8 +918,8 @@ fn unshield_event_ui(
                Some(icon),
                &words,
                &token.symbol,
-               &figure,
-               &value,
+               figure,
+               value,
             );
          });
       });
@@ -952,8 +952,8 @@ fn unshield_event_ui(
                   Some(icon),
                   &words,
                   &token.symbol,
-                  &figure,
-                  &value,
+                  figure,
+                  value,
                );
             });
          });
@@ -1018,8 +1018,8 @@ fn private_transfer_event_ui(
                   Some(icon),
                   &words,
                   &token.symbol,
-                  &figure,
-                  &value,
+                  figure,
+                  value,
                );
             });
          } else if let AssetId::Erc721(collection, token_id)
