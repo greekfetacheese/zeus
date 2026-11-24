@@ -304,7 +304,7 @@ fn nav_plate(
    // one F6 lands on — must not read as pressed. An interactive `Frame` paints its click fill
    // while it has the focus, and that fill is the window background in every theme: a band
    // darker than the panel, which looks like a press that never ended. The fill stays idle and a
-   // one-point accent outline is what says where the keyboard is.
+   // click draws no stroke of its own, so the hover tint is the only chrome a plate has.
    visuals.bg_click = Fill::Solid(theme.frame1.fill);
    visuals.border_click = Stroke::NONE;
    visuals.border = Stroke::NONE;
