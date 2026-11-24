@@ -1,13 +1,14 @@
 //! UI to show the decoded events for a transaction
 
-use egui::{Align, Frame, Id, Layout, Order, RichText, ScrollArea, Ui, Vec2, vec2};
-use egui_elements::{Label, Modal, MultiLabel, Theme};
+use egui::{Align, Frame, Id, Image, Layout, Order, RichText, ScrollArea, Ui, Vec2, vec2};
+use egui_elements::{Label, Modal, Theme};
 
 use crate::assets::icons::Icons;
 use crate::core::{TransactionAnalysis, ZeusContext, tx::events::*};
 use crate::gui::ui::common::{
+   SpokenToken,
    address::{address_for_speech, name_address},
-   chain_label, currency_for_speech, name_text, token_for_speech,
+   chain_label, currency_for_speech, spoken_row, token_for_speech,
 };
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::truncate_address;
@@ -171,42 +172,36 @@ pub fn permit_event_ui(
    let icon_size = vec2(24.0, 24.0);
 
    let icon = icons.currency_icon_x32(&params.token, tint).fit_to_exact_size(icon_size);
-   let name = currency_for_speech(&params.token).name;
-   let mut text = if let Some(amount_usd) = amount_usd {
-      RichText::new(format!(
-         "{:.10} {} ~ ${:.10}",
-         amount,
-         params.token.symbol(),
-         amount_usd.abbreviated()
-      ))
-      .size(theme.typography.large)
-   } else {
-      RichText::new(format!(
-         "{:.10} {}",
-         amount,
-         params.token.symbol()
-      ))
-      .size(theme.typography.large)
+   let words = currency_for_speech(&params.token);
+
+   let (drawn, spoken) = match amount_usd {
+      Some(amount_usd) => (
+         format!(
+            "{:.10} {} ~ ${:.10}",
+            amount,
+            params.token.symbol(),
+            amount_usd.abbreviated()
+         ),
+         format!(
+            "{:.10} {} ~ ${:.10}",
+            amount,
+            words.name,
+            amount_usd.abbreviated()
+         ),
+      ),
+      None => (
+         format!("{amount:.10} {}", params.token.symbol()),
+         format!("{amount:.10} {}", words.name),
+      ),
    };
 
-   let spoken = if let Some(amount_usd) = amount_usd {
-      format!(
-         "{:.10} {} ~ ${:.10}",
-         amount,
-         name,
-         amount_usd.abbreviated()
-      )
-   } else {
-      format!("{:.10} {name}", amount)
-   };
+   let mut text = RichText::new(drawn).size(theme.typography.large);
 
    if is_unlimited {
       text = text.color(theme.colors.warning);
    }
 
-   let label = Label::new(text, Some(icon)).interactive(false);
-   let response = ui.add(label);
-   name_text(ui, &response, spoken);
+   spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
 
    // Owner
    address(ctx, chain, "Owner", params.owner, theme, ui);
@@ -260,38 +255,37 @@ pub fn token_approval_event_ui(
    let icon = icons
       .currency_icon_x32(&Currency::from(params.token.clone()), tint)
       .fit_to_exact_size(icon_size);
-   let name = token_for_speech(&params.token.name, &params.token.symbol).name;
+   let words = token_for_speech(&params.token.name, &params.token.symbol);
+   let symbol = &params.token.symbol;
 
-   let mut text = if show_usd_value {
-      RichText::new(format!(
-         "{:.10} {} ~ ${:.10}",
-         amount,
-         params.token.symbol,
-         amount_usd.abbreviated()
-      ))
-      .size(theme.typography.large)
-   } else {
-      RichText::new(format!("{:.10} {}", amount, params.token.symbol)).size(theme.typography.large)
-   };
-
-   let spoken = if show_usd_value {
-      format!(
-         "{:.10} {} ~ ${:.10}",
-         amount,
-         name,
-         amount_usd.abbreviated()
+   let (drawn, spoken) = if show_usd_value {
+      (
+         format!(
+            "{:.10} {symbol} ~ ${:.10}",
+            amount,
+            amount_usd.abbreviated()
+         ),
+         format!(
+            "{:.10} {} ~ ${:.10}",
+            amount,
+            words.name,
+            amount_usd.abbreviated()
+         ),
       )
    } else {
-      format!("{:.10} {name}", amount)
+      (
+         format!("{amount:.10} {symbol}"),
+         format!("{amount:.10} {}", words.name),
+      )
    };
+
+   let mut text = RichText::new(drawn).size(theme.typography.large);
 
    if is_unlimited {
       text = text.color(theme.colors.warning);
    }
 
-   let label = Label::new(text, Some(icon)).interactive(false);
-   let response = ui.add(label);
-   name_text(ui, &response, spoken);
+   spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
 
    // Owner
    address(ctx, chain, "Owner", params.owner, theme, ui);
@@ -310,16 +304,40 @@ fn picked_name_for(picked: Option<(Address, &str)>, row_addr: Address) -> Option
    (picked_addr == row_addr).then_some(name)
 }
 
-/// The words an amount cell draws, and so the words it is read in.
+/// The two spellings of an amount row: the ticker the screen draws, and the words a reader gets.
 ///
-/// The figure keeps the sign and the truncation the row has always drawn; the token's name takes
-/// the place of its ticker. Nothing is named over the glyphs, so the screen and the reader agree.
-fn amount_for_speech(prefix: &str, amount: &str, currency: &Currency) -> String {
-   format!(
-      "{prefix}{:.10} {}",
-      amount,
-      currency_for_speech(currency).name
+/// The figure keeps the sign and the truncation the row has always drawn. The screen keeps the
+/// ticker, which is what the row was laid out around and what a token is known by at a glance; the
+/// reader gets the name, because a ticker is spelled out one letter at a time.
+fn amount_words(prefix: &str, amount: &str, currency: &Currency) -> (String, String) {
+   let token = currency_for_speech(currency);
+
+   (
+      format!("{prefix}{:.10} {}", amount, currency.symbol()),
+      format!("{prefix}{:.10} {}", amount, token.name),
    )
+}
+
+/// A token's figure and its dollar value in one row: the tickers on screen, the words to a reader.
+fn token_value_row(
+   theme: &Theme,
+   ui: &mut Ui,
+   icon: Option<Image<'static>>,
+   words: &SpokenToken,
+   symbol: &str,
+   amount: &str,
+   amount_usd: &str,
+) {
+   let drawn = RichText::new(format!("{amount:.10} {symbol}")).size(theme.typography.large);
+   let value = RichText::new(format!("~ ${amount_usd:.10}")).size(theme.typography.large);
+
+   spoken_row(
+      theme,
+      ui,
+      format!("{amount:.10} {} ~ ${amount_usd:.10}", words.name),
+      &[(drawn, icon), (value, None)],
+      6.0,
+   );
 }
 
 fn transfer_event_ui(
@@ -342,14 +360,10 @@ fn transfer_event_ui(
             let currency = &params.currency;
             let amount = &params.amount;
             let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
-            let text = RichText::new(amount_for_speech(
-               "",
-               amount.abbreviated(),
-               currency,
-            ))
-            .size(theme.typography.large);
-            let label = Label::new(text, Some(icon)).spacing(3.0).interactive(false);
-            ui.add(label);
+            let (drawn, spoken) = amount_words("", amount.abbreviated(), currency);
+            let text = RichText::new(drawn).size(theme.typography.large);
+
+            spoken_row(theme, ui, spoken, &[(text, Some(icon))], 3.0);
          });
 
          // Value
@@ -397,14 +411,10 @@ fn transfer_event_ui(
             );
 
             let currency = &params.currency;
-            let text = RichText::new(amount_for_speech(
-               "",
-               real_amount_sent.abbreviated(),
-               currency,
-            ))
-            .size(theme.typography.large);
-            let label = Label::new(text, None).interactive(false);
-            ui.add(label);
+            let (drawn, spoken) = amount_words("", real_amount_sent.abbreviated(), currency);
+            let text = RichText::new(drawn).size(theme.typography.large);
+
+            spoken_row(theme, ui, spoken, &[(text, None)], 0.0);
          });
       });
    }
@@ -728,31 +738,18 @@ fn shield_event_ui(
                let icon = icons
                   .token_icon_x32(token.address, token.chain_id, tint)
                   .fit_to_exact_size(icon_size);
-               let text = RichText::new(format!(
-                  "{:.10} {}",
-                  amount.abbreviated(),
-                  token.symbol,
-               ))
-               .size(theme.typography.large);
+               let words = token_for_speech(&token.name, &token.symbol);
+               let figure = amount.abbreviated();
+               let value = amount_usd.abbreviated();
 
-               let label1 = Label::new(text, Some(icon)).interactive(false);
-
-               let text = RichText::new(format!("~ ${:.10}", amount_usd.abbreviated()))
-                  .size(theme.typography.large);
-               let label2 = Label::new(text, None).interactive(false);
-
-               // The line draws the ticker; a reader hears the token behind it.
-               let multi_label = MultiLabel::new(vec![label1, label2]);
-               let response = ui.add(multi_label);
-               name_text(
+               token_value_row(
+                  theme,
                   ui,
-                  &response,
-                  format!(
-                     "{:.10} {} ~ ${:.10}",
-                     amount.abbreviated(),
-                     token_for_speech(&token.name, &token.symbol).name,
-                     amount_usd.abbreviated()
-                  ),
+                  Some(icon),
+                  &words,
+                  &token.symbol,
+                  &figure,
+                  &value,
                );
             });
          } else if let AssetId::Erc721(collection, token_id)
@@ -795,27 +792,18 @@ fn shield_event_ui(
             let icon = icons
                .token_icon_x32(token.address, token.chain_id, tint)
                .fit_to_exact_size(icon_size);
+            let words = token_for_speech(&token.name, &token.symbol);
+            let figure = fee.abbreviated();
+            let value = fee_usd.abbreviated();
 
-            let token_text = format!("{:.10} {}", fee.abbreviated(), token.symbol);
-            let token_rich_text = RichText::new(token_text).size(theme.typography.large);
-
-            let fee_usd_text = format!("~ ${:.10}", fee_usd.abbreviated());
-            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.typography.large);
-
-            let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
-            let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
-            // The line draws the ticker; a reader hears the token behind it.
-            let multi_label = MultiLabel::new(vec![label1, label2]);
-            let response = ui.add(multi_label);
-            name_text(
+            token_value_row(
+               theme,
                ui,
-               &response,
-               format!(
-                  "{:.10} {} ~ ${:.10}",
-                  fee.abbreviated(),
-                  token_for_speech(&token.name, &token.symbol).name,
-                  fee_usd.abbreviated()
-               ),
+               Some(icon),
+               &words,
+               &token.symbol,
+               &figure,
+               &value,
             );
          });
       });
@@ -864,31 +852,18 @@ fn unshield_event_ui(
                let icon = icons
                   .token_icon_x32(token.address, token.chain_id, tint)
                   .fit_to_exact_size(icon_size);
-               let text = RichText::new(format!(
-                  "{:.10} {}",
-                  amount.abbreviated(),
-                  token.symbol,
-               ))
-               .size(theme.typography.large);
+               let words = token_for_speech(&token.name, &token.symbol);
+               let figure = amount.abbreviated();
+               let value = amount_usd.abbreviated();
 
-               let label1 = Label::new(text, Some(icon)).interactive(false);
-
-               let text = RichText::new(format!("~ ${:.10}", amount_usd.abbreviated()))
-                  .size(theme.typography.large);
-               let label2 = Label::new(text, None).interactive(false);
-
-               // The line draws the ticker; a reader hears the token behind it.
-               let multi_label = MultiLabel::new(vec![label1, label2]);
-               let response = ui.add(multi_label);
-               name_text(
+               token_value_row(
+                  theme,
                   ui,
-                  &response,
-                  format!(
-                     "{:.10} {} ~ ${:.10}",
-                     amount.abbreviated(),
-                     token_for_speech(&token.name, &token.symbol).name,
-                     amount_usd.abbreviated()
-                  ),
+                  Some(icon),
+                  &words,
+                  &token.symbol,
+                  &figure,
+                  &value,
                );
             });
          } else if matches!(
@@ -933,27 +908,18 @@ fn unshield_event_ui(
             let icon = icons
                .token_icon_x32(token.address, token.chain_id, tint)
                .fit_to_exact_size(icon_size);
+            let words = token_for_speech(&token.name, &token.symbol);
+            let figure = fee.abbreviated();
+            let value = fee_usd.abbreviated();
 
-            let token_text = format!("{:.10} {}", fee.abbreviated(), token.symbol);
-            let token_rich_text = RichText::new(token_text).size(theme.typography.large);
-
-            let fee_usd_text = format!("~ ${:.10}", fee_usd.abbreviated());
-            let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.typography.large);
-
-            let label1 = Label::new(token_rich_text, Some(icon)).interactive(false);
-            let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
-            // The line draws the ticker; a reader hears the token behind it.
-            let multi_label = MultiLabel::new(vec![label1, label2]);
-            let response = ui.add(multi_label);
-            name_text(
+            token_value_row(
+               theme,
                ui,
-               &response,
-               format!(
-                  "{:.10} {} ~ ${:.10}",
-                  fee.abbreviated(),
-                  token_for_speech(&token.name, &token.symbol).name,
-                  fee_usd.abbreviated()
-               ),
+               Some(icon),
+               &words,
+               &token.symbol,
+               &figure,
+               &value,
             );
          });
       });
@@ -976,27 +942,18 @@ fn unshield_event_ui(
                let icon = icons
                   .token_icon_x32(token.address, chain.id(), tint)
                   .fit_to_exact_size(icon_size);
+               let words = token_for_speech(&token.name, &token.symbol);
+               let figure = bf_fee.abbreviated();
+               let value = bf_fee_usd.abbreviated();
 
-               let fee_text = format!("{:.10} {}", bf_fee.abbreviated(), token.symbol);
-               let fee_rich_text = RichText::new(fee_text).size(theme.typography.large);
-
-               let fee_usd_text = format!("~ ${:.10}", bf_fee_usd.abbreviated());
-               let fee_usd_rich_text = RichText::new(fee_usd_text).size(theme.typography.large);
-
-               let label1 = Label::new(fee_rich_text, Some(icon)).interactive(false);
-               let label2 = Label::new(fee_usd_rich_text, None).interactive(false);
-               // The line draws the ticker; a reader hears the token behind it.
-               let multi_label = MultiLabel::new(vec![label1, label2]);
-               let response = ui.add(multi_label);
-               name_text(
+               token_value_row(
+                  theme,
                   ui,
-                  &response,
-                  format!(
-                     "{:.10} {} ~ ${:.10}",
-                     bf_fee.abbreviated(),
-                     token_for_speech(&token.name, &token.symbol).name,
-                     bf_fee_usd.abbreviated()
-                  ),
+                  Some(icon),
+                  &words,
+                  &token.symbol,
+                  &figure,
+                  &value,
                );
             });
          });
@@ -1051,31 +1008,18 @@ fn private_transfer_event_ui(
                let icon = icons
                   .token_icon_x32(token.address, token.chain_id, tint)
                   .fit_to_exact_size(icon_size);
-               let text = RichText::new(format!(
-                  "{:.10} {}",
-                  amount.abbreviated(),
-                  token.symbol,
-               ))
-               .size(theme.typography.large);
+               let words = token_for_speech(&token.name, &token.symbol);
+               let figure = amount.abbreviated();
+               let value = amount_usd.abbreviated();
 
-               let label1 = Label::new(text, Some(icon)).interactive(false);
-
-               let text = RichText::new(format!("~ ${:.10}", amount_usd.abbreviated()))
-                  .size(theme.typography.large);
-               let label2 = Label::new(text, None).interactive(false);
-
-               // The line draws the ticker; a reader hears the token behind it.
-               let multi_label = MultiLabel::new(vec![label1, label2]);
-               let response = ui.add(multi_label);
-               name_text(
+               token_value_row(
+                  theme,
                   ui,
-                  &response,
-                  format!(
-                     "{:.10} {} ~ ${:.10}",
-                     amount.abbreviated(),
-                     token_for_speech(&token.name, &token.symbol).name,
-                     amount_usd.abbreviated()
-                  ),
+                  Some(icon),
+                  &words,
+                  &token.symbol,
+                  &figure,
+                  &value,
                );
             });
          } else if let AssetId::Erc721(collection, token_id)
@@ -1191,16 +1135,11 @@ fn bridge_event_ui(
    ui.horizontal(|ui| {
       let amount = &params.amount;
       let icon = icons.currency_icon_x32(&currency_in, tint).fit_to_exact_size(icon_size);
-      let text = RichText::new(amount_for_speech(
-         "- ",
-         amount.abbreviated(),
-         &currency_in,
-      ))
-      .size(theme.typography.large)
-      .color(theme.colors.error);
-      let label = Label::new(text, Some(icon)).interactive(false);
+      let (drawn, spoken) = amount_words("- ", amount.abbreviated(), &currency_in);
+      let text = RichText::new(drawn).size(theme.typography.large).color(theme.colors.error);
+
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
       });
 
       // Value
@@ -1217,15 +1156,10 @@ fn bridge_event_ui(
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
          let amount = &params.received;
          let icon = icons.currency_icon_x32(&currency_out, tint).fit_to_exact_size(icon_size);
-         let text = RichText::new(amount_for_speech(
-            "+ ",
-            amount.abbreviated(),
-            &currency_out,
-         ))
-         .size(theme.typography.large)
-         .color(theme.colors.success);
-         let label = Label::new(text, Some(icon)).interactive(false);
-         ui.add(label);
+         let (drawn, spoken) = amount_words("+ ", amount.abbreviated(), &currency_out);
+         let text = RichText::new(drawn).size(theme.typography.large).color(theme.colors.success);
+
+         spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -1317,16 +1251,11 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
       let currency = &params.input_currency;
       let amount = &params.amount_in;
       let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
-      let text = RichText::new(amount_for_speech(
-         "- ",
-         amount.abbreviated(),
-         currency,
-      ))
-      .size(theme.typography.large)
-      .color(theme.colors.error);
-      let label = Label::new(text, Some(icon)).interactive(false);
+      let (drawn, spoken) = amount_words("- ", amount.abbreviated(), currency);
+      let text = RichText::new(drawn).size(theme.typography.large).color(theme.colors.error);
+
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
       });
 
       // Value
@@ -1344,15 +1273,10 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          let currency = &params.output_currency;
          let amount = &params.received;
          let icon = icons.currency_icon_x32(currency, tint).fit_to_exact_size(icon_size);
-         let text = RichText::new(amount_for_speech(
-            "+ ",
-            amount.abbreviated(),
-            currency,
-         ))
-         .size(theme.typography.large)
-         .color(theme.colors.success);
-         let label = Label::new(text, Some(icon)).interactive(false);
-         ui.add(label);
+         let (drawn, spoken) = amount_words("+ ", amount.abbreviated(), currency);
+         let text = RichText::new(drawn).size(theme.typography.large).color(theme.colors.success);
+
+         spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
@@ -1381,20 +1305,19 @@ fn swap_event_ui(theme: &Theme, icons: Arc<Icons>, params: &SwapParams, ui: &mut
          let amount_usd = format!("~ ${:.10}", amount_usd.abbreviated());
          let text =
             RichText::new(format!("{} {}", amount_symbol, amount_usd)).size(theme.typography.large);
-         let label = Label::new(text, None).interactive(false);
-         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-            let response = ui.add(label);
 
-            // The line draws the ticker; a reader hears the token behind it.
-            name_text(
+         ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
+            spoken_row(
+               theme,
                ui,
-               &response,
                format!(
                   "{:.10} {} {}",
                   amount.abbreviated(),
                   currency_for_speech(currency).name,
                   amount_usd
                ),
+               &[(text, None)],
+               0.0,
             );
          });
       });
@@ -1415,16 +1338,11 @@ fn wrap_eth_event_ui(
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
-      let text = RichText::new(amount_for_speech(
-         "+ ",
-         params.eth_wrapped.abbreviated(),
-         &weth,
-      ))
-      .size(theme.typography.large)
-      .color(theme.colors.success);
-      let label = Label::new(text, Some(weth_icon)).interactive(false);
+      let (drawn, spoken) = amount_words("+ ", params.eth_wrapped.abbreviated(), &weth);
+      let text = RichText::new(drawn).size(theme.typography.large).color(theme.colors.success);
+
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         spoken_row(theme, ui, spoken, &[(text, Some(weth_icon))], 6.0);
       });
 
       // USD Value
@@ -1464,16 +1382,11 @@ fn unwrap_weth_event_ui(
 
    // Amount received + USD Value
    ui.horizontal(|ui| {
-      let text = RichText::new(amount_for_speech(
-         "+ ",
-         params.weth_unwrapped.abbreviated(),
-         &eth,
-      ))
-      .size(theme.typography.large)
-      .color(theme.colors.success);
-      let label = Label::new(text, Some(eth_icon)).interactive(false);
+      let (drawn, spoken) = amount_words("+ ", params.weth_unwrapped.abbreviated(), &eth);
+      let text = RichText::new(drawn).size(theme.typography.large).color(theme.colors.success);
+
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         spoken_row(theme, ui, spoken, &[(text, Some(eth_icon))], 6.0);
       });
 
       // USD Value
@@ -1518,16 +1431,11 @@ fn uniswap_position_op_event_ui(
    ui.horizontal(|ui| {
       let icon = icons.currency_icon_x32(currency0, tint).fit_to_exact_size(icon_size);
 
-      let text = RichText::new(amount_for_speech(
-         "",
-         amount0.abbreviated(),
-         currency0,
-      ))
-      .size(theme.typography.large);
+      let (drawn, spoken) = amount_words("", amount0.abbreviated(), currency0);
+      let text = RichText::new(drawn).size(theme.typography.large);
 
-      let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
       });
 
       // Value
@@ -1540,16 +1448,11 @@ fn uniswap_position_op_event_ui(
    // Currency B and Amount & value
    ui.horizontal(|ui| {
       let icon = icons.currency_icon_x32(currency1, tint).fit_to_exact_size(icon_size);
-      let text = RichText::new(amount_for_speech(
-         "",
-         amount1.abbreviated(),
-         currency1,
-      ))
-      .size(theme.typography.large);
+      let (drawn, spoken) = amount_words("", amount1.abbreviated(), currency1);
+      let text = RichText::new(drawn).size(theme.typography.large);
 
-      let label = Label::new(text, Some(icon)).interactive(false);
       ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-         ui.add(label);
+         spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
       });
 
       // Value
@@ -1573,16 +1476,11 @@ fn uniswap_position_op_event_ui(
    if let Some(min_amount0) = min_amount0 {
       ui.horizontal(|ui| {
          let icon = icons.currency_icon_x32(currency0, tint).fit_to_exact_size(icon_size);
-         let text = RichText::new(amount_for_speech(
-            "",
-            min_amount0.abbreviated(),
-            currency0,
-         ))
-         .size(theme.typography.large);
+         let (drawn, spoken) = amount_words("", min_amount0.abbreviated(), currency0);
+         let text = RichText::new(drawn).size(theme.typography.large);
 
-         let label = Label::new(text, Some(icon)).interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
+            spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
          });
 
          // Value
@@ -1597,16 +1495,11 @@ fn uniswap_position_op_event_ui(
    if let Some(min_amount1) = min_amount1 {
       ui.horizontal(|ui| {
          let icon = icons.currency_icon_x32(currency1, tint).fit_to_exact_size(icon_size);
-         let text = RichText::new(amount_for_speech(
-            "",
-            min_amount1.abbreviated(),
-            currency1,
-         ))
-         .size(theme.typography.large);
+         let (drawn, spoken) = amount_words("", min_amount1.abbreviated(), currency1);
+         let text = RichText::new(drawn).size(theme.typography.large);
 
-         let label = Label::new(text, Some(icon)).interactive(false);
          ui.with_layout(Layout::left_to_right(Align::Min), |ui| {
-            ui.add(label);
+            spoken_row(theme, ui, spoken, &[(text, Some(icon))], 6.0);
          });
 
          // Value

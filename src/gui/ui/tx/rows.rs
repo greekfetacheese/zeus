@@ -14,7 +14,7 @@ use crate::core::{
    NftApprovalTarget, NftApprovalValue, NftBalanceChange, ZeusContext,
 };
 use crate::gui::ui::common::address::{address_for_speech, name_address};
-use crate::gui::ui::common::{name_text, token_for_speech};
+use crate::gui::ui::common::{name_text, spoken_row, token_for_speech};
 use crate::utils::truncate_address;
 use zeus_eth::{
    alloy_primitives::{Address, U256},
@@ -59,13 +59,18 @@ pub fn tx_cost(
       });
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-         // Drawn in the words a reader needs to hear: the title beside it says what the figure is,
-         // and the figure says "about" where the other rows draw a tilde. The token is drawn by
-         // name too, because this label is a plain one: its glyphs stay in the tree under it, and
-         // a name written over them would be said as well.
-         let name = token_for_speech(&eth.name, &eth.symbol).name;
-         let text = format!("{cost:.10} {name}, about ${usd}");
-         ui.label(RichText::new(text).size(theme.typography.large));
+         // The title beside it says what the figure is. The figure itself is drawn as the ticker
+         // and said as the token's name, and the hedge stays in the words: "about" is spoken, and
+         // the row draws nothing but the sum.
+         let token = token_for_speech(&eth.name, &eth.symbol);
+         let drawn = format!(
+            "{cost:.10} {}, ${usd}",
+            token.symbol.as_deref().unwrap_or(&eth.symbol)
+         );
+         let spoken = format!("{cost:.10} {}, about ${usd}", token.name);
+         let text = RichText::new(drawn).size(theme.typography.large);
+
+         spoken_row(theme, ui, spoken, &[(text, None)], 0.0);
       });
    });
 }
@@ -87,15 +92,24 @@ pub fn value(
 
       ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
          let value_usd = ctx.get_currency_value_for_amount(value.f64(), &eth);
-         // Drawn by name: a plain label's glyphs are nodes of their own, so a name written over
-         // them would be read as well as the ticker.
-         let text = format!(
+         let token = token_for_speech(eth.name(), eth.symbol());
+         // The row draws the ticker and says the token's name over it, so a reader is not handed a
+         // ticker to spell out.
+         let drawn = format!(
             "{:.12} {} ~ ${:5}",
             value.abbreviated(),
-            token_for_speech(eth.name(), eth.symbol()).name,
+            token.symbol.as_deref().unwrap_or(eth.symbol()),
             value_usd.abbreviated()
          );
-         ui.label(RichText::new(text).size(theme.typography.large));
+         let spoken = format!(
+            "{:.12} {} ~ ${:5}",
+            value.abbreviated(),
+            token.name,
+            value_usd.abbreviated()
+         );
+         let text = RichText::new(drawn).size(theme.typography.large);
+
+         spoken_row(theme, ui, spoken, &[(text, None)], 0.0);
       });
    });
 }

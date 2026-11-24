@@ -16,6 +16,7 @@ use crate::core::{
    SignMsgType, TransactionAnalysis, TransactionRich, WalletInfo, WalletValue, ZeusCtx,
 };
 use crate::gui::appearance::AppearanceSettings;
+use crate::gui::ui::common::spoken_row;
 use crate::gui::ui::dapps::across::{
    ACROSS_RISK_TIP, ACROSS_RISK_WARNING, ApiResCache, ClientResponse, SuggestedFeesResponse,
 };
@@ -41,8 +42,8 @@ use crate::gui::{GUI, LockScreen, Page};
 use crate::utils::swap_quoter::SwapStep;
 use egui::accesskit::{Action, ActionRequest, Live, Node, NodeId, Role, Toggled, TreeId};
 use egui::{
-   Context, Event, Id, Key, Modifiers, PointerButton, RawInput, Rect, Sense, Ui, WidgetInfo, pos2,
-   vec2,
+   Context, Event, Id, Key, Modifiers, PointerButton, RawInput, Rect, RichText, Sense, Ui,
+   WidgetInfo, pos2, vec2,
 };
 use egui_elements::{Theme, ThemeKind};
 use secure_types::SecureString;
@@ -5848,9 +5849,9 @@ fn the_confirmation_reads_approvals_before_balances_and_the_fee_last() {
 }
 
 /// The fee row says the amount once. Its title names the figure beside it, and the figure is drawn
-/// in the words a reader needs ("about", not the tilde the other rows use) — the token's name, not
-/// the ticker. A plain label keeps its glyphs in the tree under it, so a name written over them
-/// would be said as well: this row draws the words it is read in.
+/// as the ticker the page is laid out around and said as the token's name, with the hedge the words
+/// need when they are heard: "about" is spoken where the other rows draw a tilde. The glyphs are
+/// painted, so the tree holds the sentence once and the ticker nowhere.
 #[test]
 fn the_fee_is_said_once() {
    let (ctx, handle, theme, icons, appearance) = prompt_harness();
@@ -5889,8 +5890,6 @@ fn the_fee_is_said_once() {
       "a title that only says \"cost\" was the row's second spelling: {spoken:?}"
    );
 
-   // What a reader hears is what the row draws: the figure carries its own text, not a sentence
-   // written over the glyphs.
    let (_, figure) = nodes
       .iter()
       .find(|(_, node)| {
@@ -5899,22 +5898,20 @@ fn the_fee_is_said_once() {
       })
       .expect("the figure must be a label of its own");
 
-   let drawn: Vec<&str> = figure
-      .children()
-      .iter()
-      .filter(|id| nodes.iter().any(|(node_id, node)| node_id == *id && !node.is_hidden()))
-      .filter_map(|id| {
-         nodes
-            .iter()
-            .find(|(node_id, _)| node_id == id)
-            .and_then(|(_, node)| node.value())
-      })
-      .collect();
-
    assert_eq!(
-      drawn,
-      vec![figure.value().unwrap()],
-      "the drawn text and the spoken one must be the same words"
+      figure.label(),
+      figure.value(),
+      "the row is named with the words it is read in"
+   );
+   assert!(
+      figure.children().is_empty(),
+      "the glyphs are painted, so the row draws nothing under it: {:?}",
+      figure.children()
+   );
+   assert!(
+      !drawn_names(&nodes).iter().any(|text| text.starts_with("0.00 ETH, $")),
+      "the fee's ticker is painted, so no node spells it: {:?}",
+      drawn_names(&nodes)
    );
 }
 
@@ -7058,8 +7055,9 @@ fn the_events_window_says_how_many_events_were_read() {
    );
 }
 
-/// Every amount in the events window draws the token's name where it used to draw the ticker: the
-/// row's own text is what a reader meets, and no amount row spells a ticker any more.
+/// Every amount in the events window is drawn as the token's ticker and read as its name. The row
+/// paints its words, so the glyphs make no node at all and the one node the row makes is the
+/// sentence: a reader is never handed a ticker to spell out.
 #[test]
 fn the_events_window_says_what_each_amount_is() {
    let (ctx, handle, theme, icons, _appearance) = prompt_harness();
@@ -7134,22 +7132,51 @@ fn the_events_window_says_what_each_amount_is() {
 
          assert_eq!(
             row.label(),
-            None,
-            "the row draws its words, so nothing is named over them: {action}"
+            row.value(),
+            "the row says one sentence, in the words it is read in: {action}"
          );
       }
 
-      // The amount rows are the labels that start with a sign or a figure; none of them may keep
-      // spelling the ticker the screen draws now that the name is on the node.
-      for text in spoken.iter().filter(|text| {
+      // The ticker is what the row paints, and a painted word makes no node: no figure a reader
+      // meets is spelled with one, so nothing has to be read out letter by letter.
+      for text in drawn_names(&nodes).into_iter().filter(|text| {
          text.starts_with(['+', '-']) || text.starts_with(|c: char| c.is_ascii_digit())
       }) {
          assert!(
             ![" WETH", " ETH", " DAI", " USDC"].iter().any(|ticker| text.ends_with(ticker)),
-            "an amount row still spells its ticker instead of its name: {text:?}"
+            "an amount row still hands the reader its ticker: {text:?} ({action})"
          );
       }
    }
+}
+
+/// An amount row is a stop of its own: `Tab` lands on it, and what it says is the words, not the
+/// ticker painted under them.
+#[test]
+fn tab_reaches_a_painted_amount_row() {
+   let (ctx, _handle, theme, _icons, _appearance) = prompt_harness();
+
+   let mut rows = |ui: &mut Ui| {
+      let text = RichText::new("- 1.00 WETH").size(theme.typography.large);
+
+      spoken_row(
+         &theme,
+         ui,
+         "- 1.00 Wrapped Ether",
+         &[(text, None)],
+         0.0,
+      );
+   };
+
+   // The first frame lays the row out and asks for the focus; the second delivers the Tab.
+   frame_nodes(&ctx, Vec::new(), &mut rows);
+   let nodes = frame_nodes(&ctx, vec![key_press(Key::Tab)], &mut rows);
+
+   assert_eq!(
+      focused_node(&ctx, &nodes).value(),
+      Some("- 1.00 Wrapped Ether"),
+      "Tab lands on the words the row is read in"
+   );
 }
 
 /// Approvals are the half of a state report that can cost money after the transaction, so the
