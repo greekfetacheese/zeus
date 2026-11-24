@@ -3,7 +3,8 @@
 use crate::core::ZeusContext;
 use crate::core::types::AutoLock;
 use crate::gui::SHARED_GUI;
-use egui::{RichText, Role, Sense, Ui, WidgetInfo, vec2};
+use crate::gui::ui::common::section_heading;
+use egui::{RichText, Sense, Ui, vec2};
 use egui_elements::{Button, ComboBox, Label, Theme};
 
 pub struct AutoLockSettings {
@@ -30,9 +31,7 @@ impl AutoLockSettings {
          ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
          ui.spacing_mut().button_padding = theme.button_padding;
 
-         let text = "Auto-Lock";
-         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+         section_heading(ui, theme.typography.very_large, "Auto-Lock");
          ui.label(
             RichText::new(
                "Lock the UI after a period of inactivity. Re-enter your credentials to unlock.",

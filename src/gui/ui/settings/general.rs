@@ -2,7 +2,8 @@
 
 use crate::core::ZeusContext;
 use crate::core::urls::{UrlPurpose, purpose_tip};
-use egui::{Align, Layout, RichText, Role, Ui, WidgetInfo, vec2};
+use crate::gui::ui::common::section_heading;
+use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Checkbox, Chip, ChipRole, Slider, Theme};
 use std::sync::OnceLock;
 
@@ -132,9 +133,7 @@ impl GeneralSettings {
       ui.separator();
       ui.add_space(10.0);
 
-      let text = "Window";
-      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+      section_heading(ui, theme.typography.very_large, "Window");
 
       let tray_text = RichText::new("Minimize to Tray").size(theme.typography.normal);
       let qmark = Chip::new(RichText::new("?").size(theme.typography.normal)).role(ChipRole::Info);
@@ -175,9 +174,7 @@ impl GeneralSettings {
       let slider_size = vec2((ui.available_width() * 0.5).min(360.0), 20.0);
       ui.add_space(10.0);
 
-      let text = "Keyboard";
-      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+      section_heading(ui, theme.typography.very_large, "Keyboard");
 
       let sentence = RichText::new(
          "Every page can be reached from the keyboard. F1 shows these keys from any page.",
@@ -195,9 +192,7 @@ impl GeneralSettings {
       ui.separator();
       ui.add_space(10.0);
 
-      let text = "External Data";
-      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+      section_heading(ui, theme.typography.very_large, "External Data");
 
       let q_mark_text = RichText::new("?").size(theme.typography.normal);
       let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
@@ -287,9 +282,7 @@ impl GeneralSettings {
       // section is not offered there at all.
       #[cfg(target_os = "linux")]
       {
-         let text = "Desktop";
-         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+         section_heading(ui, theme.typography.very_large, "Desktop");
 
          let desktop_text = RichText::new("Add to Application Menu").size(theme.typography.normal);
          let qmark = Chip::new(q_mark_text.clone()).role(ChipRole::Info);
@@ -320,9 +313,7 @@ impl GeneralSettings {
          ui.add_space(10.0);
       }
 
-      let text = "Pool Manager";
-      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+      section_heading(ui, theme.typography.very_large, "Pool Manager");
 
       let text = RichText::new("Reset Settings").size(theme.typography.normal);
       let button = Button::new(text).visuals(button_visuals);
@@ -376,9 +367,7 @@ impl GeneralSettings {
       ui.separator();
       ui.add_space(10.0);
 
-      let text = "Balance Manager";
-      let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+      section_heading(ui, theme.typography.very_large, "Balance Manager");
 
       let sentence = "Concurrency for syncing balances";
       let label = ui.label(RichText::new(sentence).size(theme.typography.normal));

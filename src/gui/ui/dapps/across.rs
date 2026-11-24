@@ -15,7 +15,7 @@ use crate::gui::{
       ChainSelect, ContactsUi, RecipientSelectionWindow,
       common::{
          AmountField, AmountFieldParams, blocked_announcement, blocked_reason_line, name_alert,
-         name_text, recipient_field,
+         name_text, recipient_field, section_heading,
       },
       show_with_fade,
    },
@@ -328,11 +328,7 @@ impl AcrossBridge {
 
                            // The page's own title, so a reader can move between pages by heading
                            // instead of reading every line of prose.
-                           let title =
-                              ui.label(RichText::new("Bridge").size(theme.typography.heading));
-                           title.widget_info(|| {
-                              WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Bridge")
-                           });
+                           section_heading(ui, theme.typography.heading, "Bridge");
 
                            // The drawn sentence says what the link is about, not what pressing it
                            // does: a link whose whole name is a sentence about itself leaves a

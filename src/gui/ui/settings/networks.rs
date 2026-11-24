@@ -8,6 +8,7 @@ use crate::core::{
       MIN_RPC_RPS, Rpc,
    },
 };
+use crate::gui::ui::common::section_heading;
 use crate::gui::{SHARED_GUI, ui::ChainSelect, ui::show_with_fade};
 use crate::utils::state;
 use eframe::egui::{
@@ -554,9 +555,7 @@ impl NetworkSettings {
 
       self.back_button(theme, ui);
 
-      let name = "Endpoint Settings";
-      let title = ui.label(RichText::new(name).size(theme.typography.large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), name));
+      section_heading(ui, theme.typography.large, "Endpoint Settings");
 
       if self.rpc_to_edit.is_none() {
          let text = RichText::new("No RPC selected").size(theme.typography.normal);
@@ -681,8 +680,7 @@ impl NetworkSettings {
 
       self.back_button(theme, ui);
 
-      let title = ui.label(RichText::new("Add RPC").size(theme.typography.large));
-      title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), "Add RPC"));
+      section_heading(ui, theme.typography.large, "Add RPC");
 
       let button_visuals = theme.button_visuals();
       let text_edit_visuals = theme.text_edit_visuals();

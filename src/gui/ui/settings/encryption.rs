@@ -2,8 +2,9 @@
 //!
 //! It only affects the vault, it has no effect on the master wallet recovery.
 
+use crate::gui::ui::common::section_heading;
 use crate::{core::ZeusContext, gui::SHARED_GUI};
-use egui::{RichText, Role, Ui, WidgetInfo, vec2};
+use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Chip, ChipRole, Slider, Theme};
 use ncrypt_me::Argon2;
 
@@ -54,8 +55,7 @@ impl EncryptionSettings {
          ui.spacing_mut().button_padding = vec2(theme.spacing.sm, theme.spacing.xs);
 
          let text = "Vault encryption";
-         let title = ui.label(RichText::new(text).size(theme.typography.very_large));
-         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+         section_heading(ui, theme.typography.very_large, text);
          ui.label(
             RichText::new(
                "This only affects vault encryption. It does not change master wallet recovery.",

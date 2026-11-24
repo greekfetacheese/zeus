@@ -6,7 +6,8 @@ use crate::core::{
    persisted::{ExportPolicy, PersistedTree},
 };
 use crate::gui::SHARED_GUI;
-use egui::{RichText, Role, Ui, WidgetInfo, vec2};
+use crate::gui::ui::common::section_heading;
+use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Checkbox, Theme};
 
 pub struct ExportDataUi {
@@ -28,9 +29,7 @@ impl ExportDataUi {
       let button_visuals = theme.button_visuals();
 
       ui.vertical_centered(|ui| {
-         let text = "Export Data";
-         let title = ui.label(RichText::new(text).size(theme.typography.heading));
-         title.widget_info(|| WidgetInfo::labeled(Role::Heading, ui.is_enabled(), text));
+         section_heading(ui, theme.typography.heading, "Export Data");
 
          ui.scope(|ui| {
             ui.spacing_mut().item_spacing.y = theme.spacing.xs;
