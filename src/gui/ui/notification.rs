@@ -9,7 +9,9 @@ use crate::gui::ui::common::address::{
 use crate::gui::ui::common::{chain_label, currency_for_speech, name_text, token_for_speech};
 use crate::gui::ui::token_selection::nft_collection_name;
 use crate::utils::TimeStamp;
-use egui::{Align2, Order, ProgressBar, Response, RichText, TextWrapMode, Ui, Window, vec2};
+use egui::{
+   Align2, Color32, FontId, Order, ProgressBar, Response, RichText, TextWrapMode, Ui, Window, vec2,
+};
 use egui_elements::{Button, Label, MultiLabel, Spinner, Theme};
 use egui_lucide::Lucide;
 
@@ -276,37 +278,43 @@ impl Notification {
 
          self.show_notification(ctx, theme, icons, ui);
 
-         ui.horizontal(|ui| {
-            let text = RichText::new("Transaction Details").size(theme.typography.normal);
-            let button = Button::new(text).visuals(theme.button_visuals());
+         // A centred widget is centred by its own rect, but a row packs its children at the left
+         // of whatever band it is handed: given the window's whole width, the pair hangs off the
+         // left edge. The row is therefore drawn in a band exactly as wide as the two buttons, so
+         // the enclosing vertical centring can put it on the window's own axis.
+         ui.allocate_ui(vec2(action_row_width(theme, ui), 0.0), |ui| {
+            ui.horizontal(|ui| {
+               let text = RichText::new("Transaction Details").size(theme.typography.normal);
+               let button = Button::new(text).visuals(theme.button_visuals());
 
-            let details = ui.add_enabled(self.tx.is_some(), button);
+               let details = ui.add_enabled(self.tx.is_some(), button);
 
-            if focus && self.tx.is_some() {
-               details.request_focus();
-            }
+               if focus && self.tx.is_some() {
+                  details.request_focus();
+               }
 
-            if details.clicked() {
-               let tx = self.tx.take();
-               // The dialog is drawn over this notification and hands the focus back here when
-               // it closes, so the button that opened it is remembered.
-               let opener = details.id;
-               crate::runtime::rt().spawn_blocking(move || {
-                  SHARED_GUI.write(|gui| {
-                     gui.tx_window.open(tx, Some(opener));
+               if details.clicked() {
+                  let tx = self.tx.take();
+                  // The dialog is drawn over this notification and hands the focus back here when
+                  // it closes, so the button that opened it is remembered.
+                  let opener = details.id;
+                  crate::runtime::rt().spawn_blocking(move || {
+                     SHARED_GUI.write(|gui| {
+                        gui.tx_window.open(tx, Some(opener));
+                     });
                   });
-               });
-            }
+               }
 
-            // The window sets its horizontal item spacing to zero, so the pair is spaced by hand.
-            ui.add_space(theme.spacing.sm);
+               // The window sets its horizontal item spacing to zero, so the pair is spaced by hand.
+               ui.add_space(theme.spacing.sm);
 
-            let dismiss = dismiss_button(theme, ui, focus && self.tx.is_none());
-            if dismiss.clicked() {
-               self.reset();
-            }
+               let dismiss = dismiss_button(theme, ui, focus && self.tx.is_none());
+               if dismiss.clicked() {
+                  self.reset();
+               }
 
-            held = details.has_focus() || dismiss.has_focus();
+               held = details.has_focus() || dismiss.has_focus();
+            });
          });
 
          ui.add(
@@ -1055,6 +1063,33 @@ fn transition(title: &str, with_progress_bar: bool) -> String {
    }
 }
 
+/// How wide the Details / Dismiss pair renders, so the row that holds it can be centred.
+///
+/// The window sets its horizontal item spacing to zero and spaces the pair by hand, so the row is
+/// one button, `theme.spacing.sm`, and the other. An `egui_elements::Button` is
+/// `max(min_size, label + 2 * button padding)` with the label in the theme's `normal` size — the
+/// same shape of measurement the token picker's sync button does for its own row.
+fn action_row_width(theme: &Theme, ui: &Ui) -> f32 {
+   let pad = 2.0 * theme.button_padding.x;
+
+   let width = |text: &str| {
+      let text = ui.ctx().fonts_mut(|fonts| {
+         fonts
+            .layout_no_wrap(
+               text.to_owned(),
+               FontId::proportional(theme.typography.normal),
+               Color32::PLACEHOLDER,
+            )
+            .size()
+            .x
+      });
+
+      text + pad
+   };
+
+   width("Transaction Details") + theme.spacing.sm + width("Dismiss")
+}
+
 /// The close control both variants draw. Its node is named by the drawn word, so a reader hears a
 /// button called "Dismiss".
 fn dismiss_button(theme: &Theme, ui: &mut Ui, focus: bool) -> Response {
@@ -1193,6 +1228,47 @@ mod tests {
          .find(|(_, node)| node.label() == Some(name) || node.value() == Some(name))
          .map(|(id, _)| *id)
          .unwrap_or_else(|| panic!("no node is named {name:?}: {:?}", spoken(nodes)))
+   }
+
+   /// The rectangle a named control was drawn in.
+   fn node_bounds(nodes: &[(NodeId, Node)], name: &str) -> egui::accesskit::Rect {
+      nodes
+         .iter()
+         .find(|(_, node)| node.label() == Some(name) || node.value() == Some(name))
+         .and_then(|(_, node)| node.bounds())
+         .unwrap_or_else(|| panic!("no drawn node is named {name:?}"))
+   }
+
+   /// The two controls are one centred pair: the row is drawn in a band of its own width, which
+   /// the window's vertical centring puts on the window's axis. Handed the window's whole width, a
+   /// row packs its children at the left edge and the pair hangs off the side.
+   #[test]
+   fn the_action_row_is_centred_on_the_window() {
+      let harness = Harness::new();
+      let mut notification = Notification::new();
+
+      let now = now_ms();
+      mined(&mut notification, now, now.saturating_add(60_000));
+
+      let nodes = harness.settled(&mut notification);
+
+      let window = nodes
+         .iter()
+         .find(|(_, node)| node.role() == Role::Window)
+         .and_then(|(_, node)| node.bounds())
+         .expect("the window must be drawn, so its node has bounds");
+
+      let details = node_bounds(&nodes, "Transaction Details");
+      let dismiss = node_bounds(&nodes, "Dismiss");
+
+      let left = details.x0.min(dismiss.x0);
+      let right = details.x1.max(dismiss.x1);
+      let off_centre = (left + right) / 2.0 - (window.x0 + window.x1) / 2.0;
+
+      assert!(
+         off_centre.abs() <= 1.0,
+         "the pair must sit on the window's axis, off by {off_centre} points: {details:?} and {dismiss:?} in {window:?}"
+      );
    }
 
    /// A bar that has just filled is still on screen: the hold after it is what a reader finishes the
