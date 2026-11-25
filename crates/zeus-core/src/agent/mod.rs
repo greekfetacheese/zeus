@@ -22,9 +22,11 @@ pub use env::{AgentAuthority, AgentEnv};
 pub use intent::{Asset, Intent};
 pub use policy::{Decision, Denial, authorise, precheck};
 pub use profile::{
-   AgentProfile, AgentProfileId, Capability, CapabilityScope, CapabilityVerb, MAX_SLIPPAGE_BPS,
-   NftRef, NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant, TokenRef, TokenScope,
-   WalletGrant, capability,
+   AgentProfile, AgentProfileId, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb,
+   MAX_SLIPPAGE_BPS, NftRef, NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant, TokenRef,
+   TokenScope, WalletGrant, capability,
 };
 pub use store::AgentProfileStore;
-pub use token::VisibleToken;
+pub use token::{
+   VisibleToken, generate as generate_token, hash as hash_token, verify as verify_token,
+};

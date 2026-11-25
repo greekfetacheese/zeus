@@ -6,7 +6,7 @@ use super::{bundler_url_dir, pool_data_dir};
 use crate::platform::TimeStamp;
 use crate::{
    Vault, WalletInfo, WalletState,
-   agent::AgentProfileStore,
+   agent::{AgentAuditLog, AgentProfileStore},
    persisted::{self, PersistedFile},
    types::*,
 };
@@ -29,6 +29,7 @@ pub(super) fn tighten_existing_secret_files() {
       PriceManagerHandle::dir().ok(),
       persisted::file_path(PersistedFile::Security).ok(),
       persisted::file_path(PersistedFile::AgentProfiles).ok(),
+      persisted::file_path(PersistedFile::AgentAudit).ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
@@ -351,6 +352,45 @@ impl ZeusCtx {
       store.save(&key)
    }
 
+   /// Load `data/agent_audit.data` into the live log.
+   ///
+   /// Authoritative for the same reason the grant document is: after an import the file is whatever the
+   /// archive carried, and an entry it does not have must not keep claiming it happened here. A missing
+   /// file is a first run — an empty log is the answer, not whatever a previous run left in memory.
+   pub fn load_agent_audit(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading the agent audit log: {e:?}");
+            return;
+         }
+      };
+
+      let log = self.agent_audit();
+      let present = AgentAuditLog::dir().is_ok_and(|path| path.exists());
+
+      match AgentAuditLog::load_from_file(&key) {
+         Ok(loaded) => log.replace_from(&loaded),
+         Err(_) if !present => log.replace_from(&AgentAuditLog::default()),
+         Err(e) => {
+            // A file that is there and did not read holds what agents have done; the log in memory is
+            // empty, so a later save must refuse rather than seal the empty one over it.
+            tracing::error!(
+               "Failed to load the agent audit log, leaving the file untouched: {e:?}"
+            );
+            log.block_saves(e.to_string());
+         }
+      }
+   }
+
+   /// Seal and write `data/agent_audit.data` with the vault-held key.
+   ///
+   /// Refuses while the log's saves are blocked, so a failed load never becomes a silent wipe.
+   pub fn save_agent_audit(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      self.agent_audit().save(&key)
+   }
+
    pub fn save_client_manager(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
@@ -551,6 +591,7 @@ impl ZeusCtx {
       self.load_price_manager();
       self.load_or_create_address_book();
       self.load_agent_profiles();
+      self.load_agent_audit();
 
       Ok((master_info, info.argon2))
    }

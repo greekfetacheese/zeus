@@ -10,6 +10,7 @@ use tracing_subscriber::{
    EnvFilter, fmt, layer::SubscriberExt, prelude::*, util::SubscriberInitExt,
 };
 
+pub mod agent_ops;
 pub mod assets;
 pub mod connector;
 pub use zeus_core as core;

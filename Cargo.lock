@@ -11811,6 +11811,7 @@ dependencies = [
  "zeus-bip32",
  "zeus-core",
  "zeus-eth",
+ "zeus-mcp",
  "zeus-railgun",
  "zeus-userop-kit",
  "zeus-wallet",
@@ -11896,6 +11897,20 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "zeus-mcp"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "warp",
+ "zeus-core",
+ "zeus-eth",
 ]
 
 [[package]]

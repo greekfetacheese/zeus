@@ -243,7 +243,7 @@ impl GUI {
       let wallet_ui = ui::WalletUi::new();
       let approvals = ApprovalsUi::new();
 
-      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, &mut appearance_settings));
+      let settings = settings::SettingsUi::new(&ctx, &mut appearance_settings);
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new();

@@ -1,15 +1,15 @@
 //! Settings window: category nav + inlined pages.
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusContext;
+use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
-   common::{heading, privacy_mode_switch},
+   common::{heading, privacy_mode_switch, section_heading},
    shortcuts::KeyBindings,
    show_with_fade,
 };
 use egui::{Key, Response, RichText, Role, ScrollArea, Shadow, Stroke, Ui, WidgetInfo, vec2};
-use egui_elements::{Fill, Frame as Frame2, Label, Theme};
+use egui_elements::{Button, Fill, Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
@@ -87,6 +87,13 @@ pub struct SettingsUi {
    focus_page: bool,
    /// The words a page asked the app to say, drained right after the window is drawn.
    notice: Option<String>,
+   /// The context the pages that start background work need, so a page can hold a server handle.
+   ctx: ZeusCtx,
+   /// The agent endpoint while it runs. Dropping the handle stops it.
+   agent_server: Option<zeus_mcp::ServerHandle>,
+   /// The one credential a fresh profile showed, until the page is closed.
+   agent_token: Option<String>,
+   agent_notice: Option<String>,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
    keyboard: KeyboardSettings,
@@ -102,7 +109,14 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new(ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) -> Self {
+   pub fn new(handle: &ZeusCtx, appearance: &mut AppearanceSettings) -> Self {
+      let (general, railgun) = handle.write(|ctx| {
+         (
+            GeneralSettings::new(ctx),
+            RailgunSettings::new(ctx),
+         )
+      });
+
       Self {
          open: false,
          focus_return: false,
@@ -112,7 +126,11 @@ impl SettingsUi {
          focus_nav: false,
          focus_page: false,
          notice: None,
-         general: GeneralSettings::new(ctx),
+         ctx: handle.clone(),
+         agent_server: None,
+         agent_token: None,
+         agent_notice: None,
+         general,
          appearance: AppearanceSettingsUi::new(appearance),
          keyboard: KeyboardSettings::new(),
          encryption: EncryptionSettings::new(),
@@ -123,7 +141,7 @@ impl SettingsUi {
          change_credentials_ui: ChangeCredentialsUi::new(),
          export: ExportDataUi::new(),
          import: ImportDataUi::new(),
-         railgun: RailgunSettings::new(ctx),
+         railgun,
       }
    }
 
@@ -487,6 +505,10 @@ impl SettingsUi {
                         ui.separator();
                         ui.add_space(16.0);
                         self.import.show_page(theme, ui);
+                        ui.add_space(24.0);
+                        ui.separator();
+                        ui.add_space(16.0);
+                        self.show_agent_server(theme, ui);
                      },
                   );
                });
@@ -515,6 +537,149 @@ impl SettingsUi {
       self.promote_network_notice();
       self.promote_contacts_notice();
       self.promote_keyboard_notice();
+   }
+
+   /// The agent endpoint's controls, while it has no page of its own.
+   ///
+   /// Two buttons and one credential: enough to start the listener, mint a token and point a harness at
+   /// it before any grant editor exists. The profile it creates may read the wallet list and nothing
+   /// else, which is exactly what the endpoint's own proof needs.
+   fn show_agent_server(&mut self, theme: &Theme, ui: &mut Ui) {
+      ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
+      ui.add_space(10.0);
+
+      let button_visuals = theme.button_visuals();
+      let size = vec2(180.0, 35.0);
+
+      ui.vertical_centered(|ui| {
+         section_heading(ui, theme.typography.heading, "Agent Server");
+
+         let running = match self.agent_server.as_ref().map(zeus_mcp::ServerHandle::status) {
+            Some(zeus_mcp::ServerStatus::Running { port }) => {
+               ui.label(
+                  RichText::new(format!("Listening on 127.0.0.1:{port}/mcp"))
+                     .size(theme.typography.normal),
+               );
+               true
+            }
+            _ => {
+               ui.label(RichText::new("Stopped").size(theme.typography.normal));
+               false
+            }
+         };
+
+         ui.add_space(8.0);
+
+         let label = if running {
+            "Stop server"
+         } else {
+            "Start server"
+         };
+         let button = Button::new(RichText::new(label).size(theme.typography.large))
+            .visuals(button_visuals)
+            .min_size(size);
+
+         if ui.add(button).clicked() {
+            if running {
+               // Dropping the handle is the stop: it takes the listener down and removes the file
+               // that advertises the port.
+               self.agent_server = None;
+               self.agent_notice = Some("Agent server stopped.".to_owned());
+            } else {
+               self.start_agent_server();
+            }
+         }
+
+         ui.add_space(8.0);
+
+         let create = Button::new(RichText::new("Create profile").size(theme.typography.large))
+            .visuals(button_visuals)
+            .min_size(size);
+
+         if ui.add(create).clicked() {
+            self.create_agent_profile();
+         }
+
+         if let Some(token) = self.agent_token.clone() {
+            ui.add_space(8.0);
+            ui.label(
+               RichText::new("Copy this into the harness now; it is not shown again.")
+                  .size(theme.typography.normal),
+            );
+            ui.label(RichText::new(&token).monospace().size(theme.typography.normal));
+
+            let copy = Button::new(RichText::new("Copy token").size(theme.typography.large))
+               .visuals(button_visuals)
+               .min_size(size);
+
+            if ui.add(copy).clicked() {
+               ui.ctx().copy_text(token);
+               self.agent_notice = Some("Token copied.".to_owned());
+            }
+         }
+
+         if let Some(notice) = &self.agent_notice {
+            ui.add_space(8.0);
+            ui.label(RichText::new(notice).size(theme.typography.normal));
+         }
+      });
+   }
+
+   /// Start the listener on the process runtime.
+   fn start_agent_server(&mut self) {
+      let config = zeus_mcp::ServerConfig::new(
+         self.ctx.clone(),
+         Arc::new(crate::agent_ops::ZeusOps),
+         crate::runtime::rt().clone(),
+      );
+
+      match zeus_mcp::ServerHandle::start(config) {
+         Ok(server) => {
+            self.agent_notice = Some(format!(
+               "Agent server listening on 127.0.0.1:{}/mcp.",
+               server.port()
+            ));
+            self.agent_server = Some(server);
+         }
+         Err(e) => self.agent_notice = Some(format!("Could not start the agent server: {e}")),
+      }
+   }
+
+   /// Mint one credential that may read the wallet list, and every wallet there is.
+   fn create_agent_profile(&mut self) {
+      let (token, hash) = crate::core::agent::generate_token();
+
+      let mut profile =
+         crate::core::agent::AgentProfile::new("Agent (temporary)", hash, now_secs());
+
+      profile.screens.insert(
+         "settings.wallets.read".to_owned(),
+         crate::core::agent::ScreenGrant {
+            read: true,
+            write: false,
+         },
+      );
+
+      for wallet in self.ctx.get_all_wallets_info() {
+         profile.wallets.insert(
+            wallet.address,
+            crate::core::agent::WalletGrant {
+               enabled: true,
+               ..Default::default()
+            },
+         );
+      }
+
+      self.ctx.agent_profiles().insert(profile);
+
+      match self.ctx.save_agent_profiles() {
+         Ok(()) => {
+            self.agent_token = Some(token.as_str().to_owned());
+            self.agent_notice =
+               Some("Profile created: it may read the wallet list, and nothing else.".to_owned());
+         }
+         Err(e) => self.agent_notice = Some(format!("Could not save the profile: {e}")),
+      }
    }
 
    /// Draw the page switcher and return the plate of the page in front.
@@ -681,4 +846,12 @@ fn escape_closes_window(ui: &Ui) -> bool {
 
       !above && ui.ctx().top_layer_id() == Some(layer)
    })
+}
+
+/// Unix seconds, the unit a stored timestamp uses.
+fn now_secs() -> u64 {
+   std::time::SystemTime::now()
+      .duration_since(std::time::UNIX_EPOCH)
+      .map(|elapsed| elapsed.as_secs())
+      .unwrap_or(0)
 }

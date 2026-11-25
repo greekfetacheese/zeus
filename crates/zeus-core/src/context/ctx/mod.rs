@@ -2,7 +2,12 @@ use super::{
    AddressBookHandle, ClientManager, CurrencyDB, EnsCache, NftDB, PoolManagerHandle,
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
-use crate::{Vault, WalletInfo, WalletState, agent::AgentProfileStore, persisted, types::*};
+use crate::{
+   Vault, WalletInfo, WalletState,
+   agent::{AgentAuditLog, AgentProfileStore},
+   persisted,
+   types::*,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use zeus_eth::{
@@ -93,6 +98,11 @@ pub struct ZeusContext {
    /// Agent profiles and their grants (`agent_profiles.data`), sealed with the vault's
    /// `wallet_state_key`. The domain is [`crate::agent`]; this is only where the live copy hangs.
    pub agent_profiles: AgentProfileStore,
+
+   /// What agents asked for and what came of it (`agent_audit.data`), sealed with the vault's
+   /// `wallet_state_key`. The ring is [`crate::agent::AgentAuditLog`]'s; this is where the live copy
+   /// hangs.
+   pub agent_audit: AgentAuditLog,
 
    /// ENS names resolved this session. In memory only — see [`EnsCache`].
    pub ens_cache: EnsCache,

@@ -8,7 +8,11 @@ use super::cache::CONNECTOR_CACHE_CAP;
 use super::persist::tighten_existing_secret_files;
 use super::{ZeusContext, ZeusCtx};
 use crate::types::DEFAULT_CONNECTOR_PORT;
-use crate::{Vault, WalletInfo, WalletState, agent::AgentProfileStore, types::*};
+use crate::{
+   Vault, WalletInfo, WalletState,
+   agent::{AgentAuditLog, AgentProfileStore},
+   types::*,
+};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use zeus_eth::types::{ChainId, SUPPORTED_CHAINS};
@@ -115,6 +119,10 @@ impl ZeusCtx {
       self.read(|ctx| ctx.agent_profiles.clone())
    }
 
+   pub fn agent_audit(&self) -> AgentAuditLog {
+      self.read(|ctx| ctx.agent_audit.clone())
+   }
+
    /// The session-only ENS name cache. See [`EnsCache`].
    pub fn ens_cache(&self) -> EnsCache {
       self.read(|ctx| ctx.ens_cache.clone())
@@ -212,6 +220,7 @@ impl ZeusContext {
          vault_unlocked: false,
          address_book: AddressBookHandle::default(),
          agent_profiles: AgentProfileStore::default(),
+         agent_audit: AgentAuditLog::default(),
          ens_cache: EnsCache::new(),
          currency_db,
          nft_db,

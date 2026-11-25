@@ -1027,6 +1027,7 @@ fn on_unlock_vault(mut vault: Vault) {
             ctx.load_price_manager();
             ctx.load_or_create_address_book();
             ctx.load_agent_profiles();
+            ctx.load_agent_audit();
 
             if let Err(e) = ctx.load_security_settings() {
                tracing::error!("Failed to load security settings: {:?}", e);
