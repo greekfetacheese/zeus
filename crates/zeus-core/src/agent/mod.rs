@@ -12,6 +12,7 @@ pub mod intent;
 pub mod policy;
 pub mod profile;
 pub mod read;
+pub mod settings;
 pub mod store;
 pub mod token;
 

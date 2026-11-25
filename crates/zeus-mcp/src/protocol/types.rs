@@ -31,6 +31,13 @@ impl Annotations {
       open_world: false,
    };
 
+   /// A tool that changes app state without moving funds or reaching a chain.
+   pub const WRITE: Self = Self {
+      read_only: false,
+      destructive: false,
+      open_world: false,
+   };
+
    /// A tool that changes something and is hard to undo.
    pub const DESTRUCTIVE: Self = Self {
       read_only: false,

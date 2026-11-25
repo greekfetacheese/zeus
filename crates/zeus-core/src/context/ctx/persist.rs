@@ -686,11 +686,23 @@ impl ZeusCtx {
       }
    }
 
+   /// Write `disabled_chains.json` from the live set, keeping the caller's error.
+   pub fn try_save_disabled_chains(&self) -> Result<(), anyhow::Error> {
+      self.read(|ctx| ctx.disabled_chains.clone()).save_to_file()
+   }
+
    pub fn save_disabled_chains(&self) {
-      let chains = self.read(|ctx| ctx.disabled_chains.clone());
-      match chains.save_to_file() {
+      match self.try_save_disabled_chains() {
          Ok(_) => tracing::trace!("Disabled Chains saved"),
          Err(e) => tracing::error!("Error saving disabled chains: {:?}", e),
       }
+   }
+
+   /// Write `misc_config.json` from the live config.
+   ///
+   /// The General page spawns the same save from the frame path; a caller that is not a frame gets the
+   /// result, so a refused write is reported rather than left in the log.
+   pub fn save_misc_config(&self) -> Result<(), anyhow::Error> {
+      self.read(|ctx| ctx.misc_config.clone()).save()
    }
 }

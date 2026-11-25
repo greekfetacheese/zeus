@@ -155,6 +155,44 @@ impl ZeusCtx {
       Ok(())
    }
 
+   /// Rename the contact filed under `evm_address`, keeping the row and its zk address.
+   ///
+   /// The page edits a contact by removing and re-adding it, which spends two saves and briefly leaves
+   /// the address book without the identity; this is the same rule applied once, to the row in place.
+   /// The address itself is never editable: a label is how a send gets confirmed, so only the label
+   /// moves.
+   pub fn rename_contact(&self, evm_address: &str, name: String) -> Result<(), anyhow::Error> {
+      if name.is_empty() {
+         return Err(anyhow!("Contact name cannot be empty"));
+      }
+
+      let contacts = self.contacts();
+
+      if contacts.iter().any(|c| c.name == name && c.evm_address != evm_address) {
+         return Err(anyhow!(
+            "Contact with name {} already exists",
+            name
+         ));
+      }
+
+      if !contacts.iter().any(|c| c.evm_address == evm_address) {
+         return Err(anyhow!("No contact with address {evm_address}"));
+      }
+
+      self.write_wallet_state(|ws| {
+         if let Some(contact) = ws.contacts.iter_mut().find(|c| c.evm_address == evm_address) {
+            contact.name = name.clone();
+         }
+      });
+
+      if let Ok(address) = Address::from_str(evm_address) {
+         self.address_book().insert_identity(address, name.as_str());
+         self.save_address_book();
+      }
+
+      Ok(())
+   }
+
    /// Get a contact by it's address
    pub fn get_contact(&self, evm_address: &str) -> Option<Contact> {
       self.read(|ctx| ctx.get_contact_by_address(evm_address))

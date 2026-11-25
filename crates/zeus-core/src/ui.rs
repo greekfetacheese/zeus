@@ -120,6 +120,12 @@ pub trait UiHost: Send + Sync + 'static {
       now_ms: u64,
       finish_ms: u64,
    );
+   /// Say one sentence out loud: the trace an action leaves when nothing asked the user first.
+   ///
+   /// It is a notice, not a prompt — there is nothing to answer — so a host with no reader attached
+   /// drops it.
+   fn announce(&self, _message: &str) {}
+
    fn lockout_and_shutdown(&self, msg: &str);
 }
 
@@ -139,6 +145,14 @@ pub fn host() -> &'static dyn UiHost {
       Some(host) => host.as_ref(),
       None => &NO_UI,
    }
+}
+
+/// Say one sentence out loud, through whatever host is attached.
+///
+/// A granted action runs without a prompt by design, so this is the part of its trace a user who is not
+/// watching the screen can still receive.
+pub fn announce(message: &str) {
+   host().announce(message);
 }
 
 /// The host used when `main` never installed one: no prompt can be answered, so

@@ -35,9 +35,10 @@ use std::sync::Arc;
 use std::time::Instant;
 use zeus_core::ZeusCtx;
 use zeus_core::agent::read::ReadError;
+use zeus_core::agent::settings::SettingsError;
 use zeus_core::agent::{
-   AgentProfile, AuditEntry, CAPABILITIES, CapabilityScope, Decision, Denial, Intent, PrivacyBadge,
-   capability, precheck,
+   AgentProfile, AuditDecision, AuditEntry, CAPABILITIES, CapabilityScope, Decision, Denial,
+   Intent, PrivacyBadge, capability, precheck,
 };
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::types::ChainId;
@@ -138,8 +139,10 @@ pub const TOOLS: &[ToolSpec] = &[
    pools::LIST,
    portfolio::GET,
    railgun::STATUS,
+   settings::DESCRIBE,
    settings::GET,
    settings::LIST,
+   settings::SET,
    tx::GET,
    tx::HISTORY,
    wallet::GET,
@@ -313,12 +316,39 @@ pub fn read_error(error: ReadError) -> ToolError {
    }
 }
 
+/// The refusal a settings patch becomes.
+///
+/// A patch of the wrong shape is the model's to fix, so it is a validation error that names the field; a
+/// store that would not write is not, so it is internal.
+pub fn settings_error(error: SettingsError) -> ToolError {
+   match &error {
+      SettingsError::Invalid { .. }
+      | SettingsError::RuntimeOnly { .. }
+      | SettingsError::Closed { .. } => ToolError::validation(error.to_string()),
+      SettingsError::Unsupported { .. } => {
+         ToolError::new(ErrorCode::Unsupported, error.to_string())
+      }
+      SettingsError::Busy => ToolError::new(ErrorCode::Busy, error.to_string()),
+      SettingsError::Rejected => ToolError::new(ErrorCode::UserRejected, error.to_string()),
+      SettingsError::NoUi => ToolError::new(ErrorCode::UserActionRequired, error.to_string()),
+      SettingsError::Refused { .. } => ToolError::internal(error.to_string()),
+   }
+}
+
 /// Decide a request against the grant, and record a refusal.
 ///
 /// This is the precheck the pipeline's own rule asks for: a guard that can stop an action runs before
 /// anything is built, simulated or signed. It is not the authority — the confirmation seam decides again
 /// from the simulation — but it is what makes a refusal cost nothing.
 pub fn guard(call: &Call, subject: &str, intent: &Intent) -> Result<(), ToolError> {
+   refusal(intent, decide(call, subject, intent))
+}
+
+/// The decision one request gets, with a refusal recorded.
+///
+/// Separate from `refusal` so a caller that has to *act* on `Allowed { prompt: true }` — a write in a
+/// profile that confirms every change — can see it instead of having it flattened to `Ok`.
+pub fn decide(call: &Call, subject: &str, intent: &Intent) -> Decision {
    let started = Instant::now();
    let decision = precheck(&call.ctx, &call.profile, intent);
 
@@ -326,6 +356,11 @@ pub fn guard(call: &Call, subject: &str, intent: &Intent) -> Result<(), ToolErro
       record(call, subject, intent, &decision, started);
    }
 
+   decision
+}
+
+/// The answer a decision that is not "run it now" becomes at a tool boundary.
+pub fn refusal(intent: &Intent, decision: Decision) -> Result<(), ToolError> {
    match decision {
       Decision::Allowed { .. } => Ok(()),
       Decision::NeedsUser { reason } => Err(
@@ -370,6 +405,34 @@ fn record(call: &Call, subject: &str, intent: &Intent, decision: &Decision, star
 
    entry.wallet = intent.wallet();
    entry.latency_ms = started.elapsed().as_millis() as u64;
+   entry.client_info = call.client_info();
+
+   call.ctx.agent_audit().record(entry);
+}
+
+/// Record a write that ran.
+///
+/// A refusal is recorded by the gate in front of every call; an allowed write is recorded here, by the
+/// handler that performed it, because only it knows the write landed.
+pub fn record_allowed(call: &Call, subject: &str, capability: &str) {
+   let mut entry = AuditEntry::new(&call.profile, subject, capability, now_secs())
+      .decided(&Decision::Allowed { prompt: false });
+
+   entry.client_info = call.client_info();
+
+   call.ctx.agent_audit().record(entry);
+}
+
+/// Record a write that was refused after the gate: the user said no, or no window could ask.
+///
+/// The gate records a policy refusal; this records the one the *user* made, which is the other half of
+/// "writes are always audited".
+pub fn record_refusal(call: &Call, subject: &str, capability: &str, code: &str, detail: &str) {
+   let mut entry = AuditEntry::new(&call.profile, subject, capability, now_secs());
+
+   entry.decision = AuditDecision::Denied;
+   entry.denial = Some(code.to_owned());
+   entry.detail = Some(detail.to_owned());
    entry.client_info = call.client_info();
 
    call.ctx.agent_audit().record(entry);

@@ -151,6 +151,13 @@ impl UiHost for GuiHost {
       });
    }
 
+   fn announce(&self, message: &str) {
+      SHARED_GUI.write(|gui| {
+         gui.announce(message);
+         gui.request_repaint();
+      });
+   }
+
    fn lockout_and_shutdown(&self, msg: &str) {
       SHARED_GUI.write(|gui| {
          gui.open_msg_window(msg);

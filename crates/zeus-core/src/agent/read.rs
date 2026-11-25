@@ -11,6 +11,7 @@
 //! arrived.
 
 use super::profile::{AgentProfile, WalletGrant};
+use super::settings;
 use crate::context::{WalletPortfolio, ZeusContext};
 use crate::platform::truncate_address;
 use crate::tx::events::{NftApproveParams, PermitParams, TokenApproveParams};
@@ -38,9 +39,6 @@ pub struct Screen {
    pub name: &'static str,
    /// The read capability that reveals it.
    pub read: &'static str,
-   /// The write capability, when the screen has one. A screen without one is written through the
-   /// dedicated tools its verbs have (`wallets_*`).
-   pub write: Option<&'static str>,
 }
 
 /// The screens this build can read, in the order the settings page shows them.
@@ -52,42 +50,34 @@ pub const SCREENS: &[Screen] = &[
    Screen {
       name: "general",
       read: "settings.general.read",
-      write: Some("settings.general.write"),
    },
    Screen {
       name: "security",
       read: "settings.security.read",
-      write: Some("settings.security.write"),
    },
    Screen {
       name: "networks",
       read: "settings.networks.read",
-      write: Some("settings.networks.write"),
    },
    Screen {
       name: "contacts",
       read: "settings.contacts.read",
-      write: Some("settings.contacts.write"),
    },
    Screen {
       name: "railgun",
       read: "settings.railgun.read",
-      write: Some("settings.railgun.write"),
    },
    Screen {
       name: "pools",
       read: "settings.pools.read",
-      write: Some("settings.pools.write"),
    },
    Screen {
       name: "dapps",
       read: "settings.dapps.read",
-      write: Some("settings.dapps.write"),
    },
    Screen {
       name: "wallets",
       read: "settings.wallets.read",
-      write: None,
    },
 ];
 
@@ -338,17 +328,21 @@ pub fn delegate(
    }))
 }
 
-/// The screens, each with the switches the grant holds for it.
+/// The screens, each with the switches the grant holds for it and whether this build can write it.
+///
+/// A screen with no writer still appears — its values are readable — and says so, because "there is no
+/// patch here" is the answer that stops a caller trying to invent one.
 pub fn screens(profile: &AgentProfile) -> Value {
    let screens: Vec<Value> = SCREENS
       .iter()
       .map(|screen| {
+         let writable = settings::screen(screen.name);
+
          json!({
              "screen": screen.name,
              "read": profile.screen(screen.read).is_some_and(|grant| grant.read),
-             "write": screen.write.is_some_and(|capability| {
-                 profile.screen(capability).is_some_and(|grant| grant.write)
-             }),
+             "write": writable.is_some_and(|settings| profile.allows_global(settings.capability)),
+             "writable": writable.is_some(),
          })
       })
       .collect();

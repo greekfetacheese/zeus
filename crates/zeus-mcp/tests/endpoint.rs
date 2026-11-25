@@ -9,7 +9,9 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::OnceLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use zeus_core::agent::{AgentProfile, AgentProfileId, AgentProfileStore, ScreenGrant, WalletGrant};
+use zeus_core::agent::{
+   AgentProfile, AgentProfileId, AgentProfileStore, ProfileMode, ScreenGrant, WalletGrant,
+};
 use zeus_core::{TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::utils::NumericValue;
@@ -53,6 +55,14 @@ impl Fixture {
 
    /// A server whose one profile holds exactly `caps` on its wallet and `screens` on the app.
    fn with(caps: &[&str], screens: &[&str]) -> Self {
+      Self::with_writes(caps, screens, &[])
+   }
+
+   /// A server whose profile also holds these screen writes.
+   ///
+   /// A screen named in both lists is read and written; one named only in `writes` is written and not
+   /// read, which is the grant a write-only profile holds.
+   fn with_writes(caps: &[&str], screens: &[&str], writes: &[&str]) -> Self {
       workspace();
 
       let ctx = ZeusCtx::new(tokio::runtime::Handle::current());
@@ -81,6 +91,10 @@ impl Fixture {
                write: false,
             },
          );
+      }
+
+      for screen in writes {
+         profile.screens.entry((*screen).to_owned()).or_default().write = true;
       }
 
       let mut grant = WalletGrant {
@@ -118,6 +132,14 @@ impl Fixture {
 
    fn store(&self) -> AgentProfileStore {
       self.ctx.agent_profiles()
+   }
+
+   /// Put the profile in the cautious mode, where every state change is asked about.
+   fn ask_before_every_change(&self) {
+      let mut profile = self.store().profile(&self.profile).expect("the fixture's profile");
+
+      profile.mode = ProfileMode::ConfirmEach;
+      self.store().insert(profile);
    }
 }
 
@@ -426,8 +448,10 @@ async fn the_legacy_handshake_then_a_tool_call_reads_the_wallets() {
       names,
       [
          "delegate_status",
+         "settings_describe",
          "settings_get",
          "settings_list",
+         "settings_set",
          "wallet_get",
          "wallet_list",
          "zeus_help",
@@ -690,7 +714,14 @@ async fn the_grant_decides_which_tools_exist_and_which_calls_run() {
    let names: Vec<&str> = tools.iter().filter_map(|tool| tool["name"].as_str()).collect();
    assert_eq!(
       names,
-      ["settings_get", "settings_list", "zeus_help", "zeus_status"]
+      [
+         "settings_describe",
+         "settings_get",
+         "settings_list",
+         "settings_set",
+         "zeus_help",
+         "zeus_status"
+      ]
    );
 
    let refused = request(
@@ -1216,8 +1247,9 @@ fn error_code(reply: &Reply) -> Option<&str> {
 
 #[tokio::test]
 async fn the_read_surface_is_scoped_to_the_grant() {
-   // A profile with nothing granted sees the two meta tools and the list of what it could be granted —
-   // no wallet tool, because the wallet read is itself a grant.
+   // A profile with nothing granted sees the two meta tools and the four settings tools — no wallet
+   // tool, because the wallet read is itself a grant. The settings surface is listed anyway: which
+   // screen a call names is the argument's answer, so it cannot be scoped by a static capability.
    let bare = Fixture::with(&[], &[]);
    let list = request(
       bare.port,
@@ -1231,10 +1263,18 @@ async fn the_read_surface_is_scoped_to_the_grant() {
 
    assert_eq!(
       tool_names(&list),
-      ["settings_get", "settings_list", "zeus_help", "zeus_status"]
+      [
+         "settings_describe",
+         "settings_get",
+         "settings_list",
+         "settings_set",
+         "zeus_help",
+         "zeus_status"
+      ]
    );
 
-   // Granted everything the read surface needs, it is the whole surface and nothing that writes.
+   // Granted everything the read surface needs, it is the whole surface. `settings_set` is in it
+   // because a settings call names its screen as an argument, and it still refuses per screen.
    let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
    let list = request(
       fixture.port,
@@ -1260,8 +1300,10 @@ async fn the_read_surface_is_scoped_to_the_grant() {
          "pools_list",
          "portfolio_get",
          "railgun_status",
+         "settings_describe",
          "settings_get",
          "settings_list",
+         "settings_set",
          "tx_get",
          "tx_history",
          "wallet_get",
@@ -1423,10 +1465,10 @@ async fn an_ungranted_wallet_is_not_found_on_the_global_tools() {
 }
 
 #[tokio::test]
-async fn a_locked_vault_refuses_every_read_tool() {
+async fn a_locked_vault_refuses_every_tool_but_status() {
    let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
 
-   // The auto-lock timer fired: the server is still up, and every wallet read is refused.
+   // The auto-lock timer fired: the server is still up, and every read and every write is refused.
    fixture.ctx.write(|ctx| ctx.locked = true);
 
    let calls: Vec<(&str, Value)> = vec![
@@ -1447,6 +1489,11 @@ async fn a_locked_vault_refuses_every_read_tool() {
       ("dapps_list", json!({})),
       ("settings_list", json!({})),
       ("settings_get", json!({"screen": "general"})),
+      ("settings_describe", json!({"screen": "general"})),
+      (
+         "settings_set",
+         json!({"screen": "general", "patch": {"check_for_updates": true}}),
+      ),
    ];
 
    for (name, arguments) in calls {
@@ -1486,6 +1533,276 @@ async fn a_settings_screen_needs_its_own_switch() {
    )
    .await;
    assert_eq!(error_code(&missing), Some("NOT_FOUND"));
+}
+
+#[tokio::test]
+async fn a_settings_write_lands_and_is_audited() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.general.read"],
+      &["settings.general.write"],
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "general", "patch": {"check_for_updates": true}}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["screen"], "general");
+   assert_eq!(
+      data(&reply)["changed"],
+      json!(["check_for_updates"])
+   );
+   assert_eq!(
+      data(&reply)["values"]["check_for_updates"],
+      true,
+      "the answer carries the screen as it stands now"
+   );
+
+   // An allowed write is on the ring, not only a refused one.
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("an audit entry");
+
+   assert_eq!(entry.tool, "settings_set");
+   assert_eq!(entry.capability, "settings.general.write");
+   assert_eq!(
+      entry.decision,
+      zeus_core::agent::AuditDecision::Allowed
+   );
+}
+
+#[tokio::test]
+async fn a_settings_write_needs_its_own_switch() {
+   let fixture = Fixture::with(&[], &["settings.general.read"]);
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "general", "patch": {"check_for_updates": true}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(
+      message.contains("settings.general.write"),
+      "{message}"
+   );
+}
+
+#[tokio::test]
+async fn a_patch_field_the_screen_does_not_have_is_a_validation_error() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.general.read"],
+      &["settings.general.write"],
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "general", "patch": {"fetch_prices": true}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(message.contains("fetch_prices"), "{message}");
+}
+
+#[tokio::test]
+async fn a_runtime_field_names_the_call_it_belongs_to() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.security.read"],
+      &["settings.security.write"],
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "security", "patch": {"privacy_mode": true}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(message.contains("per call"), "{message}");
+}
+
+#[tokio::test]
+async fn a_screen_with_no_writer_is_refused_as_read_only() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.pools.read"],
+      &["settings.pools.write"],
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "pools", "patch": {}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_FOUND"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(message.contains("read-only"), "{message}");
+}
+
+#[tokio::test]
+async fn a_settings_description_names_the_fields_an_agent_may_not_write() {
+   let fixture = Fixture::with(&[], &["settings.general.read"]);
+
+   let reply = call_tool(
+      &fixture,
+      "settings_describe",
+      json!({"screen": "general"}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let described = data(&reply);
+
+   assert_eq!(described["writable"], true);
+   assert_eq!(
+      described["schema"]["properties"]["fetch_asset_images"]["type"],
+      "boolean"
+   );
+   assert!(
+      described["schema"]["properties"]["agent_server"].is_null(),
+      "the server's own switch is not a field of the patch"
+   );
+   assert!(
+      described["closed"]
+         .as_array()
+         .expect("a closed list")
+         .iter()
+         .any(|entry| entry["field"] == "agent_server")
+   );
+}
+
+#[tokio::test]
+async fn settings_list_says_which_screens_this_build_can_write() {
+   let fixture = Fixture::with(&[], &["settings.general.read"]);
+
+   let reply = call_tool(&fixture, "settings_list", json!({})).await;
+   let screens = data(&reply)["screens"].as_array().expect("a screen list");
+
+   let row = |name: &str| {
+      screens
+         .iter()
+         .find(|screen| screen["screen"] == name)
+         .cloned()
+         .unwrap_or_else(|| panic!("{name} is missing from the list"))
+   };
+
+   let general = row("general");
+   assert_eq!(
+      general["writable"], true,
+      "this build writes general"
+   );
+   assert_eq!(general["write"], false, "the grant does not");
+
+   let pools = row("pools");
+   assert_eq!(
+      pools["writable"], false,
+      "no writer for pools yet"
+   );
+   assert_eq!(
+      pools["read"], false,
+      "and its read switch is not granted either"
+   );
+}
+
+#[tokio::test]
+async fn a_confirm_each_profile_is_asked_before_a_settings_write() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.general.read"],
+      &["settings.general.write"],
+   );
+   fixture.ask_before_every_change();
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "general", "patch": {"check_for_updates": true}}),
+   )
+   .await;
+
+   // No window is attached in this test, so the prompt cannot be drawn. The write must not happen on an
+   // assumed answer: the profile asked to be asked, and nothing answered.
+   assert_eq!(error_code(&reply), Some("USER_ACTION_REQUIRED"));
+   assert!(!fixture.ctx.read(|ctx| ctx.misc_config.check_for_updates()));
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("an audit entry");
+
+   assert_eq!(entry.denial.as_deref(), Some("NO_UI"));
+}
+
+#[tokio::test]
+async fn a_networks_patch_saves_through_the_client_settings() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.networks.read"],
+      &["settings.networks.write"],
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "networks", "patch": {"concurrency": 5}}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["changed"], json!(["concurrency"]));
+   assert_eq!(fixture.ctx.get_client_manager().concurrency(), 5);
 }
 
 #[tokio::test]
