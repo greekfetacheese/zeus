@@ -2,7 +2,7 @@ use super::{
    AddressBookHandle, ClientManager, CurrencyDB, EnsCache, NftDB, PoolManagerHandle,
    price_manager::PriceManagerHandle, tx::TxDBHandle,
 };
-use crate::{Vault, WalletInfo, WalletState, persisted, types::*};
+use crate::{Vault, WalletInfo, WalletState, agent::AgentProfileStore, persisted, types::*};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use zeus_eth::{
@@ -89,6 +89,10 @@ pub struct ZeusContext {
    /// Token names stay in [`Self::currency_db`]. ENS names live in [`Self::ens_cache`] — they can
    /// expire, so they are deliberately not persisted here.
    pub address_book: AddressBookHandle,
+
+   /// Agent profiles and their grants (`agent_profiles.data`), sealed with the vault's
+   /// `wallet_state_key`. The domain is [`crate::agent`]; this is only where the live copy hangs.
+   pub agent_profiles: AgentProfileStore,
 
    /// ENS names resolved this session. In memory only — see [`EnsCache`].
    pub ens_cache: EnsCache,

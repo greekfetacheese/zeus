@@ -6,12 +6,13 @@ use super::{bundler_url_dir, pool_data_dir};
 use crate::platform::TimeStamp;
 use crate::{
    Vault, WalletInfo, WalletState,
+   agent::AgentProfileStore,
    persisted::{self, PersistedFile},
    types::*,
 };
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// `write_private` only tightens mode on the next save. Existing `0644` files
 /// from older builds stay world-readable until then — fix them at startup.
@@ -27,6 +28,7 @@ pub(super) fn tighten_existing_secret_files() {
       bundler_url_dir().ok(),
       PriceManagerHandle::dir().ok(),
       persisted::file_path(PersistedFile::Security).ok(),
+      persisted::file_path(PersistedFile::AgentProfiles).ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
@@ -297,6 +299,58 @@ impl ZeusCtx {
       }
    }
 
+   /// Load `data/agent_profiles.data` into the live store.
+   ///
+   /// Authoritative, not additive: after an import the file is whatever the archive carried, and a
+   /// profile the archive does not have must not keep running on the grants it held in the old install.
+   /// A missing file is a first run — the store becomes empty, and the defaults are the answer.
+   pub fn load_agent_profiles(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading agent profiles: {e:?}");
+            return;
+         }
+      };
+
+      let store = self.agent_profiles();
+      let present = AgentProfileStore::dir().is_ok_and(|path| path.exists());
+
+      match AgentProfileStore::load_from_file(&key) {
+         Ok(loaded) => store.replace_from(&loaded),
+         // A missing file is a first run (or an archive without one): empty is the answer, not
+         // whatever the previous data directory left in memory.
+         Err(_) if !present => store.replace_from(&AgentProfileStore::default()),
+         Err(e) => {
+            // A file that is there and did not read holds the user's real grants: the store in memory
+            // is a default, so a later save must refuse rather than seal the default over them.
+            tracing::error!("Failed to load agent profiles, leaving the file untouched: {e:?}");
+            store.block_saves(e.to_string());
+         }
+      }
+
+      // A deleted wallet's grant must not be inherited by a wallet derived at the same address later:
+      // deriving a wallet is adding one, not restoring a permission. Both callers have the wallet cache
+      // built by this point, which is what makes this set authoritative.
+      let wallets: HashSet<_> =
+         self.get_all_wallets_info().into_iter().map(|wallet| wallet.address).collect();
+
+      if store.retain_wallets(&wallets) > 0
+         && let Err(e) = store.save(&key)
+      {
+         tracing::error!("Error saving pruned agent profiles: {e:?}");
+      }
+   }
+
+   /// Seal and write `data/agent_profiles.data` with the vault-held key.
+   ///
+   /// Refuses while the store's saves are blocked, so a failed load never becomes a silent wipe.
+   pub fn save_agent_profiles(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let store = self.agent_profiles();
+      store.save(&key)
+   }
+
    pub fn save_client_manager(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
@@ -496,6 +550,7 @@ impl ZeusCtx {
       self.load_client_manager();
       self.load_price_manager();
       self.load_or_create_address_book();
+      self.load_agent_profiles();
 
       Ok((master_info, info.argon2))
    }

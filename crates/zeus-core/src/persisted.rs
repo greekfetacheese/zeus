@@ -98,6 +98,8 @@ persisted_files! {
    BundlerUrl => "bundler_url.data",
    AddressBook => "address_book.data",
    PriceData => "price_data.data",
+   AgentProfiles => "agent_profiles.data",
+   AgentAudit => "agent_audit.data",
    Theme => "theme.json",
    ServerPort => "server_port.json",
    DisabledChains => "disabled_chains.json",
@@ -107,6 +109,7 @@ persisted_files! {
    Security => "security.data",
    AcrossSettings => "across_settings.json",
    ClientSettings => "client_settings.json",
+   Mcp => "mcp.json",
    Connector => "connector.json",
    NativeHostManifest => "io.github.zeus_wallet.json",
    NativeHostWrapperUnix => "zeus_connector_host.sh",
@@ -159,10 +162,15 @@ impl Persisted {
             | PersistedFile::Appearance
             | PersistedFile::Security
             | PersistedFile::AcrossSettings
-            | PersistedFile::ClientSettings,
+            | PersistedFile::ClientSettings
+            | PersistedFile::AgentProfiles,
          ) => ExportPolicy::Core,
+         // A log, not state: a backup does not need it, but a user investigating something should be
+         // able to include it.
+         Self::File(PersistedFile::AgentAudit) => ExportPolicy::Optional,
          Self::File(
-            PersistedFile::Connector
+            PersistedFile::Mcp
+            | PersistedFile::Connector
             | PersistedFile::NativeHostManifest
             | PersistedFile::NativeHostWrapperUnix
             | PersistedFile::NativeHostWrapperWindows,
@@ -196,7 +204,9 @@ impl PersistedFile {
          | Self::BundlerUrl
          | Self::AddressBook
          | Self::PriceData
-         | Self::Security => true,
+         | Self::Security
+         | Self::AgentProfiles
+         | Self::AgentAudit => true,
          Self::Vault
          | Self::Theme
          | Self::ServerPort
@@ -206,6 +216,7 @@ impl PersistedFile {
          | Self::Appearance
          | Self::AcrossSettings
          | Self::ClientSettings
+         | Self::Mcp
          | Self::Connector
          | Self::NativeHostManifest
          | Self::NativeHostWrapperUnix
