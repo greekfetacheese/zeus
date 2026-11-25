@@ -5,6 +5,7 @@ use super::events::{DecodedEvent, NftTransferParams};
 use super::notification::NotificationType;
 use super::rich::TransactionRich;
 use crate::ZeusCtx;
+use crate::agent::AgentProfileId;
 use crate::clear_signing::{self, ClearDisplay};
 use crate::context::estimate_tx_cost;
 use crate::platform::TimeStamp;
@@ -85,6 +86,8 @@ pub struct RecordPolicy {
    pub onchain_swap_received: bool,
    /// Priority fee the user confirmed, for the cost estimate.
    pub priority_fee: NumericValue,
+   /// The agent profile that asked for the transaction, when one did.
+   pub authorised_by: Option<AgentProfileId>,
 }
 
 /// The recorded transaction plus what its notification needs.
@@ -225,6 +228,7 @@ pub async fn build_tx_outcome(
       analysis,
       main_event,
       clear_display,
+      authorised_by: policy.authorised_by,
    };
 
    Ok(TxOutcome {

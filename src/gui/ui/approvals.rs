@@ -2,8 +2,9 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{
-   DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest, TokenApproveParams,
-   TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction, signature,
+   AgentEnv, DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest,
+   TokenApproveParams, TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction,
+   signature,
 };
 use crate::gui::ui::common::{
    SpokenAddress, chain_label, drawn_and_spoken, name_address, name_text, name_token,
@@ -1029,7 +1030,9 @@ impl ApprovalsUi {
             let owner = params.owner;
             let spender = params.spender;
             crate::runtime::rt().spawn(async move {
-               if let Err(e) = revoke_erc20_approval(chain, token, owner, spender).await {
+               if let Err(e) =
+                  revoke_erc20_approval(AgentEnv::user(), chain, token, owner, spender).await
+               {
                   tracing::error!("Failed to revoke ERC20 approval: {:?}", e);
                   SHARED_GUI.write(|gui| {
                      gui.approvals.revoke_failed();
@@ -1072,7 +1075,7 @@ impl ApprovalsUi {
          ApprovalKind::Nft(params) => {
             let chain = params.chain;
             crate::runtime::rt().spawn(async move {
-               if let Err(e) = revoke_nft_approval(chain, params).await {
+               if let Err(e) = revoke_nft_approval(AgentEnv::user(), chain, params).await {
                   tracing::error!("Failed to revoke NFT approval: {:?}", e);
                   SHARED_GUI.write(|gui| {
                      gui.approvals.revoke_failed();
@@ -1259,7 +1262,11 @@ fn revoke_call(params: &NftApproveParams) -> Result<(Bytes, NftApproveParams), a
 }
 
 /// Revoke an NFT approval on the collection that emitted it.
-async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<(), anyhow::Error> {
+async fn revoke_nft_approval(
+   env: AgentEnv,
+   chain_id: u64,
+   params: NftApproveParams,
+) -> Result<(), anyhow::Error> {
    let chain = revoke_chain(chain_id)?;
    let (calldata, revoked) = revoke_call(&params)?;
 
@@ -1320,6 +1327,7 @@ async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<
          // zero address, not the operator being cleared. Keep the flow's own intent event — the
          // recorded params carry the operator the grant is being taken from.
          keep_intent_event: true,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -1329,6 +1337,7 @@ async fn revoke_nft_approval(chain_id: u64, params: NftApproveParams) -> Result<
 }
 
 async fn revoke_erc20_approval(
+   env: AgentEnv,
    chain_id: u64,
    token: ERC20Token,
    from: Address,
@@ -1398,6 +1407,7 @@ async fn revoke_erc20_approval(
       SendTxOptions {
          dapp,
          mev_protect,
+         authority: env.authority,
          ..Default::default()
       },
    )

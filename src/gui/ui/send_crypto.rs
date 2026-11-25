@@ -12,8 +12,8 @@ use std::{
 
 use crate::core::types::EnsRecipientGuard;
 use crate::core::{
-   DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
-   ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
+   AgentEnv, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams,
+   ZeusContext, ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
 };
 use crate::utils::{TimeStamp, estimate_tx_cost, simulate};
 
@@ -805,6 +805,7 @@ impl SendCryptoUi {
 
          match send_nft(
             ctx.clone(),
+            AgentEnv::user(),
             chain,
             from,
             recipient_address,
@@ -869,6 +870,7 @@ impl SendCryptoUi {
 
          let result = crate::runtime::rt().block_on(private_transfer(
             ctx.clone(),
+            AgentEnv::user(),
             chain,
             RailgunAsset::Nft(nft),
             amount,
@@ -1247,6 +1249,7 @@ impl SendCryptoUi {
 
          let result = crate::runtime::rt().block_on(private_transfer(
             ctx.clone(),
+            AgentEnv::user(),
             chain,
             RailgunAsset::Fungible(currency),
             amount,
@@ -1310,6 +1313,7 @@ impl SendCryptoUi {
          if currency.is_native() {
             match send_eth(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                from,
                recipient_address,
@@ -1340,6 +1344,7 @@ impl SendCryptoUi {
          } else {
             match send_token(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                from,
                recipient_address,
@@ -1437,6 +1442,7 @@ fn value(
 
 async fn send_eth(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    recipient: Address,
@@ -1609,6 +1615,7 @@ async fn send_eth(
          mev_protect,
          ens_recipient: recipient_guard,
          recipient_name: recipient_name.map(|name| (recipient, name)),
+         authority: env.authority.clone(),
          ..Default::default()
       },
    )
@@ -1626,6 +1633,7 @@ async fn send_eth(
 
 async fn send_token(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    recipient: Address,
@@ -1775,6 +1783,7 @@ async fn send_token(
          mev_protect,
          ens_recipient: recipient_guard,
          recipient_name: recipient_name.map(|name| (recipient, name)),
+         authority: env.authority.clone(),
          ..Default::default()
       },
    )
@@ -1802,6 +1811,7 @@ async fn send_token(
 /// "NFT Transfer") — so this path leaves the main event to them rather than synthesizing one.
 async fn send_nft(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    recipient: Address,
@@ -1957,6 +1967,7 @@ async fn send_nft(
          mev_protect,
          ens_recipient: recipient_guard,
          recipient_name: recipient_name.map(|name| (recipient, name)),
+         authority: env.authority.clone(),
          ..Default::default()
       },
    )
@@ -2233,6 +2244,7 @@ mod tests {
 
       let err = send_eth(
          ctx,
+         AgentEnv::user(),
          ChainId::from(1u64),
          Address::from([9u8; 20]),
          usdc,
@@ -2258,6 +2270,7 @@ mod tests {
 
       let err = send_token(
          ctx,
+         AgentEnv::user(),
          ChainId::from(1u64),
          Address::from([9u8; 20]),
          usdc,

@@ -3,6 +3,7 @@
 
 use super::analysis::TransactionAnalysis;
 use super::send::{SendTxOptions, SendTxRequest, send_transaction};
+use crate::agent::AgentEnv;
 use crate::ui;
 use crate::{DecodedEvent, TokenApproveParams, ZeusCtx};
 use zeus_eth::{
@@ -37,6 +38,7 @@ pub struct ApproveSimulation {
 /// `receipt.status()`.
 pub async fn send_token_approve(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    owner: Address,
    token: &ERC20Token,
@@ -111,6 +113,7 @@ pub async fn send_token_approve(
       SendTxOptions {
          dapp: dapp.to_string(),
          mev_protect,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -128,6 +131,7 @@ pub async fn send_token_approve(
 /// NFT approval event, which is a better description of what is happening than anything built by hand.
 pub async fn send_nft_approve(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    owner: Address,
    collection: Address,
@@ -154,6 +158,7 @@ pub async fn send_nft_approve(
       req,
       SendTxOptions {
          dapp: dapp.to_string(),
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -177,6 +182,7 @@ pub async fn send_nft_approve(
 /// anything built by hand.
 pub async fn send_erc721_approve(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    owner: Address,
    collection: Address,
@@ -200,6 +206,7 @@ pub async fn send_erc721_approve(
       req,
       SendTxOptions {
          dapp: dapp.to_string(),
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -214,6 +221,7 @@ pub async fn send_erc721_approve(
 /// address" — there is no amount to compare against.
 pub async fn ensure_erc721_approve(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    owner: Address,
    collection: Address,
@@ -238,7 +246,7 @@ pub async fn ensure_erc721_approve(
    ui::host().request_repaint();
 
    send_erc721_approve(
-      ctx, chain, owner, collection, token_id, operator, dapp,
+      ctx, env, chain, owner, collection, token_id, operator, dapp,
    )
    .await?;
 
@@ -251,6 +259,7 @@ pub async fn ensure_erc721_approve(
 /// Returns whether a transaction had to be sent.
 pub async fn ensure_approval_for_all(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    owner: Address,
    collection: Address,
@@ -278,7 +287,7 @@ pub async fn ensure_approval_for_all(
    ui::host().request_repaint();
 
    send_nft_approve(
-      ctx, chain, owner, collection, standard, operator, dapp,
+      ctx, env, chain, owner, collection, standard, operator, dapp,
    )
    .await?;
 
@@ -293,6 +302,7 @@ pub async fn ensure_approval_for_all(
 /// to be sent.
 pub async fn ensure_allowance(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    owner: Address,
    token: &ERC20Token,
@@ -311,7 +321,7 @@ pub async fn ensure_allowance(
    ui::host().request_repaint();
 
    send_token_approve(
-      ctx, chain, owner, token, spender, required, None, dapp, false,
+      ctx, env, chain, owner, token, spender, required, None, dapp, false,
    )
    .await?;
 

@@ -4,7 +4,7 @@
 //! delegate / undelegate transactions.
 
 use crate::core::types::CredentialCheck;
-use crate::core::{ZeusContext, delegate_to};
+use crate::core::{AgentEnv, ZeusContext, delegate_to};
 use crate::gui::ui::common;
 use crate::gui::{SHARED_GUI, ui::tx::address};
 use egui::{CursorIcon, FontId, Id, Margin, Order, RichText, Ui, vec2};
@@ -315,6 +315,7 @@ impl DelegateUi {
                      let source_is_zeus = true;
                      match delegate_to(
                         ctx,
+                        AgentEnv::user(),
                         source_is_zeus,
                         chain,
                         wallet,
@@ -396,7 +397,16 @@ impl DelegateUi {
 
             let source_is_zeus = true;
 
-            match delegate_to(ctx, source_is_zeus, chain, wallet, Address::ZERO).await {
+            match delegate_to(
+               ctx,
+               AgentEnv::user(),
+               source_is_zeus,
+               chain,
+               wallet,
+               Address::ZERO,
+            )
+            .await
+            {
                Ok(_) => {
                   SHARED_GUI.write(|gui| {
                      gui.loading_window.reset();

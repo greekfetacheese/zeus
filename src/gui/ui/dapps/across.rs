@@ -5,8 +5,8 @@ use crate::core::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
-   BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, ZeusContext,
-   ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
+   AgentEnv, BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis,
+   ZeusContext, ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
 };
 use crate::gui::ui::common::notices;
 use crate::gui::{
@@ -1209,6 +1209,7 @@ impl AcrossBridge {
 
          match across_bridge(
             ctx,
+            AgentEnv::user(),
             from_chain,
             to_chain,
             deadline,
@@ -1391,6 +1392,7 @@ const RECIPIENT_UNVERIFIABLE_MSG: &str = "Zeus could not check the recipient on 
 
 async fn across_bridge(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    dest_chain: ChainId,
    deadline: u32,
@@ -1503,6 +1505,7 @@ async fn across_bridge(
       SendTxOptions {
          mev_protect,
          ens_recipient: recipient_guard,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -1790,6 +1793,7 @@ mod tests {
 
       let err = across_bridge(
          ctx,
+         AgentEnv::user(),
          ChainId::from(10u64),
          ChainId::from(1u64),
          0, // deadline: unused — the screen refuses before any deposit is built

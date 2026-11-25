@@ -23,9 +23,9 @@ use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 
 use crate::core::{
-   ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams, TransactionAnalysis,
-   UnwrapWETHParams, WrapETHParams, ZeusCtx, send_token_approve, send_transaction, sign_message,
-   signature::Permit2Info, types::Dapp,
+   AgentEnv, ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams,
+   TransactionAnalysis, UnwrapWETHParams, WrapETHParams, ZeusCtx, send_token_approve,
+   send_transaction, sign_message, signature::Permit2Info, types::Dapp,
 };
 use crate::utils::{
    simulate::*,
@@ -1594,9 +1594,9 @@ impl SwapUi {
          crate::runtime::rt().spawn(async move {
             let ctx = Self::open_loading();
             let result = if wrap {
-               wrap_eth(ctx, from, chain, amount_in).await
+               wrap_eth(ctx, AgentEnv::user(), from, chain, amount_in).await
             } else {
-               unwrap_weth(ctx, from, chain, amount_in).await
+               unwrap_weth(ctx, AgentEnv::user(), from, chain, amount_in).await
             };
             Self::finish_swap_tx(result, false);
          });
@@ -1618,6 +1618,7 @@ impl SwapUi {
          let ctx = Self::open_loading();
          let result = swap_via_ur(
             ctx,
+            AgentEnv::user(),
             chain,
             slippage,
             mev_protect,
@@ -1806,6 +1807,7 @@ pub fn get_relevant_pools(
 
 pub async fn wrap_eth(
    ctx: ZeusCtx,
+   env: AgentEnv,
    from: Address,
    chain: ChainId,
    amount: NumericValue,
@@ -1934,6 +1936,7 @@ pub async fn wrap_eth(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -1963,6 +1966,7 @@ pub async fn wrap_eth(
 
 pub async fn unwrap_weth(
    ctx: ZeusCtx,
+   env: AgentEnv,
    from: Address,
    chain: ChainId,
    amount: NumericValue,
@@ -2074,6 +2078,7 @@ pub async fn unwrap_weth(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -2103,6 +2108,7 @@ pub async fn unwrap_weth(
 
 async fn handle_approve(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    signer_address: Address,
    token: &ERC20Token,
@@ -2163,6 +2169,7 @@ async fn handle_approve(
 
       let receipt = send_token_approve(
          ctx.clone(),
+         env.clone(),
          chain,
          signer_address,
          token,
@@ -2191,6 +2198,7 @@ async fn handle_approve(
 /// Execute a swap through the Universal Router
 async fn swap_via_ur(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    slippage: f64,
    mev_protect: bool,
@@ -2263,6 +2271,7 @@ async fn swap_via_ur(
 
       let new_db = handle_approve(
          ctx.clone(),
+         env.clone(),
          chain,
          signer_address,
          &token,
@@ -2463,6 +2472,7 @@ async fn swap_via_ur(
       SendTxOptions {
          dapp,
          mev_protect,
+         authority: env.authority,
          ..Default::default()
       },
    )

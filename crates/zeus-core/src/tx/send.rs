@@ -1,3 +1,4 @@
+use crate::agent::{AgentAuthority, AgentEnv, Decision, authorise};
 use crate::context::{self, get_base_fee};
 use crate::platform::TimeStamp;
 use crate::sim::eip7702_implementation;
@@ -9,6 +10,7 @@ use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
+use super::fees::PriorityTier;
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::clear_signing::ClearDisplay;
 use crate::sim::diff::{diffs_from_receipt, simulate_and_diff};
@@ -234,15 +236,29 @@ pub struct SendTxOptions {
    /// when the picker had no name. Display only — what is sent is the address, and the address is
    /// carried so the row cannot be labeled with a name picked for a different address.
    pub recipient_name: Option<(Address, String)>,
+   /// Who asked for this send. `None` is the user, whose confirmation the window decides as it always
+   /// has; `Some` is an agent whose grant stands in for that click.
+   pub authority: Option<AgentAuthority>,
 }
 
 /// What the user left in the transaction confirmation window.
+#[derive(Debug)]
 pub struct ConfirmedTx {
    pub priority_fee: NumericValue,
    pub gas_limit: u64,
    /// The max-fee ceiling the chosen tier carries, in basis points.
    pub fee_ceiling_bps: u32,
    pub clear_display: Option<ClearDisplay>,
+}
+
+/// The gas limit the confirmation window prefills for a simulated transaction: what it used, plus half
+/// again.
+///
+/// The margin absorbs what a fork cannot predict — a cold storage slot, a little more work in the mined
+/// block — and it is deliberately one number: a confirmation the user never saw must ask the chain for
+/// the same limit the window would have offered.
+pub fn default_gas_limit(gas_used: u64) -> u64 {
+   gas_used * 15 / 10
 }
 
 /// Releases the confirmation window's claim when the flow holding it ends.
@@ -445,6 +461,33 @@ pub async fn confirm_tx(
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let tiers = ctx.get_fee_tiers(chain.id());
+
+   // An agent's grant stands in for the click, here, where every broadcasting flow converges. The
+   // decision reads the simulated analysis — the only honest measure of what the transaction takes out
+   // of the wallet — and `None` leaves the path below exactly as it was. The profile is looked up now
+   // rather than carried in the request, so a grant withdrawn while the flow was building its
+   // transaction is a withdrawal.
+   if let Some(authority) = &opts.authority {
+      let profile = ctx.agent_profiles().profile(authority.profile()).ok_or_else(|| {
+         anyhow!("The agent profile that asked for this transaction is no longer present")
+      })?;
+
+      match authorise(&ctx, &profile, analysis) {
+         Decision::Allowed { prompt: false } => {
+            return Ok(ConfirmedTx {
+               priority_fee,
+               gas_limit: default_gas_limit(analysis.gas_used),
+               fee_ceiling_bps: PriorityTier::Fast.fee_ceiling_bps(),
+               clear_display: None,
+            });
+         }
+         Decision::Allowed { prompt: true } => {}
+         // Nothing authorise can answer needs a human, but a flow that ever sees this must stop
+         // rather than decide for them.
+         Decision::NeedsUser { reason } => return Err(anyhow!(reason)),
+         Decision::Denied(denial) => return Err(anyhow!(denial)),
+      }
+   }
 
    // One confirmation at a time, whatever raised it. Two sends racing here would share this
    // window — the second prompt replacing what the first displayed — and both would then act on
@@ -795,6 +838,7 @@ pub async fn send_transaction(
          // Connector / inferred swaps do not — those keep the log heuristic.
          onchain_swap_received: tx_analysis.main_event_opt().is_some_and(|e| e.is_swap()),
          priority_fee,
+         authorised_by: opts.authority.as_ref().map(|authority| authority.profile().clone()),
       },
    )
    .await?;
@@ -806,6 +850,7 @@ pub async fn send_transaction(
 
 pub async fn delegate_to(
    ctx: ZeusCtx,
+   env: AgentEnv,
    source_is_zeus: bool,
    chain: ChainId,
    from: Address,
@@ -845,7 +890,10 @@ pub async fn delegate_to(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, from).authorization_list(vec![signed_authorization]),
-      SendTxOptions::default(),
+      SendTxOptions {
+         authority: env.authority,
+         ..Default::default()
+      },
    )
    .await?;
 
@@ -922,6 +970,10 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::agent::{
+      AgentEnv, AgentProfile, AgentProfileId, ProfileMode, TokenRef, TokenScope, WalletGrant,
+   };
+   use std::collections::BTreeSet;
    use zeus_eth::alloy_primitives::{address, hex};
 
    /// `send_transaction` fills in nothing but the dapp and the MEV flag, so its
@@ -933,6 +985,10 @@ mod tests {
       assert!(!opts.sponsored);
       assert!(!opts.keep_intent_event);
       assert!(opts.dapp.is_empty());
+      assert!(
+         opts.authority.is_none(),
+         "nothing carries an agent authority unless one is handed to it"
+      );
    }
 
    /// The refusal decision: an EOA passes, a plain contract is refused with the fixed copy.
@@ -1204,5 +1260,229 @@ mod tests {
          );
          previous = max_fee;
       }
+   }
+
+   fn alice() -> Address {
+      Address::repeat_byte(0xa1)
+   }
+
+   fn bob() -> Address {
+      Address::repeat_byte(0xb0)
+   }
+
+   /// The recommendation the tests put on hand: one the branch can quote without a chain.
+   fn tip() -> NumericValue {
+      NumericValue::format_to_gwei(U256::from(2_000_000_000u64))
+   }
+
+   /// An unlocked context with a recommendation on hand, so no confirmation reaches for the network.
+   fn unlocked() -> ZeusCtx {
+      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
+      ctx.write(|ctx| {
+         ctx.vault_unlocked = true;
+         ctx.locked = false;
+      });
+      ctx.update_priority_fee(1, tip());
+      ctx
+   }
+
+   /// A profile granting one wallet the native send capability, in mode, over the one token.
+   fn send_grant(wallet: Address, mode: ProfileMode, token: Address) -> AgentProfile {
+      let (_, token_hash) = crate::agent::token::generate();
+      let mut profile = AgentProfile::new("Claude Code - laptop", token_hash, 1_700_000_000);
+      profile.mode = mode;
+
+      let mut caps = BTreeSet::new();
+      caps.insert("wallet.write.send".to_string());
+
+      profile.wallets.insert(
+         wallet,
+         WalletGrant {
+            enabled: true,
+            caps,
+            tokens: TokenScope::Allowlist {
+               tokens: vec![TokenRef {
+                  chain: 1,
+                  address: token,
+               }],
+            },
+            ..WalletGrant::default()
+         },
+      );
+
+      profile
+   }
+
+   /// The analysis a native send of 0.001 ETH from a wallet leaves behind.
+   fn native_send(wallet: Address, gas_used: u64) -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::default();
+      analysis.chain = 1;
+      analysis.sender = wallet;
+      analysis.value = U256::from(1_000_000_000_000_000u64);
+      analysis.gas_used = gas_used;
+      analysis
+   }
+
+   fn on_behalf_of(profile: AgentProfileId) -> SendTxOptions {
+      SendTxOptions {
+         authority: AgentEnv::agent(profile).authority,
+         ..Default::default()
+      }
+   }
+
+   /// One number for both the window's prefill and a confirmation nobody saw.
+   #[test]
+   fn the_default_gas_limit_is_the_windows_prefill() {
+      assert_eq!(default_gas_limit(21_000), 31_500);
+      assert_eq!(default_gas_limit(100_000), 150_000);
+      // Integer division: the limit is what the window offered, never a gas past it.
+      assert_eq!(default_gas_limit(101), 151);
+   }
+
+   /// The normal path for a granted capability: no window, and the answer the window would have given.
+   #[tokio::test]
+   async fn a_granted_capability_confirms_without_a_window() {
+      let ctx = unlocked();
+      let wallet = alice();
+      let profile = send_grant(wallet, ProfileMode::Authorized, Address::ZERO);
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let analysis = native_send(wallet, 21_000);
+      let confirmed = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &analysis,
+         &on_behalf_of(id),
+      )
+      .await
+      .expect("a granted send must not wait for a window");
+
+      assert_eq!(
+         confirmed.gas_limit,
+         default_gas_limit(analysis.gas_used)
+      );
+      assert_eq!(
+         confirmed.fee_ceiling_bps,
+         PriorityTier::Fast.fee_ceiling_bps()
+      );
+      assert_eq!(confirmed.priority_fee, tip());
+      assert!(
+         confirmed.clear_display.is_none(),
+         "clear signing is the window's own work, and there was no window"
+      );
+   }
+
+   /// A wallet the grant does not cover is refused, and the refusal never reaches the prompt.
+   #[tokio::test]
+   async fn an_ungranted_wallet_is_refused_before_the_window() {
+      let ctx = unlocked();
+      let profile = send_grant(bob(), ProfileMode::Authorized, Address::ZERO);
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(alice(), 21_000),
+         &on_behalf_of(id),
+      )
+      .await
+      .expect_err("a wallet with no grant is refused");
+
+      assert!(err.to_string().contains("no grant on"), "{err}");
+   }
+
+   /// The envelope is the grant's, not the caller's: an asset outside the allowlist is refused here.
+   #[tokio::test]
+   async fn an_asset_outside_the_allowlist_is_refused() {
+      let ctx = unlocked();
+      let wallet = alice();
+      let profile = send_grant(
+         wallet,
+         ProfileMode::Authorized,
+         Address::repeat_byte(0x5c),
+      );
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(wallet, 21_000),
+         &on_behalf_of(id),
+      )
+      .await
+      .expect_err("the native token is not in this grant");
+
+      assert!(
+         err.to_string().contains("token allowlist"),
+         "{err}"
+      );
+   }
+
+   /// A cautious profile keeps today's prompt: the answer is the one only a human can give.
+   #[tokio::test]
+   async fn a_confirm_each_profile_still_opens_the_window() {
+      let ctx = unlocked();
+      let wallet = alice();
+      let profile = send_grant(wallet, ProfileMode::ConfirmEach, Address::ZERO);
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(wallet, 21_000),
+         &on_behalf_of(id),
+      )
+      .await
+      .expect_err("no UI is installed, so the prompt cannot open");
+
+      assert_eq!(err.to_string(), ui::NO_UI_MSG);
+   }
+
+   /// The user's own send is untouched: no authority, and the prompt is what answers it.
+   #[tokio::test]
+   async fn a_user_send_takes_the_prompt_path() {
+      let ctx = unlocked();
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(alice(), 21_000),
+         &SendTxOptions::default(),
+      )
+      .await
+      .expect_err("no UI is installed, so today's prompt cannot open");
+
+      assert_eq!(err.to_string(), ui::NO_UI_MSG);
+   }
+
+   /// A grant withdrawn between building the transaction and confirming it authorises nothing.
+   #[tokio::test]
+   async fn a_profile_that_is_gone_is_refused() {
+      let ctx = unlocked();
+      let opts = on_behalf_of(AgentProfileId::generate());
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(alice(), 21_000),
+         &opts,
+      )
+      .await
+      .expect_err("the profile is not in the store");
+
+      assert!(
+         err.to_string().contains("no longer present"),
+         "{err}"
+      );
    }
 }

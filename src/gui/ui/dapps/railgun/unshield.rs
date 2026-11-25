@@ -35,9 +35,9 @@ use crate::{
    core::sim::diff::DiffProbe,
    core::types::EnsRecipientGuard,
    core::{
-      ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
-      SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
-      ensure_recipient_is_not_contract, record_and_notify, send_transaction,
+      AgentEnv, ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy,
+      SendTxOptions, SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome,
+      confirm_tx, ensure_recipient_is_not_contract, record_and_notify, send_transaction,
       sim::diff::diffs_from_receipt,
    },
    gui::SHARED_GUI,
@@ -76,6 +76,7 @@ fn eip7702_delegated_code(implementation: Address) -> Bytes {
 ///   (links submitter to recipient; breaks anonymity).
 pub async fn unshield(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    asset: RailgunAsset,
    amount: NumericValue,
@@ -147,6 +148,7 @@ pub async fn unshield(
    if self_broadcast {
       unshield_self_broadcast(
          ctx,
+         env.clone(),
          chain,
          railgun_signer,
          from,
@@ -159,6 +161,7 @@ pub async fn unshield(
    } else {
       unshield_via_paymaster(
          ctx,
+         env,
          chain,
          from,
          &asset,
@@ -177,6 +180,7 @@ pub async fn unshield(
 
 async fn unshield_self_broadcast(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    railgun_signer: RailgunSigner,
    from: Address,
@@ -321,6 +325,7 @@ async fn unshield_self_broadcast(
       // The Transact logs do not describe the unshield, so record the intent.
       keep_intent_event: true,
       ens_recipient: recipient_guard,
+      authority: env.authority.clone(),
       ..Default::default()
    };
 
@@ -349,6 +354,7 @@ async fn unshield_self_broadcast(
 
 async fn unshield_via_paymaster(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    asset: &RailgunAsset,
@@ -841,6 +847,7 @@ async fn unshield_via_paymaster(
       dapp: "Railgun".to_string(),
       sponsored: true,
       ens_recipient: recipient_guard,
+      authority: env.authority.clone(),
       ..Default::default()
    };
 
@@ -1050,6 +1057,7 @@ mod tests {
 
       let err = unshield(
          ctx,
+         AgentEnv::user(),
          ChainId::from(1u64),
          RailgunAsset::Fungible(Currency::wrapped_native(1)),
          NumericValue::parse_to_wei("0.001", 18),

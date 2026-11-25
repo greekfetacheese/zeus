@@ -18,8 +18,8 @@ use zeus_railgun::{
 
 use crate::{
    core::{
-      DecodedEvent, PrivateTransferParams, SendTxOptions, SendTxRequest, TransactionAnalysis,
-      ZeusCtx, send_transaction,
+      AgentEnv, DecodedEvent, PrivateTransferParams, SendTxOptions, SendTxRequest,
+      TransactionAnalysis, ZeusCtx, send_transaction,
    },
    gui::SHARED_GUI,
    utils::simulate::{
@@ -39,6 +39,7 @@ use super::{
 /// answered by `asset_id()` and `value()` in one place.
 pub async fn private_transfer(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    asset: RailgunAsset,
    amount: NumericValue,
@@ -138,6 +139,7 @@ pub async fn private_transfer(
 
    exec_private_transfer(
       ctx,
+      env,
       chain,
       railgun_signer,
       from,
@@ -155,6 +157,7 @@ pub async fn private_transfer(
 /// even when larger notes exist.
 pub async fn private_merge_notes(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    currency: Currency,
    amount: NumericValue,
@@ -215,6 +218,7 @@ pub async fn private_merge_notes(
 
    exec_private_transfer(
       ctx,
+      env,
       chain,
       railgun_signer,
       from,
@@ -230,6 +234,7 @@ pub async fn private_merge_notes(
 /// `contract` is what the fork prefetches — the token for an ERC-20, the collection for an NFT.
 async fn exec_private_transfer(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    railgun_signer: RailgunSigner,
    from: Address,
@@ -335,6 +340,7 @@ async fn exec_private_transfer(
    let tx_opt = SendTxOptions {
       dapp: "Railgun".to_string(),
       keep_intent_event: true,
+      authority: env.authority,
       ..Default::default()
    };
 

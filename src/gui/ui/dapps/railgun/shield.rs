@@ -12,9 +12,9 @@ use std::{
 use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
-   DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
-   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, ensure_approval_for_all,
-   ensure_erc721_approve, send_transaction,
+   AgentEnv, DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis,
+   WalletStateKey, ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance,
+   ensure_approval_for_all, ensure_erc721_approve, send_transaction,
 };
 use crate::{
    gui::ui::common::{
@@ -1759,6 +1759,7 @@ impl ShieldUi {
 
             match shield(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                asset,
                amount,
@@ -1808,6 +1809,7 @@ impl ShieldUi {
 
             let result = crate::runtime::rt().block_on(unshield(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                asset,
                amount,
@@ -2143,6 +2145,7 @@ fn value(
 
 async fn shield(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    asset: RailgunAsset,
    amount: NumericValue,
@@ -2176,6 +2179,7 @@ async fn shield(
 
             ensure_allowance(
                ctx.clone(),
+               env.clone(),
                chain,
                from,
                &token,
@@ -2190,6 +2194,7 @@ async fn shield(
             NftStandard::Erc721 => {
                ensure_erc721_approve(
                   ctx.clone(),
+                  env.clone(),
                   chain,
                   from,
                   nft.collection,
@@ -2203,6 +2208,7 @@ async fn shield(
             NftStandard::Erc1155 => {
                ensure_approval_for_all(
                   ctx.clone(),
+                  env.clone(),
                   chain,
                   from,
                   nft.collection,
@@ -2339,6 +2345,7 @@ async fn shield(
          dapp: "Railgun".to_string(),
          keep_intent_event: true,
          ens_recipient: recipient_guard,
+         authority: env.authority.clone(),
          ..Default::default()
       },
    )

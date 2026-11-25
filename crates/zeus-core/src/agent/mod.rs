@@ -7,6 +7,7 @@
 //! at the app's own authorising prompt, so a caller cannot get round it by asking a different layer.
 
 pub mod audit;
+pub mod env;
 pub mod intent;
 pub mod policy;
 pub mod profile;
@@ -17,6 +18,7 @@ pub mod token;
 mod tests;
 
 pub use audit::{AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry, BroadcastPath};
+pub use env::{AgentAuthority, AgentEnv};
 pub use intent::{Asset, Intent};
 pub use policy::{Decision, Denial, authorise, precheck};
 pub use profile::{
