@@ -133,6 +133,7 @@ pub(super) fn render_settings(
                &theme,
                &mut gui.appearance_settings,
                &mut gui.keymap,
+               &mut gui.agent_server,
                ui,
             );
          });
@@ -170,6 +171,7 @@ pub(super) fn render_settings_speaking(
                &theme,
                &mut gui.appearance_settings,
                &mut gui.keymap,
+               &mut gui.agent_server,
                ui,
             );
 
@@ -206,6 +208,7 @@ pub(super) fn render_central_with_settings(
             &theme,
             &mut gui.appearance_settings,
             &mut gui.keymap,
+            &mut gui.agent_server,
             ui,
          );
       });

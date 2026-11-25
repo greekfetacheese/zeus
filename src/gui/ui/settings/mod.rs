@@ -4,15 +4,16 @@ use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
-   common::{heading, privacy_mode_switch, section_heading},
+   common::{heading, privacy_mode_switch},
    shortcuts::KeyBindings,
    show_with_fade,
 };
 use egui::{Key, Response, RichText, Role, ScrollArea, Shadow, Stroke, Ui, WidgetInfo, vec2};
-use egui_elements::{Button, Fill, Frame as Frame2, Label, Theme};
+use egui_elements::{Fill, Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
+pub mod agents;
 pub mod appearance;
 pub mod autolock;
 pub mod change_credentials;
@@ -26,6 +27,7 @@ pub mod networks;
 pub mod railgun;
 pub mod theme;
 
+pub use agents::AgentsUi;
 pub use appearance::AppearanceSettingsUi;
 pub use autolock::AutoLockSettings;
 pub use change_credentials::ChangeCredentialsUi;
@@ -48,6 +50,7 @@ pub enum SettingsPage {
    Security,
    Contacts,
    Railgun,
+   Agents,
    Data,
 }
 
@@ -62,6 +65,7 @@ impl SettingsPage {
          Self::Security => "Security",
          Self::Contacts => "Contacts",
          Self::Railgun => "Railgun",
+         Self::Agents => "Agents",
          Self::Data => "Data",
       }
    }
@@ -87,13 +91,9 @@ pub struct SettingsUi {
    focus_page: bool,
    /// The words a page asked the app to say, drained right after the window is drawn.
    notice: Option<String>,
-   /// The context the pages that start background work need, so a page can hold a server handle.
+   /// The context the pages that start background work need.
    ctx: ZeusCtx,
-   /// The agent endpoint while it runs. Dropping the handle stops it.
-   agent_server: Option<zeus_mcp::ServerHandle>,
-   /// The one credential a fresh profile showed, until the page is closed.
-   agent_token: Option<String>,
-   agent_notice: Option<String>,
+   agents: AgentsUi,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
    keyboard: KeyboardSettings,
@@ -127,9 +127,7 @@ impl SettingsUi {
          focus_page: false,
          notice: None,
          ctx: handle.clone(),
-         agent_server: None,
-         agent_token: None,
-         agent_notice: None,
+         agents: AgentsUi::new(),
          general,
          appearance: AppearanceSettingsUi::new(appearance),
          keyboard: KeyboardSettings::new(),
@@ -183,6 +181,7 @@ impl SettingsUi {
          self.promote_network_notice();
          self.promote_contacts_notice();
          self.promote_keyboard_notice();
+         self.promote_agents_notice();
       }
       self.open = false;
       self.change_credentials_ui.reset();
@@ -191,6 +190,7 @@ impl SettingsUi {
       // again the next time Settings opens — e.g. after an auto-lock/unlock.
       self.import.erase();
       self.contacts_ui.reset_page();
+      self.agents.reset();
       self.keyboard.reset();
       self.network.reset_view();
       // Reopening lands on the open page's heading again, even though the page itself did not change.
@@ -248,6 +248,13 @@ impl SettingsUi {
       }
    }
 
+   /// Hand a notice the Agents page raised up to the window, where the app drains it.
+   fn promote_agents_notice(&mut self) {
+      if let Some(text) = self.agents.take_notice() {
+         self.notice = Some(text);
+      }
+   }
+
    pub fn open_page(
       &mut self,
       page: SettingsPage,
@@ -298,6 +305,7 @@ impl SettingsUi {
       theme: &Theme,
       appearance: &mut AppearanceSettings,
       keymap: &mut KeyBindings,
+      server: &mut Option<zeus_mcp::ServerHandle>,
       ui: &mut Ui,
    ) {
       if ctx.locked {
@@ -324,7 +332,7 @@ impl SettingsUi {
          .default_size([1120.0, 720.0])
          .open(&mut open)
          .show(ui.ctx(), |ui| {
-            self.paint(ctx, icons, theme, appearance, keymap, ui);
+            self.paint(ctx, icons, theme, appearance, keymap, server, ui);
             escaped = escape_closes_window(ui);
          });
 
@@ -341,6 +349,7 @@ impl SettingsUi {
       theme: &Theme,
       appearance: &mut AppearanceSettings,
       keymap: &mut KeyBindings,
+      server: &mut Option<zeus_mcp::ServerHandle>,
       ui: &mut Ui,
    ) {
       // Tab belongs to this window while it is up. Without a modal layer egui hands the keyboard to
@@ -350,7 +359,7 @@ impl SettingsUi {
       // shortcut sheet — still takes the keyboard, and the layer is gone the frame the window is.
       ui.ctx().memory_mut(|memory| memory.set_modal_layer(ui.layer_id()));
 
-      self.show_shell(ctx, icons, theme, appearance, keymap, ui);
+      self.show_shell(ctx, icons, theme, appearance, keymap, server, ui);
    }
 
    fn show_shell(
@@ -360,6 +369,7 @@ impl SettingsUi {
       theme: &Theme,
       appearance: &mut AppearanceSettings,
       keymap: &mut KeyBindings,
+      server: &mut Option<zeus_mcp::ServerHandle>,
       ui: &mut Ui,
    ) {
       // The page a reader is not offered cannot stay in front: its plate is gone from the nav, so
@@ -377,8 +387,8 @@ impl SettingsUi {
          .show_separator_line(false)
          .frame(egui::Frame::new().fill(nav_bg).inner_margin(8.0))
          .show(ui, |ui| {
-            // The seven plates are one page switcher: named here so a reader knows what they
-            // belong to before it walks them.
+            // The plates are one page switcher: named here so a reader knows what they belong
+            // to before it walks them.
             ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
                node.set_role(Role::TabList);
                node.set_label("Settings pages");
@@ -505,10 +515,15 @@ impl SettingsUi {
                         ui.separator();
                         ui.add_space(16.0);
                         self.import.show_page(theme, ui);
-                        ui.add_space(24.0);
-                        ui.separator();
-                        ui.add_space(16.0);
-                        self.show_agent_server(theme, ui);
+                     },
+                  );
+
+                  show_with_fade(
+                     ui,
+                     "settings_agents_ui_fade",
+                     page == SettingsPage::Agents,
+                     |ui| {
+                        self.agents.show(ctx, &self.ctx, server, theme, ui);
                      },
                   );
                });
@@ -537,149 +552,7 @@ impl SettingsUi {
       self.promote_network_notice();
       self.promote_contacts_notice();
       self.promote_keyboard_notice();
-   }
-
-   /// The agent endpoint's controls, while it has no page of its own.
-   ///
-   /// Two buttons and one credential: enough to start the listener, mint a token and point a harness at
-   /// it before any grant editor exists. The profile it creates may read the wallet list and nothing
-   /// else, which is exactly what the endpoint's own proof needs.
-   fn show_agent_server(&mut self, theme: &Theme, ui: &mut Ui) {
-      ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.md);
-      ui.add_space(10.0);
-
-      let button_visuals = theme.button_visuals();
-      let size = vec2(180.0, 35.0);
-
-      ui.vertical_centered(|ui| {
-         section_heading(ui, theme.typography.heading, "Agent Server");
-
-         let running = match self.agent_server.as_ref().map(zeus_mcp::ServerHandle::status) {
-            Some(zeus_mcp::ServerStatus::Running { port }) => {
-               ui.label(
-                  RichText::new(format!("Listening on 127.0.0.1:{port}/mcp"))
-                     .size(theme.typography.normal),
-               );
-               true
-            }
-            _ => {
-               ui.label(RichText::new("Stopped").size(theme.typography.normal));
-               false
-            }
-         };
-
-         ui.add_space(8.0);
-
-         let label = if running {
-            "Stop server"
-         } else {
-            "Start server"
-         };
-         let button = Button::new(RichText::new(label).size(theme.typography.large))
-            .visuals(button_visuals)
-            .min_size(size);
-
-         if ui.add(button).clicked() {
-            if running {
-               // Dropping the handle is the stop: it takes the listener down and removes the file
-               // that advertises the port.
-               self.agent_server = None;
-               self.agent_notice = Some("Agent server stopped.".to_owned());
-            } else {
-               self.start_agent_server();
-            }
-         }
-
-         ui.add_space(8.0);
-
-         let create = Button::new(RichText::new("Create profile").size(theme.typography.large))
-            .visuals(button_visuals)
-            .min_size(size);
-
-         if ui.add(create).clicked() {
-            self.create_agent_profile();
-         }
-
-         if let Some(token) = self.agent_token.clone() {
-            ui.add_space(8.0);
-            ui.label(
-               RichText::new("Copy this into the harness now; it is not shown again.")
-                  .size(theme.typography.normal),
-            );
-            ui.label(RichText::new(&token).monospace().size(theme.typography.normal));
-
-            let copy = Button::new(RichText::new("Copy token").size(theme.typography.large))
-               .visuals(button_visuals)
-               .min_size(size);
-
-            if ui.add(copy).clicked() {
-               ui.ctx().copy_text(token);
-               self.agent_notice = Some("Token copied.".to_owned());
-            }
-         }
-
-         if let Some(notice) = &self.agent_notice {
-            ui.add_space(8.0);
-            ui.label(RichText::new(notice).size(theme.typography.normal));
-         }
-      });
-   }
-
-   /// Start the listener on the process runtime.
-   fn start_agent_server(&mut self) {
-      let config = zeus_mcp::ServerConfig::new(
-         self.ctx.clone(),
-         Arc::new(crate::agent_ops::ZeusOps),
-         crate::runtime::rt().clone(),
-      );
-
-      match zeus_mcp::ServerHandle::start(config) {
-         Ok(server) => {
-            self.agent_notice = Some(format!(
-               "Agent server listening on 127.0.0.1:{}/mcp.",
-               server.port()
-            ));
-            self.agent_server = Some(server);
-         }
-         Err(e) => self.agent_notice = Some(format!("Could not start the agent server: {e}")),
-      }
-   }
-
-   /// Mint one credential that may read the wallet list, and every wallet there is.
-   fn create_agent_profile(&mut self) {
-      let (token, hash) = crate::core::agent::generate_token();
-
-      let mut profile =
-         crate::core::agent::AgentProfile::new("Agent (temporary)", hash, now_secs());
-
-      profile.screens.insert(
-         "settings.wallets.read".to_owned(),
-         crate::core::agent::ScreenGrant {
-            read: true,
-            write: false,
-         },
-      );
-
-      for wallet in self.ctx.get_all_wallets_info() {
-         profile.wallets.insert(
-            wallet.address,
-            crate::core::agent::WalletGrant {
-               enabled: true,
-               ..Default::default()
-            },
-         );
-      }
-
-      self.ctx.agent_profiles().insert(profile);
-
-      match self.ctx.save_agent_profiles() {
-         Ok(()) => {
-            self.agent_token = Some(token.as_str().to_owned());
-            self.agent_notice =
-               Some("Profile created: it may read the wallet list, and nothing else.".to_owned());
-         }
-         Err(e) => self.agent_notice = Some(format!("Could not save the profile: {e}")),
-      }
+      self.promote_agents_notice();
    }
 
    /// Draw the page switcher and return the plate of the page in front.
@@ -725,6 +598,10 @@ impl SettingsUi {
          (
             SettingsPage::Railgun,
             Lucide::Shield.size(20.0).color(icon_color).image(),
+         ),
+         (
+            SettingsPage::Agents,
+            Lucide::Bot.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Data,
@@ -846,12 +723,4 @@ fn escape_closes_window(ui: &Ui) -> bool {
 
       !above && ui.ctx().top_layer_id() == Some(layer)
    })
-}
-
-/// Unix seconds, the unit a stored timestamp uses.
-fn now_secs() -> u64 {
-   std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .map(|elapsed| elapsed.as_secs())
-      .unwrap_or(0)
 }

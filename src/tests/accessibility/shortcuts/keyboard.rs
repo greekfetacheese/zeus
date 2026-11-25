@@ -108,6 +108,7 @@ fn record_chord(
             &theme,
             &mut gui.appearance_settings,
             &mut gui.keymap,
+            &mut gui.agent_server,
             ui,
          );
       });

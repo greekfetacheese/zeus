@@ -8,6 +8,7 @@
 //! The helpers below are the shared harness; every screen test renders a real screen headlessly.
 
 mod account_panel;
+mod agents;
 mod app;
 mod common_widgets;
 mod contacts;

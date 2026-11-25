@@ -194,6 +194,45 @@ impl ZeusApp {
       }
    }
 
+   /// Start or stop the endpoint so it matches the switch the user set.
+   ///
+   /// The page and the status bar both write the switch and act at once, so this is the path that
+   /// makes it survive a restart — and the one that stops the listener when the switch came back
+   /// off from a restored `misc_config.json` while no handle was in reach.
+   fn reconcile_agent_server(&mut self) {
+      let (wanted, has_profile) = self.ctx.read(|ctx| {
+         (
+            ctx.misc_config.agent_server(),
+            !ctx.agent_profiles.profiles().is_empty(),
+         )
+      });
+
+      let running = SHARED_GUI.read(|gui| gui.agent_server.is_some());
+
+      if wanted && has_profile && !running {
+         SHARED_GUI.write(|gui| {
+            let handle = gui.ctx.clone();
+
+            match crate::gui::ui::settings::agents::server::start(&handle) {
+               Ok(started) => {
+                  let port = started.port();
+                  gui.agent_server = Some(started);
+                  gui.announce(format!("Agent server listening on port {port}."));
+               }
+               Err(e) => gui.announce(format!("Could not start the agent server: {e}")),
+            }
+
+            gui.request_repaint();
+         });
+      } else if (!wanted || !has_profile) && running {
+         SHARED_GUI.write(|gui| {
+            gui.agent_server = None;
+            gui.announce("Agent server stopped.".to_owned());
+            gui.request_repaint();
+         });
+      }
+   }
+
    fn toggle_window(&mut self, egui_ctx: &egui::Context) {
       if self.hidden_to_tray {
          self.hidden_to_tray = false;
@@ -397,6 +436,7 @@ impl eframe::App for ZeusApp {
    /// minimize-to-tray leaves it in. No painting is allowed here.
    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
       self.handle_tray(ctx);
+      self.reconcile_agent_server();
 
       // A dapp prompt raised the window from a worker thread (`GUI::bring_to_front`).
       // It already queued the viewport commands; here we only clear the hidden-in-tray
@@ -479,6 +519,19 @@ impl eframe::App for ZeusApp {
                   }
                });
 
+            // The status bar carries the agent switch and the indicator beside it (D24). It is
+            // drawn while the wallet is open and nowhere else: a locked window has no endpoint to
+            // talk about.
+            if ctx.vault_unlocked && !ctx.locked {
+               egui::Panel::bottom("status_bar")
+                  .resizable(false)
+                  .show_separator_line(false)
+                  .frame(main_frame)
+                  .show(ui, |ui| {
+                     gui.show_bottom_panel(ctx, ui);
+                  });
+            }
+
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default().frame(main_frame).show(ui, |ui| {
                gui.show_central_panel(ctx, ui);
@@ -496,6 +549,7 @@ impl eframe::App for ZeusApp {
                theme,
                &mut gui.appearance_settings,
                &mut gui.keymap,
+               &mut gui.agent_server,
                ui,
             );
 

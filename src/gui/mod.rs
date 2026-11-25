@@ -155,6 +155,9 @@ pub struct GUI {
    pub msg_window: MsgWindow,
    pub loading_window: LoadingWindow,
    pub settings: SettingsUi,
+   /// The agent endpoint while it runs. The handle owns the listener, so dropping it is the
+   /// stop: the accept loop is aborted and `mcp.json` goes with it.
+   pub agent_server: Option<zeus_mcp::ServerHandle>,
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub confirm_window: ConfirmWindow,
@@ -295,6 +298,7 @@ impl GUI {
          msg_window,
          loading_window,
          settings,
+         agent_server: None,
          tx_history,
          data_inspection: false,
          confirm_window,

@@ -1078,3 +1078,36 @@ async fn two_servers_do_not_fight_over_the_port_and_a_stop_releases_it() {
    let third = third.expect("the port comes back once the stopped task is dropped");
    third.stop();
 }
+
+/// Test connection is the same handshake a harness performs, exercised against a real endpoint
+/// rather than a mock: the probe must see the server's name and the tools the grant exposes.
+#[tokio::test]
+async fn the_probe_performs_the_handshake_the_connect_panel_offers() {
+   let fixture = Fixture::start(true);
+   let port = fixture.port;
+   let token = fixture.token.clone();
+
+   let report = tokio::task::spawn_blocking(move || zeus_mcp::probe::probe(port, &token))
+      .await
+      .expect("the probe task must finish")
+      .expect("the probe must complete initialize and tools/list");
+
+   assert_eq!(report.server, "zeus");
+   assert!(
+      !report.version.is_empty(),
+      "the report must carry the server's version"
+   );
+   assert!(
+      report.tools >= 2,
+      "the grant lists at least the two meta tools: {report:?}"
+   );
+
+   let port = fixture.port;
+
+   let refused = tokio::task::spawn_blocking(move || zeus_mcp::probe::probe(port, "zk_wrong"))
+      .await
+      .expect("the probe task must finish")
+      .expect_err("a token that matches no profile must be refused");
+
+   assert!(refused.contains("refused the token"), "{refused}");
+}

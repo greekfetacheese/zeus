@@ -206,6 +206,13 @@ pub struct MiscConfig {
    /// lives in `~/.local/share`, i.e. outside the folder the rest of Zeus's state stays in.
    #[serde(default)]
    pub desktop_integration: bool,
+   /// When true, the agent endpoint (Settings → Agents) listens.
+   ///
+   /// Off by default, and read by the frame that owns the listener: a wallet must not open a
+   /// listening socket because it was updated (D8). The switch is the user's in both directions
+   /// (D24), and a Start/Stop control is what writes it.
+   #[serde(default)]
+   pub agent_server: bool,
 }
 
 impl MiscConfig {
@@ -216,6 +223,7 @@ impl MiscConfig {
          check_for_updates: false,
          minimize_to_tray: true,
          desktop_integration: false,
+         agent_server: false,
       }
    }
 
@@ -273,6 +281,14 @@ impl MiscConfig {
 
    pub fn set_desktop_integration(&mut self, enabled: bool) {
       self.desktop_integration = enabled;
+   }
+
+   pub fn agent_server(&self) -> bool {
+      self.agent_server
+   }
+
+   pub fn set_agent_server(&mut self, enabled: bool) {
+      self.agent_server = enabled;
    }
 }
 

@@ -13,6 +13,7 @@ pub mod auth;
 pub mod error;
 pub mod limit;
 pub mod ops;
+pub mod probe;
 pub mod protocol;
 pub mod resources;
 pub mod server;
@@ -29,4 +30,5 @@ pub(crate) fn now_secs() -> u64 {
 pub use auth::{AuthError, Caller};
 pub use error::{ErrorCode, ProtocolError, ToolError};
 pub use ops::{AgentOps, AppInfo, NoOps};
+pub use probe::Report;
 pub use server::{PREFERRED_PORT, ServerConfig, ServerHandle, ServerStatus};
