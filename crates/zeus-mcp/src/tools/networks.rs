@@ -4,13 +4,13 @@
 //! a failure: a disabled chain is why a call said unsupported, an unavailable node is why it said network.
 
 use super::{
-   Call, ToolFuture, ToolOutput, ToolSpec, ask_user, chain_argument, decide, record_allowed,
+   Call, ToolFuture, ToolOutput, ToolSpec, chain_argument, gate_write, record_allowed,
    string_argument,
 };
 use crate::error::{ErrorCode, ToolError};
 use crate::protocol::types::Annotations;
 use serde_json::{Value, json};
-use zeus_core::agent::{Decision, Intent, read};
+use zeus_core::agent::{Intent, read};
 use zeus_core::platform::url_host;
 
 pub const LIST: ToolSpec = ToolSpec {
@@ -38,13 +38,12 @@ pub const SET_RPC: ToolSpec = ToolSpec {
       and every send goes through an endpoint, so a hostile one lies about balances and censors the \
       broadcasts it was trusted with — that is why this needs its own write switch. Adding proves the \
       endpoint answers for the chain it is filed under before anything is stored.",
-   schema: r#"{"type": "object", "properties": {"chain": {"type": "integer", \
-      "description": "A chain id from networks_list."}, "url": {"type": "string", \
-      "description": "The endpoint's URL."}, "action": {"type": "string", \
-      "enum": ["add", "remove", "enable", "disable", "mev_protect"], \
-      "description": "What to do with the endpoint."}, "value": {"type": "boolean", \
-      "description": "Only with mev_protect: whether this endpoint should send transactions through a \
-      private relay."}}, "required": ["chain", "url", "action"], "additionalProperties": false}"#,
+   schema: r#"{"type": "object", "properties": {"chain": {"type": "integer",
+      "description": "A chain id from networks_list."}, "url": {"type": "string",
+      "description": "The endpoint's URL."}, "action": {"type": "string",
+      "enum": ["add", "remove", "enable", "disable", "mev_protect"],
+      "description": "What to do with the endpoint."}, "value": {"type": "boolean",
+      "description": "Only with mev_protect: whether this endpoint should send transactions through a private relay."}}, "required": ["chain", "url", "action"], "additionalProperties": false}"#,
    annotations: Annotations::DESTRUCTIVE,
    capability: Some("settings.networks.write"),
    call: set_rpc,
@@ -70,13 +69,9 @@ fn set_rpc(call: &Call, arguments: Value) -> ToolFuture<'_> {
 
       // The table's gate ran already, so this second look is only for the mode where the profile asks
       // about every change — a decision that gate flattens to "allowed".
-      if matches!(
-         decide(call, "networks_set_rpc", &intent()),
-         Decision::Allowed { prompt: true }
-      ) {
-         let question = format!("Let the agent change an RPC endpoint on chain {chain}?");
-         ask_user(call, "networks_set_rpc", CAPABILITY, &question).await?;
-      }
+      let question = format!("Let the agent change an RPC endpoint on chain {chain}?");
+
+      gate_write(call, "networks_set_rpc", &intent(), &question).await?;
 
       let manager = call.ctx.get_client_manager();
 

@@ -14,9 +14,9 @@ pub const LIST: ToolSpec = ToolSpec {
    description: "The live ERC-20, Permit2 and NFT approvals one granted wallet has granted, with \
       the allowance and, where a price exists, its USD exposure. An unlimited row is one an operator \
       may spend in full.",
-   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string", \
-      "description": "The wallet's address, as wallet_list shows it."}, "chain": {"type": "integer", \
-      "description": "Only this chain; every chain otherwise."}}, "required": ["wallet"], \
+   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string",
+      "description": "The wallet's address, as wallet_list shows it."}, "chain": {"type": "integer",
+      "description": "Only this chain; every chain otherwise."}}, "required": ["wallet"],
       "additionalProperties": false}"#,
    annotations: Annotations::READ,
    capability: Some("wallet.read.approvals"),

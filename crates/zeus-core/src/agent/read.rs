@@ -13,6 +13,7 @@
 use super::profile::{AgentProfile, WalletGrant};
 use super::settings;
 use crate::context::{WalletPortfolio, ZeusContext};
+use crate::persisted::{ExportPolicy, Persisted, PersistedFile, PersistedTree, data_dir};
 use crate::platform::{truncate_address, url_host};
 use crate::tx::events::{NftApproveParams, PermitParams, TokenApproveParams};
 use crate::types::BundlerUrl;
@@ -83,6 +84,10 @@ pub const SCREENS: &[Screen] = &[
    Screen {
       name: "wallets",
       read: "settings.wallets.read",
+   },
+   Screen {
+      name: "data",
+      read: "settings.data.read",
    },
 ];
 
@@ -391,6 +396,7 @@ pub fn screen(ctx: &ZeusContext, profile: &AgentProfile, name: &str) -> Result<V
       "pools" => pools(ctx, None),
       "dapps" => dapps(ctx),
       "wallets" => json!({"wallets": wallets(ctx, profile)}),
+      "data" => data(profile),
       other => {
          return Err(ReadError::NotFound {
             what: "screen",
@@ -506,6 +512,65 @@ pub fn dapps(ctx: &ZeusContext) -> Value {
    origins.sort_by(|a, b| a["display"]["origin"].as_str().cmp(&b["display"]["origin"].as_str()));
 
    json!({"origins": origins})
+}
+
+/// The `data` screen reads: the files an export would carry, and where it would put them.
+///
+/// Only names, sizes and the backup policy — every sealed file is opened with the user's key, which an
+/// agent never holds. An optional tree is reported as present or not rather than walked: counting a
+/// thousand icon files would be a slow answer to a yes/no question.
+pub fn data(profile: &AgentProfile) -> Value {
+   let directory = data_dir().ok();
+   let mut files: Vec<Value> = Vec::new();
+
+   if let Some(dir) = &directory {
+      for file in PersistedFile::ALL {
+         let path = dir.join(file.name());
+
+         let Ok(metadata) = std::fs::metadata(&path) else {
+            continue;
+         };
+
+         if !metadata.is_file() {
+            continue;
+         }
+
+         files.push(json!({
+             "name": file.name(),
+             "bytes": metadata.len(),
+             "backup": policy_word(Persisted::File(*file).export_policy()),
+         }));
+      }
+   }
+
+   let trees: Vec<Value> = PersistedTree::ALL
+      .iter()
+      .map(|tree| {
+         let present = directory.as_ref().is_some_and(|dir| dir.join(tree.dir_name()).is_dir());
+
+         json!({
+             "tree": tree.dir_name(),
+             "present": present,
+             "backup": policy_word(tree.export_policy()),
+         })
+      })
+      .collect();
+
+   json!({
+       "directory": directory.map(|dir| dir.display().to_string()),
+       "export_dir": profile.export_dir.as_ref().map(|dir| dir.display().to_string()),
+       "files": files,
+       "trees": trees,
+   })
+}
+
+/// How an export treats one catalogued name, as the word a caller can act on.
+fn policy_word(policy: ExportPolicy) -> &'static str {
+   match policy {
+      ExportPolicy::Core => "core",
+      ExportPolicy::Optional => "optional",
+      ExportPolicy::Never => "never",
+   }
 }
 
 /// The settings screen `general` reads: the flags that survive a restart.
@@ -637,7 +702,10 @@ fn chains_or_all(chain: Option<u64>) -> Vec<u64> {
 }
 
 /// A wallet as every list shows it.
-fn wallet_row(wallet: &WalletInfo) -> Value {
+///
+/// Public because the flow that derives a wallet answers with the same row: a second shape for one
+/// wallet is the drift this module exists to prevent.
+pub fn wallet_row(wallet: &WalletInfo) -> Value {
    let address = hex(wallet.address);
 
    json!({
@@ -893,7 +961,9 @@ fn nft_approval_row(approval: &NftApproveParams) -> Value {
 }
 
 /// One tracked pool.
-fn pool_row(pool: &AnyUniswapPool) -> Value {
+///
+/// Public for the same reason as `wallet_row`: the add-pool flow answers the row it just added.
+pub fn pool_row(pool: &AnyUniswapPool) -> Value {
    json!({
        "chain": pool.chain_id(),
        "id": hex_hash(pool.id()),

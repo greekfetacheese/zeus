@@ -14,15 +14,15 @@
 //! gate, the record and the announcement happen here, whichever half of the app owns the type.
 
 use super::{
-   Call, ToolFuture, ToolOutput, ToolSpec, ask_user, decide, guard, read_error, record_allowed,
-   refusal, settings_error, string_argument,
+   Call, ToolFuture, ToolOutput, ToolSpec, gate_write, guard, read_error, record_allowed,
+   settings_error, string_argument,
 };
 use crate::error::{ErrorCode, ToolError};
 use crate::ops::BinScreen;
 use crate::protocol::types::Annotations;
 use serde_json::{Value, json};
 use zeus_core::agent::settings::Applied;
-use zeus_core::agent::{Decision, Intent, read, settings, vault_open};
+use zeus_core::agent::{Intent, read, settings, vault_open};
 use zeus_core::ui;
 
 pub const LIST: ToolSpec = ToolSpec {
@@ -42,8 +42,8 @@ pub const GET: ToolSpec = ToolSpec {
    title: "One settings screen",
    description: "The current values of one settings screen, in the same shape its write will take. \
       Reading a screen needs that screen's own read switch; the refusal names the switch to ask for.",
-   schema: r#"{"type": "object", "properties": {"screen": {"type": "string", \
-      "description": "A screen name from settings_list, e.g. general, networks, security."}}, \
+   schema: r#"{"type": "object", "properties": {"screen": {"type": "string",
+      "description": "A screen name from settings_list, e.g. general, networks, security."}},
       "required": ["screen"], "additionalProperties": false}"#,
    annotations: Annotations::READ,
    capability: None,
@@ -56,8 +56,8 @@ pub const DESCRIBE: ToolSpec = ToolSpec {
    description: "The JSON Schema of the patch one settings screen accepts, and the fields an agent \
       may not write with the reason for each. Ask for it before writing: an unknown field is refused \
       rather than ignored. Describing a screen needs that screen's read switch.",
-   schema: r#"{"type": "object", "properties": {"screen": {"type": "string", \
-      "description": "A screen name from settings_list."}}, \
+   schema: r#"{"type": "object", "properties": {"screen": {"type": "string",
+      "description": "A screen name from settings_list."}},
       "required": ["screen"], "additionalProperties": false}"#,
    annotations: Annotations::READ,
    capability: None,
@@ -71,9 +71,9 @@ pub const SET: ToolSpec = ToolSpec {
       change, and only fields the screen's own writer accepts: an unknown field is refused, and a \
       runtime value is refused with the sentence saying to pass it per call. A granted write runs \
       without a prompt, and is announced and recorded.",
-   schema: r#"{"type": "object", "properties": {"screen": {"type": "string", \
-      "description": "A screen name from settings_list."}, "patch": {"type": "object", \
-      "description": "The fields to change, exactly as settings_describe lists them."}}, \
+   schema: r#"{"type": "object", "properties": {"screen": {"type": "string",
+      "description": "A screen name from settings_list."}, "patch": {"type": "object",
+      "description": "The fields to change, exactly as settings_describe lists them."}},
       "required": ["screen", "patch"], "additionalProperties": false}"#,
    annotations: Annotations::WRITE,
    capability: None,
@@ -213,21 +213,19 @@ fn set(call: &Call, arguments: Value) -> ToolFuture<'_> {
       })?;
 
       // The screen names its own switch, and the argument is what names the screen, so the decision
-      // happens here. It is the same gate every other tool reaches through run().
-      let intent = Intent::GlobalWrite {
-         capability: screen.capability,
-      };
+      // happens here. It is the same gate every other tool reaches through run(), and it asks the user
+      // when the profile's mode says every change is a question.
+      let title = format!("Let the agent write the {screen_name} settings?");
 
-      match decide(call, "settings_set", &intent) {
-         // The profile asked to be asked about every change: in that mode the grant is not the last
-         // word, the user is, and there is no default answer.
-         Decision::Allowed { prompt: true } => {
-            let title = format!("Let the agent write the {screen_name} settings?");
-
-            ask_user(call, "settings_set", screen.capability, &title).await?;
-         }
-         decision => refusal(&intent, decision)?,
-      }
+      gate_write(
+         call,
+         "settings_set",
+         &Intent::GlobalWrite {
+            capability: screen.capability,
+         },
+         &title,
+      )
+      .await?;
 
       // The application-menu entry is installed before the flag that records it, so a host that cannot
       // install refuses the write rather than leaving the file saying "on" with no entry beside it.
@@ -280,21 +278,20 @@ fn set(call: &Call, arguments: Value) -> ToolFuture<'_> {
 /// describes. Everything around it is the same as for a core screen: one gate, one record, one
 /// announcement, and the values read back only when the profile may read them.
 async fn write_bin(call: &Call, screen: BinScreen, patch: Value) -> Result<ToolOutput, ToolError> {
-   let intent = Intent::GlobalWrite {
-      capability: screen.write,
-   };
+   let title = format!(
+      "Let the agent write the {} settings?",
+      screen.name
+   );
 
-   match decide(call, "settings_set", &intent) {
-      Decision::Allowed { prompt: true } => {
-         let title = format!(
-            "Let the agent write the {} settings?",
-            screen.name
-         );
-
-         ask_user(call, "settings_set", screen.write, &title).await?;
-      }
-      decision => refusal(&intent, decision)?,
-   }
+   gate_write(
+      call,
+      "settings_set",
+      &Intent::GlobalWrite {
+         capability: screen.write,
+      },
+      &title,
+   )
+   .await?;
 
    let ops = call.ops.clone();
    let name = screen.name;

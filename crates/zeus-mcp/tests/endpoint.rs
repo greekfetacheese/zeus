@@ -11,13 +11,18 @@ use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zeus_core::agent::settings::{Applied, Closed, SettingsError};
 use zeus_core::agent::{
-   AgentProfile, AgentProfileId, AgentProfileStore, ProfileMode, ScreenGrant, WalletGrant,
+   AgentProfile, AgentProfileId, AgentProfileStore, AuditDecision, ProfileMode, ScreenGrant,
+   WalletGrant,
 };
+use zeus_core::context::PoolError;
 use zeus_core::{TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::utils::NumericValue;
 use zeus_mcp::protocol::{LEGACY_VERSION, MODERN_VERSION, meta};
-use zeus_mcp::{AgentOps, AppInfo, BinScreen, NoOps, ServerConfig, ServerHandle, ServerStatus};
+use zeus_mcp::{
+   AgentOps, AppInfo, BinScreen, Handback, NoOps, OpsFuture, PoolRequest, PoolVersion,
+   ServerConfig, ServerHandle, ServerStatus,
+};
 
 /// The one working directory this test binary uses.
 ///
@@ -152,6 +157,14 @@ impl Fixture {
          .ctx
          .write_vault(|vault| vault.ensure_wallet_state_key())
          .expect("a wallet state key");
+   }
+
+   /// Name the folder an export writes to, the way a grant made in the GUI does.
+   fn with_export_dir(&self, dir: &std::path::Path) {
+      let mut profile = self.store().profile(&self.profile).expect("the fixture's profile");
+
+      profile.export_dir = Some(dir.to_path_buf());
+      self.store().insert(profile);
    }
 
    /// Put the profile in the cautious mode, where every state change is asked about.
@@ -2152,6 +2165,14 @@ struct FakeState {
    desktop: Vec<bool>,
    /// When set, the installer has nothing to install, so a test can prove the flag is not stored anyway.
    desktop_fails: bool,
+   /// Every pool the port was asked to add, in order.
+   pools: Vec<PoolRequest>,
+   /// The answer the port gives a pool request, when a test sets one.
+   pool_refusal: Option<PoolError>,
+   /// Every window the port was asked to open, in order.
+   windows: Vec<Handback>,
+   /// When set, no window can be opened.
+   windows_fail: bool,
 }
 
 impl FakeOps {
@@ -2180,6 +2201,22 @@ impl FakeOps {
 
    fn refuse_desktop(&self) {
       self.state.lock().expect("the double").desktop_fails = true;
+   }
+
+   fn pools(&self) -> Vec<PoolRequest> {
+      self.state.lock().expect("the double").pools.clone()
+   }
+
+   fn refuse_pool(&self, error: PoolError) {
+      self.state.lock().expect("the double").pool_refusal = Some(error);
+   }
+
+   fn windows(&self) -> Vec<Handback> {
+      self.state.lock().expect("the double").windows.clone()
+   }
+
+   fn fail_windows(&self) {
+      self.state.lock().expect("the double").windows_fail = true;
    }
 }
 
@@ -2268,6 +2305,46 @@ impl AgentOps for FakeOps {
 
       if state.desktop_fails {
          return Err("the double cannot install a menu entry".to_owned());
+      }
+
+      Ok(())
+   }
+
+   fn add_pool(&self, request: PoolRequest) -> OpsFuture<'_, Result<Value, PoolError>> {
+      let refusal = {
+         let mut state = self.state.lock().expect("the double");
+         state.pools.push(request);
+         state.pool_refusal.clone()
+      };
+
+      Box::pin(async move {
+         if let Some(error) = refusal {
+            return Err(error);
+         }
+
+         // The row the pool list would build for this pool: the tests below read it back.
+         Ok(json!({
+             "chain": request.chain,
+             "id": "0x00000000000000000000000000000000000000000000000000000000000000aa",
+             "address": "0x0000000000000000000000000000000000000001",
+             "dex": match request.version {
+                 PoolVersion::V2 => "uniswap_v2",
+                 PoolVersion::V3 => "uniswap_v3",
+                 PoolVersion::V4 => "uniswap_v4",
+             },
+             "fee": request.fee,
+             "token0": {"address": format!("{:#x}", request.token_a)},
+             "token1": {"address": format!("{:#x}", request.token_b)},
+         }))
+      })
+   }
+
+   fn open_handback(&self, handback: Handback) -> Result<(), String> {
+      let mut state = self.state.lock().expect("the double");
+      state.windows.push(handback);
+
+      if state.windows_fail {
+         return Err("the double has no window to open".to_owned());
       }
 
       Ok(())
@@ -2523,5 +2600,381 @@ async fn the_desktop_entry_is_installed_before_the_flag_is_stored() {
       data(&values)["values"]["desktop_integration"],
       true,
       "the flag the earlier write stored is untouched"
+   );
+}
+
+// --- the verb tools: one call each, over the same gate and the same port ---------------------------
+
+#[tokio::test]
+async fn a_pool_is_added_through_the_port_and_audited() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&[], &[], &["settings.pools.write"], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "pools_add",
+      json!({
+          "chain": 1,
+          "version": "v3",
+          "token_a": "0x4200000000000000000000000000000000000006",
+          "token_b": "0x0000000000000000000000000000000000000000",
+          "fee": 3000,
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["pool"]["fee"], 3000);
+
+   let asked = ops.pools();
+   assert_eq!(asked.len(), 1, "one call, one lookup");
+   assert_eq!(asked[0].chain, 1);
+   assert_eq!(asked[0].version, PoolVersion::V3);
+   assert_eq!(asked[0].fee, 3000);
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("an audit entry");
+
+   assert_eq!(entry.tool, "pools_add");
+   assert_eq!(entry.capability, "settings.pools.write");
+   assert_eq!(entry.decision, AuditDecision::Allowed);
+}
+
+#[tokio::test]
+async fn adding_a_pool_needs_its_own_switch() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&[], &[], &[], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "pools_add",
+      json!({
+          "chain": 1,
+          "version": "v2",
+          "token_a": "0x4200000000000000000000000000000000000006",
+          "token_b": "0x0000000000000000000000000000000000000000",
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+   assert!(
+      ops.pools().is_empty(),
+      "nothing reaches the lookup"
+   );
+}
+
+#[tokio::test]
+async fn a_pool_the_chain_has_not_got_is_unsupported_and_an_unreachable_node_is_network() {
+   for (error, expected) in [
+      (
+         PoolError::Refused("No V2 pool exists for this pair".to_owned()),
+         "UNSUPPORTED",
+      ),
+      (
+         PoolError::Network("the node closed the connection".to_owned()),
+         "NETWORK",
+      ),
+   ] {
+      let ops = Arc::new(FakeOps::new());
+      ops.refuse_pool(error);
+
+      let fixture = Fixture::with_port(&[], &[], &["settings.pools.write"], ops.clone());
+
+      let reply = call_tool(
+         &fixture,
+         "pools_add",
+         json!({
+             "chain": 1,
+             "version": "v2",
+             "token_a": "0x4200000000000000000000000000000000000006",
+             "token_b": "0x0000000000000000000000000000000000000000",
+         }),
+      )
+      .await;
+
+      assert_eq!(
+         error_code(&reply),
+         Some(expected),
+         "{}",
+         reply.body
+      );
+   }
+}
+
+#[tokio::test]
+async fn the_wallet_import_form_is_opened_and_the_call_hands_back() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(
+      &[],
+      &[],
+      &["settings.wallets.import"],
+      ops.clone(),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "wallets_import",
+      json!({"kind": "mnemonic"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("USER_ACTION_REQUIRED"));
+   assert_eq!(
+      ops.windows(),
+      vec![Handback::WalletImport { mnemonic: true }],
+      "the phrase form, on the tab the caller asked for"
+   );
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("an audit entry");
+
+   assert_eq!(entry.capability, "settings.wallets.import");
+   assert_eq!(entry.decision, AuditDecision::NeedsUser);
+}
+
+#[tokio::test]
+async fn the_data_page_is_opened_for_an_import() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&[], &[], &["settings.data.write"], ops.clone());
+
+   let reply = call_tool(&fixture, "data_import", json!({})).await;
+
+   assert_eq!(error_code(&reply), Some("USER_ACTION_REQUIRED"));
+   assert_eq!(ops.windows(), vec![Handback::DataImport]);
+
+   // A host with no window refuses instead of pretending the page is up.
+   ops.fail_windows();
+
+   let refused = call_tool(&fixture, "data_import", json!({})).await;
+   assert_eq!(error_code(&refused), Some("INTERNAL"));
+}
+
+#[tokio::test]
+async fn an_export_writes_a_zip_into_the_grants_folder() {
+   let fixture = Fixture::with_writes(&[], &[], &["settings.data.write"]);
+
+   // One catalogued file, so the archive is not empty.
+   let dir = workspace();
+   std::fs::create_dir_all(dir.join("data")).expect("the data directory");
+   std::fs::write(dir.join("data").join("theme.json"), b"{}").expect("a catalogued file");
+
+   let folder = std::env::temp_dir().join(format!("zeus-export-{}", std::process::id()));
+   fixture.with_export_dir(&folder);
+
+   let reply = call_tool(&fixture, "data_export", json!({})).await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let path = data(&reply)["path"].as_str().expect("the archive's path");
+   assert!(
+      std::path::Path::new(path).exists(),
+      "{path} was written where the grant points"
+   );
+   assert!(data(&reply)["files"].as_u64().unwrap_or(0) >= 1);
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   assert_eq!(
+      tail.last().expect("an audit entry").tool,
+      "data_export"
+   );
+}
+
+#[tokio::test]
+async fn an_export_without_a_folder_hands_back() {
+   let fixture = Fixture::with_writes(&[], &[], &["settings.data.write"]);
+
+   let reply = call_tool(&fixture, "data_export", json!({})).await;
+
+   assert_eq!(error_code(&reply), Some("USER_ACTION_REQUIRED"));
+   assert!(
+      reply.body.pointer("/result/structuredContent/error/hint").is_some(),
+      "the answer says what to do about it"
+   );
+}
+
+#[tokio::test]
+async fn the_data_screen_lists_what_a_backup_would_carry() {
+   let fixture = Fixture::with(&[], &["settings.data.read"]);
+
+   let reply = call_tool(
+      &fixture,
+      "settings_get",
+      json!({"screen": "data"}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["screen"], "data");
+
+   let values = &data(&reply)["values"];
+
+   assert!(
+      values["files"].is_array(),
+      "the catalogue is answered"
+   );
+   assert!(
+      values["trees"]
+         .as_array()
+         .is_some_and(|trees| trees.iter().any(|tree| tree["tree"] == "railgun")),
+      "the optional trees are reported"
+   );
+}
+
+#[tokio::test]
+async fn a_contact_is_added_renamed_and_removed() {
+   let fixture = Fixture::with_writes(&[], &[], &["settings.contacts.write"]);
+   fixture.with_wallet_state_key();
+
+   let address = "0x00000000000000000000000000000000000000a1";
+
+   let added = call_tool(
+      &fixture,
+      "contacts_add",
+      json!({"name": "Alice", "address": address}),
+   )
+   .await;
+
+   assert_eq!(
+      added.body.pointer("/result/isError"),
+      None,
+      "{}",
+      added.body
+   );
+   assert_eq!(data(&added)["changed"], json!(["add"]));
+
+   let renamed = call_tool(
+      &fixture,
+      "contacts_add",
+      json!({"name": "Alicia", "address": address}),
+   )
+   .await;
+
+   assert_eq!(
+      data(&renamed)["changed"],
+      json!(["rename"]),
+      "an address already in the book is renamed"
+   );
+
+   let contacts = fixture.ctx.contacts();
+   assert_eq!(contacts.len(), 1);
+   assert_eq!(contacts[0].name, "Alicia");
+
+   // A rename cannot rewrite the zk address: only the label moves.
+   let refused = call_tool(
+      &fixture,
+      "contacts_add",
+      json!({"name": "X", "address": address, "zk_address": "zk1"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&refused), Some("VALIDATION"));
+
+   let removed = call_tool(
+      &fixture,
+      "contacts_remove",
+      json!({"address": address}),
+   )
+   .await;
+
+   assert_eq!(data(&removed)["changed"], json!(["remove"]));
+   assert!(fixture.ctx.contacts().is_empty());
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   assert!(
+      tail
+         .iter()
+         .any(|entry| entry.tool == "contacts_remove" && entry.decision == AuditDecision::Allowed),
+      "the removal is on the ring"
+   );
+}
+
+#[tokio::test]
+async fn a_connected_site_is_disconnected() {
+   let fixture = Fixture::with_writes(&[], &[], &["settings.dapps.write"]);
+
+   fixture.ctx.connect_dapp("app.example".to_owned());
+
+   let reply = call_tool(
+      &fixture,
+      "dapps_disconnect",
+      json!({"origin": "app.example"}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["connected"], false);
+   assert!(!fixture.ctx.is_dapp_connected("app.example"));
+
+   // An origin that is not connected is not a write: there is nothing to forget.
+   let missing = call_tool(
+      &fixture,
+      "dapps_disconnect",
+      json!({"origin": "evil.example"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&missing), Some("NOT_FOUND"));
+}
+
+#[tokio::test]
+async fn deriving_a_wallet_refuses_a_count_outside_the_bound() {
+   let fixture = Fixture::with_writes(&[], &[], &["settings.wallets.derive"]);
+
+   let too_many = call_tool(&fixture, "wallets_derive", json!({"count": 6})).await;
+   assert_eq!(error_code(&too_many), Some("VALIDATION"));
+
+   let named = call_tool(
+      &fixture,
+      "wallets_derive",
+      json!({"count": 2, "name": "Savings"}),
+   )
+   .await;
+   assert_eq!(error_code(&named), Some("VALIDATION"));
+}
+
+#[tokio::test]
+async fn a_wallet_that_cannot_be_sealed_is_refused_rather_than_added() {
+   // There is no vault file in this working directory and no unlock behind it, so the seal has nothing
+   // to write. The derivation itself is the app's own code; what this proves is the answer: a store that
+   // refuses is reported, and the wallet the vault refused is not in the app's list afterwards.
+   let fixture = Fixture::with_writes(&[], &[], &["settings.wallets.derive"]);
+
+   let reply = call_tool(
+      &fixture,
+      "wallets_derive",
+      json!({"count": 1, "name": "Savings"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("INTERNAL"));
+
+   assert!(
+      fixture
+         .ctx
+         .get_all_wallets_info()
+         .iter()
+         .all(|wallet| wallet.name() != "Savings"),
+      "a derivation that could not be sealed adds nothing"
    );
 }

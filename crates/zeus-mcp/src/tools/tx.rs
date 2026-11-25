@@ -19,11 +19,11 @@ pub const HISTORY: ToolSpec = ToolSpec {
    title: "Transaction history",
    description: "The transactions one granted wallet recorded, newest first, paged. Amounts are in \
       the token that moved, with its raw integer beside the readable form.",
-   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string", \
-      "description": "The wallet's address, as wallet_list shows it."}, "chain": {"type": "integer", \
-      "description": "Only this chain; every chain otherwise."}, "page": {"type": "integer", \
-      "description": "Zero-based page number; 0 by default."}, "per_page": {"type": "integer", \
-      "description": "Rows per page, 1 to 100; 25 by default."}}, "required": ["wallet"], \
+   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string",
+      "description": "The wallet's address, as wallet_list shows it."}, "chain": {"type": "integer",
+      "description": "Only this chain; every chain otherwise."}, "page": {"type": "integer",
+      "description": "Zero-based page number; 0 by default."}, "per_page": {"type": "integer",
+      "description": "Rows per page, 1 to 100; 25 by default."}}, "required": ["wallet"],
       "additionalProperties": false}"#,
    annotations: Annotations::READ,
    capability: Some("wallet.read.history"),
@@ -35,9 +35,9 @@ pub const GET: ToolSpec = ToolSpec {
    title: "One transaction",
    description: "One recorded transaction of one granted wallet, by hash: its block, its outcome, \
       the decoded main event and what it moved.",
-   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string", \
-      "description": "The wallet that recorded the transaction."}, "hash": {"type": "string", \
-      "description": "The transaction hash, full and 0x-prefixed."}}, "required": ["wallet", "hash"], \
+   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string",
+      "description": "The wallet that recorded the transaction."}, "hash": {"type": "string",
+      "description": "The transaction hash, full and 0x-prefixed."}}, "required": ["wallet", "hash"],
       "additionalProperties": false}"#,
    annotations: Annotations::READ,
    capability: Some("wallet.read.history"),

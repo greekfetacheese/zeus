@@ -62,7 +62,13 @@ pub fn tool(
    schema: &str,
    annotations: Annotations,
 ) -> Value {
-   let schema: Value = serde_json::from_str(schema).unwrap_or_else(|_| empty_schema());
+   // A descriptor whose schema does not parse would ship an object with no fields at all, which a model
+   // reads as "this tool takes nothing". Say so rather than pretend; the schema tests fail the build on
+   // one, so this is the runtime half of that rule.
+   let schema: Value = serde_json::from_str(schema).unwrap_or_else(|error| {
+      tracing::warn!("Tool {name} has an unparseable input schema: {error}");
+      empty_schema()
+   });
 
    json!({
       "name": name,

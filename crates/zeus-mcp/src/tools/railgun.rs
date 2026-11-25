@@ -14,8 +14,8 @@ pub const STATUS: ToolSpec = ToolSpec {
    description: "Whether one wallet's private side is enabled, synced and idle on each Railgun \
       chain, and the zk address it is registered with. A null zk address means the wallet cannot \
       derive one.",
-   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string", \
-      "description": "The wallet's address, as wallet_list shows it."}}, "required": ["wallet"], \
+   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string",
+      "description": "The wallet's address, as wallet_list shows it."}}, "required": ["wallet"],
       "additionalProperties": false}"#,
    annotations: Annotations::READ,
    capability: Some("wallet.read.private"),

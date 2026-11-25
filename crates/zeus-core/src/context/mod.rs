@@ -28,5 +28,5 @@ pub use client::{ClientKind, ClientManager, RpcFunctionality};
 pub use ctx::*;
 pub use currencies::CurrencyDB;
 pub use nft::NftDB;
-pub use pool_manager::PoolManagerHandle;
+pub use pool_manager::{PoolError, PoolManagerHandle};
 pub use state::{ensure_priority_fee_fresh, estimate_tx_cost, get_base_fee, update_priority_fee};

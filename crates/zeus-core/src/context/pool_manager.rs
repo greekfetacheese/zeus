@@ -56,6 +56,27 @@ pub const V4_SYNC_BLOCK_RANGE: u64 = 5_000;
 /// Blocks per checkpointed step: 1_000_000 blocks => 10 commits.
 pub const V4_SYNC_STEP_BLOCKS: u64 = 100_000;
 
+/// Why a pool was not added.
+///
+/// The two are kept apart because the caller's next move differs: a refusal means the chain has no pool
+/// the request describes, and an unreachable node means nothing is known about it yet.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PoolError {
+   /// The chain answered, and there is no pool the request describes.
+   Refused(String),
+   /// A node could not be reached, so the pool was never looked up.
+   Network(String),
+}
+
+impl PoolError {
+   /// The sentence to show, whichever kind it is.
+   pub fn message(&self) -> &str {
+      match self {
+         Self::Refused(message) | Self::Network(message) => message,
+      }
+   }
+}
+
 /// The knobs of one [`PoolManagerHandle::sync_v4_pools`] run. A `0` means "use the default".
 #[derive(Debug, Clone, Copy)]
 pub struct V4SyncConfig {

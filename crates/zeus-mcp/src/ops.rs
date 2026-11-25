@@ -11,7 +11,11 @@
 //! in core is everything that decides *whether* a write happens: the capability, the tier and the audit.
 
 use serde_json::Value;
+use std::future::Future;
+use std::pin::Pin;
 use zeus_core::agent::settings::{Applied, Closed, SettingsError};
+use zeus_core::context::PoolError;
+use zeus_eth::alloy_primitives::Address;
 
 /// What the edge cannot know about the process it lives in.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -40,6 +44,48 @@ pub struct BinScreen {
    pub closed: Vec<Closed>,
 }
 
+/// A flow's answer, boxed: `async fn` in a trait is not dyn-compatible, and this trait is held as
+/// `Arc<dyn AgentOps>`.
+pub type OpsFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// One Uniswap pool, as a caller names it.
+///
+/// The version decides which of the fields matter: a V2 pool is a pair, a V3 pool adds a fee tier, and
+/// a V4 pool adds the tick spacing and the hooks contract that are part of its identity.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PoolRequest {
+   pub chain: u64,
+   pub version: PoolVersion,
+   pub token_a: Address,
+   pub token_b: Address,
+   /// The fee, in hundredths of a bip: 3000 is the 0.3% tier.
+   pub fee: u32,
+   /// A V4 pool's tick spacing; zero asks for the spacing its fee tier has.
+   pub tick_spacing: i32,
+   /// A V4 pool's hooks contract; the zero address is a pool with no hooks.
+   pub hooks: Address,
+}
+
+/// Which pool standard to add.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PoolVersion {
+   V2,
+   V3,
+   V4,
+}
+
+/// An operation only the app owner can finish, and the window that finishes it.
+///
+/// An agent opens it and the call ends there: what happens inside is typed into Zeus's own fields, never
+/// into a tool argument.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Handback {
+   /// The wallet import form. `mnemonic` opens the phrase tab instead of the private-key one.
+   WalletImport { mnemonic: bool },
+   /// The Data page, where the archive is chosen and the vault's credentials typed.
+   DataImport,
+}
+
 /// Everything the binary has to supply.
 ///
 /// A method that starts a flow returns a boxed future: `async fn` in a trait is not dyn-compatible, and
@@ -63,6 +109,30 @@ pub trait AgentOps: Send + Sync + 'static {
       Err(SettingsError::refused(format!(
          "the {name} screen is not written by this build"
       )))
+   }
+
+   /// Add one Uniswap pool, proving it exists on chain first, and answer the row that was added.
+   ///
+   /// The lookup and the validation are the flow's, because they read the chain and know what a pool
+   /// of each version has to look like; the capability, the tier and the audit stay in the edge.
+   fn add_pool(&self, request: PoolRequest) -> OpsFuture<'_, Result<Value, PoolError>> {
+      let _ = request;
+
+      Box::pin(async {
+         Err(PoolError::Refused(
+            "this build cannot add a pool".to_owned(),
+         ))
+      })
+   }
+
+   /// Open the window that finishes an operation only the app owner can finish.
+   ///
+   /// Opening is the whole call: the tool answers "the user has to do this" rather than waiting for a
+   /// form whose deadline nobody can bound.
+   fn open_handback(&self, handback: Handback) -> Result<(), String> {
+      let _ = handback;
+
+      Err("this build has no window to open".to_owned())
    }
 
    /// Install or remove the application-menu entry a `general` write asks for.

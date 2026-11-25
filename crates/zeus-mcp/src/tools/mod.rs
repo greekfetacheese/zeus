@@ -13,6 +13,7 @@
 pub mod approvals;
 pub mod contacts;
 pub mod dapps;
+pub mod data;
 pub mod meta;
 pub mod networks;
 pub mod pools;
@@ -21,6 +22,9 @@ pub mod railgun;
 pub mod settings;
 pub mod tx;
 pub mod wallet;
+
+#[cfg(test)]
+mod schemas;
 
 use crate::error::{ErrorCode, ProtocolError, ToolError};
 use crate::now_secs;
@@ -132,11 +136,17 @@ impl ToolSpec {
 /// Every tool this build has, in the order the protocol asks for: sorted by name.
 pub const TOOLS: &[ToolSpec] = &[
    approvals::LIST,
+   contacts::ADD,
    contacts::LIST,
+   contacts::REMOVE,
+   dapps::DISCONNECT,
    dapps::LIST,
+   data::EXPORT,
+   data::IMPORT,
    wallet::DELEGATE,
    networks::LIST,
    networks::SET_RPC,
+   pools::ADD,
    pools::LIST,
    portfolio::GET,
    railgun::STATUS,
@@ -148,6 +158,8 @@ pub const TOOLS: &[ToolSpec] = &[
    tx::HISTORY,
    wallet::GET,
    wallet::LIST,
+   wallet::DERIVE,
+   wallet::IMPORT,
    meta::HELP,
    meta::STATUS,
 ];
@@ -423,6 +435,24 @@ pub async fn ask_user(
    );
 
    Err(settings_error(error))
+}
+
+/// Decide one write's own question, and ask the user when the profile asks about every change.
+///
+/// A tool whose descriptor names a static capability is decided by [`run`] before it executes, and that
+/// decision flattens "allowed, but this profile wants to see every change" to "allowed". A write handler
+/// therefore decides again through the intent that carries its real shape — the wallet, the asset, the
+/// export's folder — and asks when the mode says so.
+pub async fn gate_write(
+   call: &Call,
+   tool: &str,
+   intent: &Intent,
+   title: &str,
+) -> Result<(), ToolError> {
+   match decide(call, tool, intent) {
+      Decision::Allowed { prompt: true } => ask_user(call, tool, intent.capability(), title).await,
+      decision => refusal(intent, decision),
+   }
 }
 
 /// Write one refusal to the audit ring.
