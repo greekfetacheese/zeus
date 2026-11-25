@@ -10,6 +10,7 @@
 //! lands, and a refusal always is, because "it tried to send outside its allowlist" is the line a user
 //! most needs to see.
 
+pub mod action;
 pub mod approvals;
 pub mod contacts;
 pub mod dapps;
@@ -38,13 +39,15 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 use zeus_core::ZeusCtx;
+use zeus_core::agent::exec::ExecError;
 use zeus_core::agent::read::ReadError;
 use zeus_core::agent::settings::SettingsError;
 use zeus_core::agent::{
-   AgentProfile, AuditDecision, AuditEntry, CAPABILITIES, CapabilityScope, Decision, Denial,
-   Intent, PrivacyBadge, capability, precheck,
+   AgentProfile, AuditDecision, AuditEntry, CAPABILITIES, CapabilityScope, CapabilityVerb,
+   Decision, Denial, Intent, PrivacyBadge, capability, precheck,
 };
-use zeus_eth::alloy_primitives::Address;
+use zeus_core::tx::PriorityTier;
+use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::types::ChainId;
 
 /// Everything one call is given.
@@ -89,6 +92,18 @@ impl ToolOutput {
          data,
          warnings: Vec::new(),
       }
+   }
+
+   /// The same answer with the action's own block beside its data.
+   ///
+   /// It says which id the call carried, whether this answer is a replay of an earlier one, and — when the
+   /// caller named no id — that a retry would be a second action rather than the same one.
+   pub fn stamped(mut self, action: Value) -> Self {
+      if let Value::Object(map) = &mut self.data {
+         map.insert("action".to_owned(), action);
+      }
+
+      self
    }
 
    /// The envelope every answer carries, successful or refused.
@@ -136,6 +151,7 @@ impl ToolSpec {
 /// Every tool this build has, in the order the protocol asks for: sorted by name.
 pub const TOOLS: &[ToolSpec] = &[
    approvals::LIST,
+   approvals::REVOKE,
    contacts::ADD,
    contacts::LIST,
    contacts::REMOVE,
@@ -143,6 +159,7 @@ pub const TOOLS: &[ToolSpec] = &[
    dapps::LIST,
    data::EXPORT,
    data::IMPORT,
+   wallet::DELEGATE_SET,
    wallet::DELEGATE,
    networks::LIST,
    networks::SET_RPC,
@@ -156,6 +173,8 @@ pub const TOOLS: &[ToolSpec] = &[
    settings::SET,
    tx::GET,
    tx::HISTORY,
+   tx::SEND,
+   tx::SEND_NFT,
    wallet::GET,
    wallet::LIST,
    wallet::DERIVE,
@@ -245,13 +264,23 @@ pub async fn call_request(
 /// profile. Asking the catalog rather than the tool table keeps the two from drifting.
 pub async fn run(spec: &ToolSpec, call: &Call, arguments: Value) -> Result<ToolOutput, ToolError> {
    if let Some(name) = spec.capability {
-      let intent = if capability(name).is_some_and(|entry| entry.scope == CapabilityScope::Wallet) {
-         Intent::WalletRead {
+      let entry = capability(name);
+      let scoped = entry.is_some_and(|entry| entry.scope == CapabilityScope::Wallet);
+      // A wallet-scoped capability is decided against the wallet the call names. Its verb is what decides
+      // *which* question: the money tools are writes, and describing one as a read here would decide the
+      // wrong one — the asset envelope the handler's own precheck applies is the second half.
+      let writes = entry.is_some_and(|entry| entry.verb() == CapabilityVerb::Write);
+
+      let intent = match (scoped, writes) {
+         (true, true) => Intent::WalletWrite {
             capability: name,
             wallet: wallet_argument(&arguments)?,
-         }
-      } else {
-         Intent::GlobalRead { capability: name }
+         },
+         (true, false) => Intent::WalletRead {
+            capability: name,
+            wallet: wallet_argument(&arguments)?,
+         },
+         _ => Intent::GlobalRead { capability: name },
       };
 
       guard(call, spec.name, &intent)?;
@@ -346,6 +375,96 @@ pub fn settings_error(error: SettingsError) -> ToolError {
       SettingsError::NoUi => ToolError::new(ErrorCode::UserActionRequired, error.to_string()),
       SettingsError::Refused { .. } => ToolError::internal(error.to_string()),
    }
+}
+
+/// A chain a call cannot run without.
+pub fn required_chain(arguments: &Value) -> Result<u64, ToolError> {
+   chain_argument(arguments)?.ok_or_else(|| {
+      ToolError::validation("chain is required: every transaction happens on one chain")
+   })
+}
+
+/// An address argument a call cannot run without.
+pub fn required_address(arguments: &Value, key: &str) -> Result<Address, ToolError> {
+   string_argument(arguments, key)?.parse().map_err(|_| {
+      ToolError::validation(format!(
+         "{key} is not an address: it has to be full and 0x-prefixed"
+      ))
+   })
+}
+
+/// An address argument the call may leave out. The zero address is read as "absent", because a caller that
+/// means the chain's own coin has two ways to say so and only one of them should reach the flow.
+pub fn optional_address(arguments: &Value, key: &str) -> Result<Option<Address>, ToolError> {
+   match arguments.get(key) {
+      None | Some(Value::Null) => Ok(None),
+      Some(_) => {
+         let address = required_address(arguments, key)?;
+
+         Ok((!address.is_zero()).then_some(address))
+      }
+   }
+}
+
+/// A `u256` argument, as a decimal string: a JSON number does not survive the trip.
+pub fn u256_argument(arguments: &Value, key: &str) -> Result<U256, ToolError> {
+   string_argument(arguments, key)?.parse().map_err(|_| {
+      ToolError::validation(format!(
+         "{key} is a whole number, written as a string"
+      ))
+   })
+}
+
+/// The `dry_run` flag every fund-moving tool carries.
+pub fn dry_run_argument(arguments: &Value) -> Result<bool, ToolError> {
+   match arguments.get("dry_run") {
+      None | Some(Value::Null) => Ok(false),
+      Some(value) => {
+         value.as_bool().ok_or_else(|| ToolError::validation("dry_run is true or false"))
+      }
+   }
+}
+
+/// The fee tier a fund-moving tool carries.
+///
+/// `fast` when the call says nothing: that is the tier a granted send has always used, so a caller that
+/// never mentions a tier keeps the behaviour it had. Only the grant path reads it — a confirmation the user
+/// answers states their own choice.
+pub fn priority_argument(arguments: &Value) -> Result<PriorityTier, ToolError> {
+   match arguments.get("priority").map(|value| value.as_str()) {
+      None | Some(None) | Some(Some("fast")) => Ok(PriorityTier::Fast),
+      Some(Some("normal")) => Ok(PriorityTier::Normal),
+      Some(Some("very_fast")) => Ok(PriorityTier::VeryFast),
+      Some(Some(other)) => Err(ToolError::validation(format!(
+         "priority is normal, fast or very_fast; not {other}"
+      ))),
+   }
+}
+
+/// The refusal a fund-moving action becomes.
+///
+/// The pipeline answers in its own terms — a lock, a busy wallet, a declined window, a policy denial, the
+/// flow's own no — and each is one of the codes a client branches on. The one that is not a code of its own
+/// is an unclassified flow refusal: the pipeline has no typed error (`ground-truth.md` C10), so it arrives
+/// as the app's sentence, under the code whose meaning is "report this".
+pub fn exec_error(error: ExecError, capability: &str) -> ToolError {
+   let code = match &error {
+      ExecError::Locked => ErrorCode::VaultLocked,
+      ExecError::Busy => ErrorCode::Busy,
+      ExecError::Rejected => ErrorCode::UserRejected,
+      ExecError::NoUi => ErrorCode::UserActionRequired,
+      ExecError::Invalid(_) => ErrorCode::Validation,
+      ExecError::Denied(denial) => return denial_error(denial, capability),
+      ExecError::Unavailable => ErrorCode::Unsupported,
+      ExecError::Failed(_) => {
+         return ToolError::internal(error.to_string()).with_hint(
+            "The app refused this before broadcasting it; the message is its own words. Report it, and \
+             do not retry blindly.",
+         );
+      }
+   };
+
+   ToolError::new(code, error.to_string())
 }
 
 /// Decide a request against the grant, and record a refusal.

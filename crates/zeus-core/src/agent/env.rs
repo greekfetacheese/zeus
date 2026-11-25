@@ -1,6 +1,7 @@
 //! Who a flow is running for.
 
 use super::profile::AgentProfileId;
+use crate::tx::PriorityTier;
 
 /// Whose action a flow is performing: the user at the keyboard, or an agent acting under a grant.
 ///
@@ -12,6 +13,9 @@ use super::profile::AgentProfileId;
 pub struct AgentEnv {
    /// The grant standing in for the click. `None` is the user.
    pub authority: Option<AgentAuthority>,
+   /// The fee tier the request asked for. `None` is the user's own choice — the confirmation window asks
+   /// them for it — and an agent's is the tier its call named.
+   pub priority: Option<PriorityTier>,
 }
 
 impl AgentEnv {
@@ -24,7 +28,15 @@ impl AgentEnv {
    pub fn agent(profile: AgentProfileId) -> Self {
       Self {
          authority: Some(AgentAuthority { profile }),
+         priority: None,
       }
+   }
+
+   /// The same environment, asking for a fee tier the flow is to use.
+   pub fn with_priority(mut self, priority: PriorityTier) -> Self {
+      self.priority = Some(priority);
+
+      self
    }
 }
 

@@ -13,6 +13,7 @@
 use serde_json::Value;
 use std::future::Future;
 use std::pin::Pin;
+use zeus_core::agent::exec::TxFlows;
 use zeus_core::agent::settings::{Applied, Closed, SettingsError};
 use zeus_core::context::PoolError;
 use zeus_eth::alloy_primitives::Address;
@@ -90,7 +91,11 @@ pub enum Handback {
 ///
 /// A method that starts a flow returns a boxed future: `async fn` in a trait is not dyn-compatible, and
 /// this trait is held as `Arc<dyn AgentOps>`. The methods here answer from memory, so they are plain.
-pub trait AgentOps: Send + Sync + 'static {
+///
+/// The fund-moving flows are [`TxFlows`] rather than methods here: the guard order in front of them lives in
+/// `zeus_core::agent::exec`, which cannot name this crate, so the pipeline's port is the narrower trait and
+/// this one extends it. An implementor supplies both, and there is still one implementation per build.
+pub trait AgentOps: TxFlows {
    /// The running Zeus build.
    fn app_info(&self) -> AppInfo;
 
@@ -149,6 +154,9 @@ pub trait AgentOps: Send + Sync + 'static {
 /// A double for tests and for a binary that has not installed anything yet.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NoOps;
+
+/// The money flows refuse through [`TxFlows`]'s own defaults: this build has none to run.
+impl TxFlows for NoOps {}
 
 impl AgentOps for NoOps {
    fn app_info(&self) -> AppInfo {

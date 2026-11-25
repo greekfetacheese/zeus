@@ -1,6 +1,10 @@
 //! The grant document's own tests: no GUI, no chain, no HTTP, no window.
 
 use super::audit::{AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry};
+use super::env::AgentEnv;
+use super::exec::{
+   ExecCall, ExecError, Origin, SendRequest, TxFlows, TxFuture, WalletLock, execute, preview,
+};
 use super::intent::{Asset, Intent};
 use super::policy::{Decision, Denial, authorise, precheck};
 use super::profile::CAPABILITIES;
@@ -15,7 +19,7 @@ use crate::WalletStateKey;
 use crate::ZeusCtx;
 use crate::persisted::{ExportPolicy, PersistedFile, is_allowed_rel_parts};
 use crate::sim::balance_diff::{BalanceChange, NftBalanceChange, native_change};
-use crate::tx::TransactionAnalysis;
+use crate::tx::{PriorityTier, TransactionAnalysis, TransactionRich};
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -1288,4 +1292,244 @@ fn an_audit_save_is_blocked_after_the_file_did_not_read() {
    // A fresh load clears the block: the bytes are no longer the only copy of the history.
    log.replace_from(&AgentAuditLog::default());
    assert_eq!(log.unreadable(), None);
+}
+
+/// A flow that records whether it was reached, and answers one fixed transaction.
+#[derive(Default)]
+struct RecordingFlows {
+   sends: std::sync::atomic::AtomicUsize,
+}
+
+impl RecordingFlows {
+   fn sends(&self) -> usize {
+      self.sends.load(std::sync::atomic::Ordering::SeqCst)
+   }
+}
+
+impl TxFlows for RecordingFlows {
+   fn send(
+      &self,
+      _env: AgentEnv,
+      _request: SendRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+      Box::pin(async { Ok(TransactionRich::dummy_clear_signed()) })
+   }
+}
+
+/// One native send from alice, the asset her grant does allow.
+fn exec_send() -> ExecCall {
+   ExecCall::Send(SendRequest {
+      chain: 1,
+      from: alice(),
+      to: bob(),
+      token: None,
+      amount: U256::from(1_500_000_000_000_000u64),
+      decimals: 18,
+      priority: PriorityTier::Normal,
+   })
+}
+
+fn exec_origin() -> Origin<'static> {
+   Origin {
+      tool: "tx_send",
+      client_info: Some("tests"),
+   }
+}
+
+/// Every sentence the app said out loud, for the tests that are about being heard.
+static ANNOUNCEMENTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn announcements() -> Vec<String> {
+   ANNOUNCEMENTS.lock().unwrap().clone()
+}
+
+/// A host that answers like the headless one and remembers what was announced.
+struct CountingHost;
+
+impl crate::ui::UiHost for CountingHost {
+   fn request_repaint(&self) {}
+
+   fn open_loading(&self, _msg: &str) {}
+
+   fn reset_loading(&self) {}
+
+   fn open_tx_confirm(&self, _req: crate::ui::TxConfirmRequest) -> crate::ui::PromptOpen {
+      crate::ui::PromptOpen::Unavailable
+   }
+
+   fn take_tx_confirm(&self) -> Option<crate::ui::TxConfirmAnswer> {
+      None
+   }
+
+   fn release_tx_confirm(&self) {}
+
+   fn open_sign(&self, _req: crate::ui::SignRequest) -> crate::ui::PromptOpen {
+      crate::ui::PromptOpen::Unavailable
+   }
+
+   fn take_sign(&self) -> Option<bool> {
+      None
+   }
+
+   fn release_sign(&self) {}
+
+   fn open_confirm(&self, _req: crate::ui::ConfirmRequest) -> crate::ui::PromptOpen {
+      crate::ui::PromptOpen::Unavailable
+   }
+
+   fn take_confirm(&self) -> Option<bool> {
+      None
+   }
+
+   fn release_confirm(&self) {}
+
+   fn notify_pending(&self, _title: &str, _kind: crate::tx::notification::NotificationType) {}
+
+   fn notify_mined(
+      &self,
+      _title: &str,
+      _kind: crate::tx::notification::NotificationType,
+      _tx: TransactionRich,
+      _now_ms: u64,
+      _finish_ms: u64,
+   ) {
+   }
+
+   fn announce(&self, message: &str) {
+      ANNOUNCEMENTS.lock().unwrap().push(message.to_owned());
+   }
+
+   fn lockout_and_shutdown(&self, _msg: &str) {}
+}
+
+#[tokio::test]
+async fn a_wallet_takes_one_action_at_a_time() {
+   let held = WalletLock::take(1, alice()).await.expect("the first action takes it");
+
+   assert!(
+      matches!(
+         WalletLock::take(1, alice()).await,
+         Err(ExecError::Busy)
+      ),
+      "a second action on the same wallet is told to come back, not queued behind a prompt"
+   );
+
+   drop(WalletLock::take(1, bob()).await.expect("another wallet is another action"));
+
+   drop(held);
+   drop(
+      WalletLock::take(1, alice())
+         .await
+         .expect("the wallet is free once the action ends"),
+   );
+}
+
+#[tokio::test]
+async fn a_locked_vault_refuses_before_the_flow_runs() {
+   let flows = RecordingFlows::default();
+   let ctx = locked();
+
+   let error = execute(
+      ctx.clone(),
+      &sample_profile(),
+      exec_send(),
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect_err("a locked vault signs nothing");
+
+   assert_eq!(error, ExecError::Locked);
+   assert_eq!(flows.sends(), 0);
+
+   let tail = ctx.agent_audit().tail(1);
+   assert_eq!(tail[0].denial.as_deref(), Some("VAULT_LOCKED"));
+   assert_eq!(tail[0].tool, "tx_send");
+}
+
+#[tokio::test]
+async fn an_asset_outside_the_allowlist_never_reaches_the_flow() {
+   let flows = RecordingFlows::default();
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+
+   let call = ExecCall::Send(SendRequest {
+      chain: 1,
+      from: alice(),
+      to: bob(),
+      token: Some(usdc().address),
+      amount: U256::from(1_000_000u64),
+      decimals: 6,
+      priority: PriorityTier::Normal,
+   });
+
+   let error = execute(unlocked(), &profile, call, &exec_origin(), &flows)
+      .await
+      .expect_err("USDC is not in alice's allowlist");
+
+   assert_eq!(error.code(), "TOKEN_NOT_ALLOWED");
+   assert_eq!(
+      flows.sends(),
+      0,
+      "the allowlist stops the action before anything is simulated, signed or sent"
+   );
+}
+
+#[tokio::test]
+async fn a_completed_action_is_recorded_and_said_out_loud() {
+   crate::ui::install(CountingHost);
+
+   let flows = RecordingFlows::default();
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+   let ctx = unlocked();
+
+   let answer = execute(
+      ctx.clone(),
+      &profile,
+      exec_send(),
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect("the flow answered");
+
+   assert!(answer["tx"]["hash"].is_string(), "{answer}");
+   assert_eq!(answer["policy"]["decision"], "allowed");
+   assert_eq!(flows.sends(), 1);
+
+   let tail = ctx.agent_audit().tail(1);
+   assert_eq!(tail[0].decision, AuditDecision::Allowed);
+   assert_eq!(tail[0].wallet, Some(alice()));
+   assert_eq!(tail[0].chain, Some(1));
+   assert!(
+      tail[0].tx_hash.is_some(),
+      "the record points at the row it made"
+   );
+   assert_eq!(tail[0].client_info.as_deref(), Some("tests"));
+
+   let detail = tail[0].detail.clone().expect("the record says what happened");
+   assert!(detail.starts_with("Agent sent "), "{detail}");
+
+   assert!(
+      announcements().iter().any(|line| line == &detail),
+      "nothing asked the user first, so the app says what it did: {:?}",
+      announcements()
+   );
+}
+
+#[tokio::test]
+async fn a_preview_says_it_is_one() {
+   let flows = RecordingFlows::default();
+
+   // A preview of a send whose recipient cannot be screened is refused like the send would be, and it
+   // never reaches the flow: a dry run is the simulation, not a second attempt.
+   let error = preview(unlocked(), &sample_profile(), &exec_send())
+      .await
+      .expect_err("no node is attached, so the recipient cannot be screened");
+
+   assert_eq!(error.code(), "VALIDATION");
+   assert_eq!(flows.sends(), 0);
 }

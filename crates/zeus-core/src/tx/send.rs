@@ -239,6 +239,10 @@ pub struct SendTxOptions {
    /// Who asked for this send. `None` is the user, whose confirmation the window decides as it always
    /// has; `Some` is an agent whose grant stands in for that click.
    pub authority: Option<AgentAuthority>,
+   /// The fee tier a granted caller asked for. Only the grant path reads it — a confirmation the user
+   /// answers states the user's own choice — and `None` keeps the ceiling and tip that path used before a
+   /// caller could name one.
+   pub priority: Option<PriorityTier>,
 }
 
 /// What the user left in the transaction confirmation window.
@@ -439,6 +443,50 @@ pub fn refuse_contract_recipient(
    Err(anyhow!(FUNDS_TO_CONTRACT_MSG))
 }
 
+/// Why the pipeline itself refused, in a form an agent edge can branch on.
+///
+/// The pipeline has no typed error — a refusal is a sentence, and the dapp server has always matched one
+/// of them by string — so the four an agent must tell apart carry this type inside the `anyhow`. Every
+/// `Display` here is the sentence the flow returned before this type existed, which is what keeps the
+/// window, the toast and the dapp server reading exactly as they did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TxRefusal {
+   /// Zeus is locked, or was never unlocked in this run: nothing may be signed.
+   Locked,
+   /// Another transaction is already waiting for confirmation.
+   Busy,
+   /// The profile wants to see every change and no window could ask.
+   NoUi,
+   /// The user declined the confirmation.
+   Rejected,
+}
+
+impl TxRefusal {
+   /// The stable code the refusal is reported under.
+   pub const fn code(self) -> &'static str {
+      match self {
+         Self::Locked => "VAULT_LOCKED",
+         Self::Busy => "BUSY",
+         Self::NoUi => "NO_UI",
+         Self::Rejected => "USER_REJECTED",
+      }
+   }
+}
+
+impl std::fmt::Display for TxRefusal {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Locked => f.write_str("Zeus is locked"),
+         Self::Busy => f.write_str("Another transaction is already waiting for confirmation"),
+         Self::NoUi => f.write_str(ui::NO_UI_MSG),
+         // The dapp server matches this sentence (`src/server.rs`), so it is not a message to reword.
+         Self::Rejected => f.write_str("Transaction rejected"),
+      }
+   }
+}
+
+impl std::error::Error for TxRefusal {}
+
 /// Open the transaction confirmation window, wait for the user, and hand back
 /// their edits.
 ///
@@ -452,7 +500,9 @@ pub async fn confirm_tx(
    opts: &SendTxOptions,
 ) -> Result<ConfirmedTx, anyhow::Error> {
    // A locked wallet never confirms: refuse before opening the prompt.
-   ctx.ensure_unlocked()?;
+   if ctx.ensure_unlocked().is_err() {
+      return Err(TxRefusal::Locked.into());
+   }
 
    // A recommendation is a snapshot: the 300 s loop can leave it minutes old, and a stale tip is
    // the thing this path exists to stop showing. Failure is not fatal — the window falls back to
@@ -474,10 +524,23 @@ pub async fn confirm_tx(
 
       match authorise(&ctx, &profile, analysis) {
          Decision::Allowed { prompt: false } => {
+            // The tier the grant asked for, when it asked for one. `None` keeps the tip and the ceiling
+            // this path has always used, so a grant that names no tier sends exactly as it did before
+            // the parameter existed.
+            let (tip, ceiling) = match opts.priority {
+               Some(tier) => (
+                  tiers
+                     .map(|tiers| NumericValue::format_to_gwei(tiers.tip(tier)))
+                     .unwrap_or(priority_fee),
+                  tier.fee_ceiling_bps(),
+               ),
+               None => (priority_fee, PriorityTier::Fast.fee_ceiling_bps()),
+            };
+
             return Ok(ConfirmedTx {
-               priority_fee,
+               priority_fee: tip,
                gas_limit: default_gas_limit(analysis.gas_used),
-               fee_ceiling_bps: PriorityTier::Fast.fee_ceiling_bps(),
+               fee_ceiling_bps: ceiling,
                clear_display: None,
             });
          }
@@ -507,12 +570,8 @@ pub async fn confirm_tx(
       recipient_name: opts.recipient_name.clone(),
    }) {
       PromptOpen::Opened => {}
-      PromptOpen::Busy => {
-         return Err(anyhow!(
-            "Another transaction is already waiting for confirmation"
-         ));
-      }
-      PromptOpen::Unavailable => return Err(anyhow!(ui::NO_UI_MSG)),
+      PromptOpen::Busy => return Err(TxRefusal::Busy.into()),
+      PromptOpen::Unavailable => return Err(TxRefusal::NoUi.into()),
    }
 
    // Held until this flow is done with the prompt, however it ends: the claim is
@@ -528,7 +587,14 @@ pub async fn confirm_tx(
    };
 
    if answer.is_rejected() {
-      return Err(anyhow!("Transaction rejected"));
+      // A rejection that lands while the vault is locked is the auto-lock closing this window
+      // (`GUI::cancel_pending_actions`), not a click: the user never said no, and an agent told "the
+      // user declined" would report a decision nobody made.
+      if ctx.ensure_unlocked().is_err() {
+         return Err(TxRefusal::Locked.into());
+      }
+
+      return Err(TxRefusal::Rejected.into());
    }
 
    // The recipient was locked in before the window opened, and the user may have sat on it: a name
@@ -561,6 +627,87 @@ pub async fn confirm_tx(
       fee_ceiling_bps: answer.fee_ceiling_bps,
       clear_display: answer.clear_display,
    })
+}
+
+/// Simulate a call and build the analysis the pipeline is about to authorise.
+///
+/// The stage [`send_transaction`] runs for a request that carries no analysis, and the whole of a dry run:
+/// a preview is this, plus [`price_analysis`] and the policy check, and nothing after it
+/// (`agent::exec::preview`). Nothing here signs, opens a window or touches the wallet's key.
+pub async fn analyse(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+   authorization_list: Vec<SignedAuthorization>,
+) -> Result<TransactionAnalysis, anyhow::Error> {
+   let simulated = simulate_and_diff(
+      ctx.clone(),
+      chain,
+      from,
+      interact_to,
+      call_data.clone(),
+      value,
+      authorization_list.clone(),
+   )
+   .await?;
+
+   let mut analysis = TransactionAnalysis::new(
+      ctx,
+      chain.id(),
+      from,
+      interact_to,
+      Some(simulated.contract_interact),
+      call_data,
+      value,
+      simulated.logs,
+      simulated.sim_res.tx_gas_used(),
+      simulated.balance_before,
+      simulated.balance_after,
+      authorization_list,
+   )
+   .await?;
+
+   analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
+   analysis.set_block_number(simulated.block_number);
+
+   Ok(analysis)
+}
+
+/// Price what an analysis says moved, so its USD figures are the current ones.
+///
+/// Best effort, and deliberately shared with the preview: a price the app does not have stays zero, which
+/// is why every amount an answer carries has `usd.known` beside it.
+pub async fn price_analysis(ctx: &ZeusCtx, chain: ChainId, analysis: &mut TransactionAnalysis) {
+   let tokens = analysis
+      .involved_currencies()
+      .iter()
+      .map(|currency| currency.to_erc20().into_owned())
+      .collect::<Vec<_>>();
+
+   let time = std::time::Instant::now();
+
+   if let Err(e) = ctx
+      .price_manager()
+      .calculate_prices(
+         ctx.clone(),
+         chain.id(),
+         ctx.pool_manager(),
+         tokens,
+      )
+      .await
+   {
+      tracing::error!("Error updating prices: {:?}", e);
+   }
+
+   tracing::info!(
+      "Updated prices in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   analysis.refresh_usd(ctx);
 }
 
 /// Simulate the call unless the request already carries an analysis, ask the
@@ -597,64 +744,23 @@ pub async fn send_transaction(
       client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
    });
 
-   let mut tx_analysis = if let Some(analysis) = analysis {
-      analysis
-   } else {
-      let simulated = simulate_and_diff(
-         ctx.clone(),
-         chain,
-         from,
-         interact_to,
-         call_data.clone(),
-         value,
-         authorization_list.clone(),
-      )
-      .await?;
-
-      let mut analysis = TransactionAnalysis::new(
-         ctx.clone(),
-         chain.id(),
-         from,
-         interact_to,
-         Some(simulated.contract_interact),
-         call_data.clone(),
-         value,
-         simulated.logs,
-         simulated.sim_res.tx_gas_used(),
-         simulated.balance_before,
-         simulated.balance_after,
-         authorization_list.clone(),
-      )
-      .await?;
-      analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
-      analysis.set_block_number(simulated.block_number);
-      analysis
+   let mut tx_analysis = match analysis {
+      Some(analysis) => analysis,
+      None => {
+         analyse(
+            ctx.clone(),
+            chain,
+            from,
+            interact_to,
+            call_data.clone(),
+            value,
+            authorization_list.clone(),
+         )
+         .await?
+      }
    };
 
-   let involved_currencies = tx_analysis.involved_currencies();
-   let price_manager = ctx.price_manager();
-   let pool_manager = ctx.pool_manager();
-
-   let tokens = involved_currencies
-      .iter()
-      .map(|c| c.to_erc20().into_owned())
-      .collect::<Vec<_>>();
-
-   let time = std::time::Instant::now();
-
-   if let Err(e) = price_manager
-      .calculate_prices(ctx.clone(), chain.id(), pool_manager, tokens)
-      .await
-   {
-      tracing::error!("Error updating prices: {:?}", e);
-   }
-
-   tracing::info!(
-      "Updated prices in {} ms",
-      time.elapsed().as_millis()
-   );
-
-   tx_analysis.refresh_usd(&ctx);
+   price_analysis(&ctx, chain, &mut tx_analysis).await;
 
    let confirmed = confirm_tx(
       ctx.clone(),
@@ -855,7 +961,7 @@ pub async fn delegate_to(
    chain: ChainId,
    from: Address,
    delegate_to: Address,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let wallet = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
    let client = ctx.get_client_manager();
 
@@ -886,11 +992,12 @@ pub async fn delegate_to(
    let signed_authorization =
       signed_7702_authorization(&wallet, chain.id(), delegate_to, auth_nonce)?;
 
-   send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, from).authorization_list(vec![signed_authorization]),
       SendTxOptions {
+         priority: env.priority,
          authority: env.authority,
          ..Default::default()
       },
@@ -907,7 +1014,7 @@ pub async fn delegate_to(
       });
    }
 
-   Ok(())
+   Ok(rich)
 }
 
 pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>

@@ -8,14 +8,17 @@
 //! like any other, and an imported one is typed by the owner into Zeus's own field, so its key never
 //! reaches an argument, a log or this conversation.
 
+use super::tx::perform;
 use super::{
-   Call, ToolFuture, ToolOutput, ToolSpec, Warning, chain_argument, decide, gate_write,
-   integer_argument, read_error, record_allowed, refusal, wallet_argument,
+   Call, ToolFuture, ToolOutput, ToolSpec, Warning, action, chain_argument, decide,
+   dry_run_argument, exec_error, gate_write, integer_argument, priority_argument, read_error,
+   record_allowed, refusal, required_address, required_chain, wallet_argument,
 };
 use crate::error::{ErrorCode, ToolError};
 use crate::ops::Handback;
 use crate::protocol::types::Annotations;
 use serde_json::{Value, json};
+use zeus_core::agent::exec::{self, DelegateRequest, ExecCall};
 use zeus_core::agent::{Decision, Intent, read};
 use zeus_core::ui;
 use zeus_eth::alloy_primitives::Address;
@@ -54,6 +57,20 @@ pub const GET: ToolSpec = ToolSpec {
    annotations: Annotations::READ,
    capability: Some("settings.wallets.read"),
    call: get,
+};
+
+pub const DELEGATE_SET: ToolSpec = ToolSpec {
+   name: "delegate_set",
+   title: "Delegate a wallet",
+   description: "Give one wallet's account an EIP-7702 delegation, or remove one by delegating to the \
+      zero address. The delegate has to be a deployed contract. A delegation hands that contract control \
+      of the wallet's account, which is why the grant for it is the most dangerous one there is — and why \
+      it cannot be previewed: the authorization it carries is a signature, so dry_run is refused rather \
+      than pretended.",
+   schema: r#"{"type": "object", "properties": {"wallet": {"type": "string", "description": "The wallet to delegate."}, "chain": {"type": "integer", "description": "The chain the delegation is for."}, "delegate_to": {"type": "string", "description": "The contract to delegate to, full and 0x-prefixed. The zero address removes the delegation."}, "dry_run": {"type": "boolean", "description": "Refused: a delegation needs a signature to build, so there is nothing to simulate."}, "priority": {"type": "string", "enum": ["normal", "fast", "very_fast"], "description": "The fee tier; fast by default."}, "action_id": {"type": "string", "description": "A client-chosen id. Repeating a call with the same id and arguments replays the first answer instead of sending twice."}}, "required": ["wallet", "chain", "delegate_to"], "additionalProperties": false}"#,
+   annotations: Annotations::DESTRUCTIVE,
+   capability: Some("wallet.write.delegate"),
+   call: set_delegation,
 };
 
 pub const DELEGATE: ToolSpec = ToolSpec {
@@ -113,6 +130,36 @@ fn get(call: &Call, arguments: Value) -> ToolFuture<'_> {
          .map_err(read_error)?;
 
       Ok(ToolOutput::new(value))
+   })
+}
+
+fn set_delegation(call: &Call, arguments: Value) -> ToolFuture<'_> {
+   Box::pin(async move {
+      let request = DelegateRequest {
+         chain: required_chain(&arguments)?,
+         from: wallet_argument(&arguments)?,
+         delegate_to: required_address(&arguments, "delegate_to")?,
+         priority: priority_argument(&arguments)?,
+      };
+      let wanted = ExecCall::Delegate(request);
+      let capability = wanted.capability();
+
+      if dry_run_argument(&arguments)? {
+         let value = exec::preview(call.ctx.clone(), &call.profile, &wanted)
+            .await
+            .map_err(|error| exec_error(error, capability))?;
+
+         return Ok(ToolOutput::new(value));
+      }
+
+      let held = call.clone();
+
+      action::run(call, &arguments, async move {
+         Ok(ToolOutput::new(
+            perform(&held, "delegate_set", capability, wanted).await?,
+         ))
+      })
+      .await
    })
 }
 

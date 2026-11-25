@@ -3,8 +3,8 @@
 use crate::assets::icons::Icons;
 use crate::core::{
    AgentEnv, DecodedEvent, NftApproveParams, PermitParams, SendTxOptions, SendTxRequest,
-   TokenApproveParams, TransactionAnalysis, WalletInfo, ZeusContext, ZeusCtx, send_transaction,
-   signature,
+   TokenApproveParams, TransactionAnalysis, TransactionRich, WalletInfo, ZeusContext, ZeusCtx,
+   send_transaction, signature,
 };
 use crate::gui::ui::common::{
    SpokenAddress, chain_label, drawn_and_spoken, name_address, name_text, name_token,
@@ -1262,11 +1262,11 @@ fn revoke_call(params: &NftApproveParams) -> Result<(Bytes, NftApproveParams), a
 }
 
 /// Revoke an NFT approval on the collection that emitted it.
-async fn revoke_nft_approval(
+pub(crate) async fn revoke_nft_approval(
    env: AgentEnv,
    chain_id: u64,
    params: NftApproveParams,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let chain = revoke_chain(chain_id)?;
    let (calldata, revoked) = revoke_call(&params)?;
 
@@ -1312,7 +1312,7 @@ async fn revoke_nft_approval(
    analysis.set_block_number(simulated.block_number);
    analysis.set_main_event(DecodedEvent::NftApprove(revoked));
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx,
       source_is_zeus,
       SendTxRequest::new(chain, params.owner, interact_to)
@@ -1327,22 +1327,23 @@ async fn revoke_nft_approval(
          // zero address, not the operator being cleared. Keep the flow's own intent event — the
          // recorded params carry the operator the grant is being taken from.
          keep_intent_event: true,
+         priority: env.priority,
          authority: env.authority,
          ..Default::default()
       },
    )
    .await?;
 
-   Ok(())
+   Ok(rich)
 }
 
-async fn revoke_erc20_approval(
+pub(crate) async fn revoke_erc20_approval(
    env: AgentEnv,
    chain_id: u64,
    token: ERC20Token,
    from: Address,
    spender: Address,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let chain = revoke_chain(chain_id)?;
 
    let ctx = SHARED_GUI.write(|gui| {
@@ -1396,7 +1397,7 @@ async fn revoke_erc20_approval(
    analysis.set_block_number(simulated.block_number);
    analysis.set_main_event(DecodedEvent::TokenApprove(params));
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx,
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -1407,13 +1408,14 @@ async fn revoke_erc20_approval(
       SendTxOptions {
          dapp,
          mev_protect,
+         priority: env.priority,
          authority: env.authority,
          ..Default::default()
       },
    )
    .await?;
 
-   Ok(())
+   Ok(rich)
 }
 
 /// Revoke a Permit2 allowance by signing a zero-amount PermitSingle and

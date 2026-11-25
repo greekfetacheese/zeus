@@ -12,8 +12,13 @@
 //! app's own code, see [`crate::agent_pools`]) and opening the window that finishes an operation only the
 //! owner can end — a key typed into Zeus, an archive chosen in a file dialog.
 
+use crate::core::AgentEnv;
 use crate::core::PoolError;
+use crate::core::agent::exec::{
+   DelegateRequest, ExecError, NftSendRequest, RevokeRequest, SendRequest, TxFlows, TxFuture,
+};
 use crate::core::agent::settings::{Applied, SettingsError};
+use crate::core::tx::TransactionRich;
 use crate::gui::ui::settings::SettingsPage;
 use crate::gui::ui::wallet::import::ImportWalletType;
 use serde_json::Value;
@@ -83,5 +88,52 @@ impl AgentOps for ZeusOps {
       }
 
       crate::utils::desktop_integration::try_apply(on).map_err(|error| error.to_string())
+   }
+}
+
+/// The money flows, as the pipeline asks for them.
+///
+/// Each reads the live context when it is called — never a copy taken when the agent was granted — so a
+/// switch, a wallet or the whole app state is whatever it is now. The flows' own guard order is inside
+/// `crate::agent_tx`.
+impl TxFlows for ZeusOps {
+   fn send(
+      &self,
+      env: AgentEnv,
+      request: SendRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::send(ctx, env, request))
+   }
+
+   fn send_nft(
+      &self,
+      env: AgentEnv,
+      request: NftSendRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::send_nft(ctx, env, request))
+   }
+
+   fn revoke(
+      &self,
+      env: AgentEnv,
+      request: RevokeRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::revoke(ctx, env, request))
+   }
+
+   fn delegate(
+      &self,
+      env: AgentEnv,
+      request: DelegateRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::delegate(ctx, env, request))
    }
 }

@@ -736,7 +736,12 @@ fn address_row(ctx: &ZeusContext, chain: u64, address: Address) -> Value {
 /// Never a JSON number: a `u256` does not survive a double, and a model that reads "1.2345" back has to be
 /// able to be exact. `usd.known` is false when no price exists, so an agent cannot mistake "unknown" for
 /// "worth nothing".
-fn amount(value: &NumericValue, decimals: u8, symbol: &str, usd: Option<&NumericValue>) -> Value {
+pub(crate) fn amount(
+   value: &NumericValue,
+   decimals: u8,
+   symbol: &str,
+   usd: Option<&NumericValue>,
+) -> Value {
    let known = usd.is_some_and(|usd| !usd.is_zero() || value.is_zero());
 
    json!({
@@ -766,7 +771,7 @@ fn token_row(token: &ERC20Token) -> Value {
 }
 
 /// A currency as an action would name it. The native token is the zero address.
-fn currency_row(currency: &Currency) -> Value {
+pub(crate) fn currency_row(currency: &Currency) -> Value {
    json!({
        "address": hex(currency.address()),
        "decimals": currency.decimals(),
@@ -860,7 +865,7 @@ fn nft_row(nft: &NftToken) -> Value {
 }
 
 /// One recorded transaction.
-fn transaction_row(ctx: &ZeusContext, transaction: &TransactionRich) -> Value {
+pub fn transaction_row(ctx: &ZeusContext, transaction: &TransactionRich) -> Value {
    let currency = event_currency(&transaction.main_event);
 
    let (decimals, symbol) = match currency {
@@ -896,7 +901,7 @@ fn transaction_row(ctx: &ZeusContext, transaction: &TransactionRich) -> Value {
 
 /// The currency an event moved, when the event names one. A transaction whose main event is unknown keeps
 /// the native token, which is what its `value` field holds.
-fn event_currency(event: &DecodedEvent) -> Option<&Currency> {
+pub(crate) fn event_currency(event: &DecodedEvent) -> Option<&Currency> {
    match event {
       DecodedEvent::Transfer(params) => Some(&params.currency),
       DecodedEvent::SwapToken(params) => Some(&params.input_currency),
@@ -985,7 +990,7 @@ fn standard_name(standard: NftStandard) -> &'static str {
 }
 
 /// A chain's native symbol, for an amount that has no token of its own.
-fn native_symbol(chain: u64) -> String {
+pub(crate) fn native_symbol(chain: u64) -> String {
    ChainId::new(chain)
       .map(|chain| chain.coin_symbol().to_owned())
       .unwrap_or_else(|_| "ETH".to_owned())

@@ -9,14 +9,18 @@ use serde_json::{Value, json};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use zeus_core::agent::exec::{
+   DelegateRequest, ExecError, NftSendRequest, RevokeRequest, RevokeTarget, SendRequest, TxFlows,
+   TxFuture, WalletLock,
+};
 use zeus_core::agent::settings::{Applied, Closed, SettingsError};
 use zeus_core::agent::{
    AgentProfile, AgentProfileId, AgentProfileStore, AuditDecision, ProfileMode, ScreenGrant,
-   WalletGrant,
+   TokenRef, TokenScope, WalletGrant,
 };
 use zeus_core::context::PoolError;
-use zeus_core::{TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
-use zeus_eth::alloy_primitives::{Address, TxHash};
+use zeus_core::{AgentEnv, TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
+use zeus_eth::alloy_primitives::{Address, TxHash, U256};
 use zeus_eth::utils::NumericValue;
 use zeus_mcp::protocol::{LEGACY_VERSION, MODERN_VERSION, meta};
 use zeus_mcp::{
@@ -815,7 +819,9 @@ async fn an_unknown_tool_is_a_protocol_error_rather_than_a_tool_error() {
       &call(
          1,
          "tools/call",
-         json!({"name": "tx_send", "arguments": {}}),
+         // A name no build has: `tx_send` stood here until the money tools existed, and a name that
+         // becomes real turns this into a test of the gate instead.
+         json!({"name": "wallet_drain", "arguments": {}}),
       ),
       None,
    )
@@ -2173,6 +2179,16 @@ struct FakeState {
    windows: Vec<Handback>,
    /// When set, no window can be opened.
    windows_fail: bool,
+   /// Every send the port was asked for, in order.
+   sends: Vec<SendRequest>,
+   /// Every NFT send the port was asked for, in order.
+   nft_sends: Vec<NftSendRequest>,
+   /// Every revoke the port was asked for, in order.
+   revokes: Vec<RevokeRequest>,
+   /// The refusal the port gives a send, when a test sets one.
+   send_refusal: Option<ExecError>,
+   /// Every delegation the port was asked for, in order.
+   delegations: Vec<DelegateRequest>,
 }
 
 impl FakeOps {
@@ -2217,6 +2233,26 @@ impl FakeOps {
 
    fn fail_windows(&self) {
       self.state.lock().expect("the double").windows_fail = true;
+   }
+
+   fn sends(&self) -> Vec<SendRequest> {
+      self.state.lock().expect("the double").sends.clone()
+   }
+
+   fn nft_sends(&self) -> Vec<NftSendRequest> {
+      self.state.lock().expect("the double").nft_sends.clone()
+   }
+
+   fn revokes(&self) -> Vec<RevokeRequest> {
+      self.state.lock().expect("the double").revokes.clone()
+   }
+
+   fn refuse_send(&self, error: ExecError) {
+      self.state.lock().expect("the double").send_refusal = Some(error);
+   }
+
+   fn delegations(&self) -> Vec<DelegateRequest> {
+      self.state.lock().expect("the double").delegations.clone()
    }
 }
 
@@ -2976,5 +3012,553 @@ async fn a_wallet_that_cannot_be_sealed_is_refused_rather_than_added() {
          .iter()
          .all(|wallet| wallet.name() != "Savings"),
       "a derivation that could not be sealed adds nothing"
+   );
+}
+
+/// One transaction, as the double's flows answer them: a hash, a chain and an outcome.
+fn answered() -> TransactionRich {
+   TransactionRich {
+      hash: TxHash::repeat_byte(0x77),
+      chain: 1,
+      success: true,
+      ..Default::default()
+   }
+}
+
+impl TxFlows for FakeOps {
+   fn send(
+      &self,
+      _env: AgentEnv,
+      request: SendRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let refusal = {
+         let mut state = self.state.lock().expect("the double");
+         state.sends.push(request);
+         state.send_refusal.clone()
+      };
+
+      Box::pin(async move {
+         match refusal {
+            Some(error) => Err(error),
+            None => Ok(answered()),
+         }
+      })
+   }
+
+   fn send_nft(
+      &self,
+      _env: AgentEnv,
+      request: NftSendRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").nft_sends.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn revoke(
+      &self,
+      _env: AgentEnv,
+      request: RevokeRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").revokes.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn delegate(
+      &self,
+      _env: AgentEnv,
+      request: DelegateRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").delegations.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+}
+
+// --- the money tools: the guard order, the port, and one action per call --------------------------
+
+/// The fixture's one wallet, and two addresses the fixtures use.
+const MONEY_WALLET: &str = "0x1111111111111111111111111111111111111111";
+const MONEY_RECIPIENT: &str = "0xb0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0";
+const MONEY_TOKEN: &str = "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48";
+
+/// Let the profile's wallet spend the chain's own coin.
+///
+/// The allowlist is the envelope and it starts empty, so a granted send needs both halves: the capability
+/// says the tool may run, the allowlist says what it may move.
+fn allow_native(fixture: &Fixture) {
+   let mut profile = fixture
+      .ctx
+      .agent_profiles()
+      .profile(&fixture.profile)
+      .expect("the fixture's profile");
+   let wallet = profile.wallets.keys().next().copied().expect("a granted wallet");
+
+   profile.wallets.get_mut(&wallet).expect("the grant").tokens = TokenScope::Allowlist {
+      tokens: vec![TokenRef {
+         chain: 1,
+         address: Address::ZERO,
+      }],
+   };
+
+   fixture.ctx.agent_profiles().insert(profile);
+}
+
+#[tokio::test]
+async fn a_send_runs_through_the_port_and_is_recorded() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.send"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send",
+      json!({"wallet": MONEY_WALLET, "chain": 1, "to": MONEY_RECIPIENT, "amount": "0.5"}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let asked = ops.sends();
+   assert_eq!(asked.len(), 1, "one call, one send");
+   assert_eq!(asked[0].chain, 1);
+   assert_eq!(
+      asked[0].token, None,
+      "no token is the chain's own coin"
+   );
+   assert_eq!(asked[0].decimals, 18);
+   assert_eq!(
+      asked[0].amount,
+      U256::from(500_000_000_000_000_000u64)
+   );
+   assert_eq!(format!("{:#x}", asked[0].to), MONEY_RECIPIENT);
+
+   let answer = data(&reply);
+   assert_eq!(
+      answer["tx"]["hash"],
+      format!("{:#x}", TxHash::repeat_byte(0x77))
+   );
+   assert_eq!(
+      answer["policy"]["capability"],
+      "wallet.write.send"
+   );
+   assert_eq!(answer["policy"]["decision"], "allowed");
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("a record of what was sent");
+
+   assert_eq!(entry.tool, "tx_send");
+   assert_eq!(entry.capability, "wallet.write.send");
+   assert_eq!(entry.decision, AuditDecision::Allowed);
+   assert_eq!(entry.tx_hash, Some(TxHash::repeat_byte(0x77)));
+   assert_eq!(entry.chain, Some(1));
+}
+
+#[tokio::test]
+async fn a_send_needs_its_own_switch() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&[], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send",
+      json!({"wallet": MONEY_WALLET, "chain": 1, "to": MONEY_RECIPIENT, "amount": "0.5"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+   assert!(
+      ops.sends().is_empty(),
+      "nothing is built without the grant"
+   );
+}
+
+#[tokio::test]
+async fn a_token_outside_the_allowlist_never_reaches_the_port() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.send"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "to": MONEY_RECIPIENT,
+          "token": MONEY_TOKEN,
+          "decimals": 6,
+          "amount": "12",
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("TOKEN_NOT_ALLOWED"));
+   assert!(
+      ops.sends().is_empty(),
+      "the allowlist is checked before anything is simulated"
+   );
+}
+
+#[tokio::test]
+async fn an_nft_outside_the_allowlist_never_reaches_the_port() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.nft_send"], &[], &[], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send_nft",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "to": MONEY_RECIPIENT,
+          "collection": MONEY_TOKEN,
+          "token_id": "7",
+          "standard": "erc721",
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NFT_NOT_ALLOWED"));
+   assert!(ops.nft_sends().is_empty());
+}
+
+#[tokio::test]
+async fn the_nft_recipient_is_screened_before_the_flow_runs() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.nft_send"], &[], &[], ops.clone());
+
+   // The allowlist admits the id, so the action gets as far as the screen — which cannot read a chain with
+   // no endpoint configured. That is the proof the NFT path has a screen at all: without one this would
+   // reach the port.
+   let mut profile = fixture
+      .ctx
+      .agent_profiles()
+      .profile(&fixture.profile)
+      .expect("the fixture's profile");
+   let wallet = profile.wallets.keys().next().copied().expect("a wallet");
+   profile.wallets.get_mut(&wallet).expect("the grant").nfts = zeus_core::agent::NftScope::All;
+   fixture.ctx.agent_profiles().insert(profile);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send_nft",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "to": MONEY_RECIPIENT,
+          "collection": MONEY_TOKEN,
+          "token_id": "7",
+          "standard": "erc721",
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      error_code(&reply),
+      Some("VALIDATION"),
+      "{}",
+      reply.body
+   );
+   assert!(
+      ops.nft_sends().is_empty(),
+      "the screen runs before the flow, not inside it"
+   );
+}
+
+#[tokio::test]
+async fn a_second_action_on_the_same_wallet_is_busy() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.send"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let wallet: Address = MONEY_WALLET.parse().expect("an address");
+
+   // A chain of its own: the lock is keyed by (chain, wallet) and this suite runs its tests in parallel, so
+   // holding chain 1 here would make every other send test in this file answer BUSY.
+   let held = WalletLock::take(8453, wallet)
+      .await
+      .expect("this test holds the wallet");
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send",
+      json!({"wallet": MONEY_WALLET, "chain": 8453, "to": MONEY_RECIPIENT, "amount": "0.5"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("BUSY"));
+   assert!(
+      ops.sends().is_empty(),
+      "two actions must never build the same nonce"
+   );
+
+   drop(held);
+}
+
+#[tokio::test]
+async fn a_repeated_action_id_replays_instead_of_sending_twice() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.send"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let arguments = json!({
+       "wallet": MONEY_WALLET,
+       "chain": 1,
+       "to": MONEY_RECIPIENT,
+       "amount": "0.5",
+       "action_id": "send-once",
+   });
+
+   let first = call_tool(&fixture, "tx_send", arguments.clone()).await;
+   let second = call_tool(&fixture, "tx_send", arguments.clone()).await;
+
+   assert_eq!(
+      first.body.pointer("/result/isError"),
+      None,
+      "{}",
+      first.body
+   );
+   assert_eq!(
+      second.body.pointer("/result/isError"),
+      None,
+      "{}",
+      second.body
+   );
+   assert_eq!(data(&second)["action"]["replayed"], true);
+   assert_eq!(
+      ops.sends().len(),
+      1,
+      "the retry reads the first answer instead of sending again"
+   );
+
+   // The same id with other arguments is not a retry: it cannot be one, and guessing would send twice.
+   let mut changed = arguments.clone();
+   changed["amount"] = json!("0.25");
+
+   let third = call_tool(&fixture, "tx_send", changed).await;
+
+   assert_eq!(error_code(&third), Some("VALIDATION"));
+   assert_eq!(ops.sends().len(), 1);
+}
+
+#[tokio::test]
+async fn a_dry_run_never_reaches_the_port() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.send"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_send",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "to": MONEY_RECIPIENT,
+          "amount": "0.5",
+          "dry_run": true,
+      }),
+   )
+   .await;
+
+   // The screen is the first act of a preview and cannot read a chain with no endpoint, which is why this
+   // answers a refusal: what the test is about is that no flow ran and nothing was recorded as sent.
+   assert_eq!(
+      error_code(&reply),
+      Some("VALIDATION"),
+      "{}",
+      reply.body
+   );
+   assert!(ops.sends().is_empty(), "a preview is not a send");
+   assert!(
+      fixture.ctx.agent_audit().tail(10).is_empty(),
+      "a dry run moves nothing, so it is not in the record of what moved"
+   );
+}
+
+#[tokio::test]
+async fn an_nft_approval_revoke_runs_through_the_port() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(
+      &["wallet.write.approvals_revoke"],
+      &[],
+      &[],
+      ops.clone(),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "approvals_revoke",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "kind": "nft",
+          "collection": MONEY_TOKEN,
+          "operator": MONEY_RECIPIENT,
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let asked = ops.revokes();
+   assert_eq!(asked.len(), 1);
+   assert!(
+      matches!(
+         asked[0].target,
+         RevokeTarget::Nft {
+            token_id: None,
+            standard: None,
+            ..
+         }
+      ),
+      "no id is the collection-wide flag, and that needs no standard"
+   );
+}
+
+#[tokio::test]
+async fn a_permit2_approval_cannot_be_revoked_by_an_agent() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(
+      &["wallet.write.approvals_revoke"],
+      &[],
+      &[],
+      ops.clone(),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "approvals_revoke",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "kind": "permit",
+          "token": MONEY_TOKEN,
+          "spender": MONEY_RECIPIENT,
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("UNSUPPORTED"));
+   assert!(ops.revokes().is_empty());
+}
+
+#[tokio::test]
+async fn a_flow_that_refuses_says_which_kind_of_no_it_was() {
+   for (refusal, expected) in [
+      (ExecError::Rejected, "USER_REJECTED"),
+      (ExecError::Locked, "VAULT_LOCKED"),
+      (ExecError::Busy, "BUSY"),
+      (
+         ExecError::Invalid("the node has no such token".to_owned()),
+         "VALIDATION",
+      ),
+   ] {
+      let ops = Arc::new(FakeOps::new());
+      ops.refuse_send(refusal);
+
+      let fixture = Fixture::with_port(&["wallet.write.send"], &[], &[], ops.clone());
+      allow_native(&fixture);
+
+      let reply = call_tool(
+         &fixture,
+         "tx_send",
+         json!({"wallet": MONEY_WALLET, "chain": 1, "to": MONEY_RECIPIENT, "amount": "0.5"}),
+      )
+      .await;
+
+      assert_eq!(
+         error_code(&reply),
+         Some(expected),
+         "{}",
+         reply.body
+      );
+
+      let tail = fixture.ctx.agent_audit().tail(10);
+      assert_eq!(
+         tail.last().and_then(|entry| entry.denial.as_deref()),
+         Some(expected),
+         "a refusal is recorded with the code it carried"
+      );
+   }
+}
+
+#[tokio::test]
+async fn a_delegation_runs_through_the_port_and_is_recorded() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.delegate"], &[], &[], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "delegate_set",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "delegate_to": MONEY_TOKEN,
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let asked = ops.delegations();
+   assert_eq!(asked.len(), 1);
+   assert_eq!(asked[0].chain, 1);
+   assert_eq!(
+      format!("{:#x}", asked[0].delegate_to),
+      MONEY_TOKEN
+   );
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("a record of the delegation");
+
+   assert_eq!(entry.tool, "delegate_set");
+   assert_eq!(entry.capability, "wallet.write.delegate");
+   assert_eq!(entry.decision, AuditDecision::Allowed);
+}
+
+#[tokio::test]
+async fn a_delegation_cannot_be_previewed() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.delegate"], &[], &[], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "delegate_set",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "delegate_to": MONEY_TOKEN,
+          "dry_run": true,
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      error_code(&reply),
+      Some("VALIDATION"),
+      "{}",
+      reply.body
+   );
+   assert!(
+      ops.delegations().is_empty(),
+      "a dry run must never become a real delegation"
    );
 }

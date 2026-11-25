@@ -8,6 +8,7 @@
 
 pub mod audit;
 pub mod env;
+pub mod exec;
 pub mod intent;
 pub mod policy;
 pub mod profile;
@@ -21,6 +22,10 @@ mod tests;
 
 pub use audit::{AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry, BroadcastPath};
 pub use env::{AgentAuthority, AgentEnv};
+pub use exec::{
+   DelegateRequest, ExecCall, ExecError, NftSendRequest, Origin, RevokeRequest, RevokeTarget,
+   SendRequest, TxFlows, TxFuture, WalletLock, execute, preview,
+};
 pub use intent::{Asset, Intent};
 pub use policy::{Decision, Denial, authorise, precheck, vault_open};
 pub use profile::{
