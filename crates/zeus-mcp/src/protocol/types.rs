@@ -81,6 +81,16 @@ pub fn tool_list(tools: Vec<Value>, modern: bool) -> Value {
    cacheable(json!({"tools": tools}), modern)
 }
 
+/// One resource template as `resources/templates/list` shows it.
+pub fn resource_template(uri_template: &str, name: &str, description: &str) -> Value {
+   json!({
+      "uriTemplate": uri_template,
+      "name": name,
+      "description": description,
+      "mimeType": "application/json",
+   })
+}
+
 /// A `resources/list` result.
 pub fn resource_list(resources: Vec<Value>, modern: bool) -> Value {
    cacheable(json!({"resources": resources}), modern)

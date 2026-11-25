@@ -10,7 +10,9 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zeus_core::agent::{AgentProfile, AgentProfileId, AgentProfileStore, ScreenGrant, WalletGrant};
-use zeus_core::{WalletInfo, ZeusCtx};
+use zeus_core::{TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
+use zeus_eth::alloy_primitives::{Address, TxHash};
+use zeus_eth::utils::NumericValue;
 use zeus_mcp::protocol::{LEGACY_VERSION, MODERN_VERSION, meta};
 use zeus_mcp::{NoOps, ServerConfig, ServerHandle, ServerStatus};
 
@@ -42,6 +44,15 @@ struct Fixture {
 impl Fixture {
    /// A server on an ephemeral port, with one credential that may or may not read the wallet list.
    fn start(read_granted: bool) -> Self {
+      if read_granted {
+         Self::with(&[], &["settings.wallets.read"])
+      } else {
+         Self::with(&[], &[])
+      }
+   }
+
+   /// A server whose one profile holds exactly `caps` on its wallet and `screens` on the app.
+   fn with(caps: &[&str], screens: &[&str]) -> Self {
       workspace();
 
       let ctx = ZeusCtx::new(tokio::runtime::Handle::current());
@@ -62,9 +73,9 @@ impl Fixture {
       let (token, hash) = zeus_core::agent::generate_token();
       let mut profile = AgentProfile::new("test harness", hash, 0);
 
-      if read_granted {
+      for screen in screens {
          profile.screens.insert(
-            "settings.wallets.read".to_owned(),
+            (*screen).to_owned(),
             ScreenGrant {
                read: true,
                write: false,
@@ -72,13 +83,16 @@ impl Fixture {
          );
       }
 
-      profile.wallets.insert(
-         address,
-         WalletGrant {
-            enabled: true,
-            ..Default::default()
-         },
-      );
+      let mut grant = WalletGrant {
+         enabled: true,
+         ..Default::default()
+      };
+
+      for capability in caps {
+         grant.caps.insert((*capability).to_owned());
+      }
+
+      profile.wallets.insert(address, grant);
 
       let id = profile.id.clone();
       ctx.agent_profiles().insert(profile);
@@ -408,7 +422,18 @@ async fn the_legacy_handshake_then_a_tool_call_reads_the_wallets() {
       .and_then(Value::as_array)
       .expect("a tool list");
    let names: Vec<&str> = tools.iter().filter_map(|tool| tool["name"].as_str()).collect();
-   assert_eq!(names, ["wallet_list", "zeus_help", "zeus_status"]);
+   assert_eq!(
+      names,
+      [
+         "delegate_status",
+         "settings_get",
+         "settings_list",
+         "wallet_get",
+         "wallet_list",
+         "zeus_help",
+         "zeus_status"
+      ]
+   );
 
    let status = request(
       fixture.port,
@@ -663,7 +688,10 @@ async fn the_grant_decides_which_tools_exist_and_which_calls_run() {
       .and_then(Value::as_array)
       .expect("a tool list");
    let names: Vec<&str> = tools.iter().filter_map(|tool| tool["name"].as_str()).collect();
-   assert_eq!(names, ["zeus_help", "zeus_status"]);
+   assert_eq!(
+      names,
+      ["settings_get", "settings_list", "zeus_help", "zeus_status"]
+   );
 
    let refused = request(
       fixture.port,
@@ -1110,4 +1138,433 @@ async fn the_probe_performs_the_handshake_the_connect_panel_offers() {
       .expect_err("a token that matches no profile must be refused");
 
    assert!(refused.contains("refused the token"), "{refused}");
+}
+
+/// The read capabilities the fixture's one wallet can hold.
+const READ_CAPS: &[&str] = &[
+   "wallet.read.portfolio",
+   "wallet.read.history",
+   "wallet.read.approvals",
+   "wallet.read.private",
+];
+
+/// The global screens the read surface answers for.
+const READ_SCREENS: &[&str] = &[
+   "settings.wallets.read",
+   "settings.general.read",
+   "settings.security.read",
+   "settings.networks.read",
+   "settings.contacts.read",
+   "settings.railgun.read",
+   "settings.pools.read",
+   "settings.dapps.read",
+];
+
+/// The fixture's wallet, as every request names it.
+const WALLET: &str = "0x1111111111111111111111111111111111111111";
+
+/// A tool call, as a harness writes it.
+async fn call_tool(fixture: &Fixture, name: &str, arguments: Value) -> Reply {
+   request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[(
+         "Authorization",
+         &format!("Bearer {}", fixture.token),
+      )],
+      &call(
+         1,
+         "tools/call",
+         json!({"name": name, "arguments": arguments}),
+      ),
+      None,
+   )
+   .await
+}
+
+/// The tool names one list answer carries.
+fn tool_names(reply: &Reply) -> Vec<String> {
+   reply
+      .body
+      .pointer("/result/tools")
+      .and_then(Value::as_array)
+      .map(|tools| {
+         tools
+            .iter()
+            .filter_map(|tool| tool["name"].as_str().map(str::to_owned))
+            .collect()
+      })
+      .unwrap_or_default()
+}
+
+/// The data of a successful tool answer.
+fn data(reply: &Reply) -> &Value {
+   reply
+      .body
+      .pointer("/result/structuredContent/data")
+      .expect("a successful tool answer carries data")
+}
+
+/// The error code of a refused tool answer.
+fn error_code(reply: &Reply) -> Option<&str> {
+   reply
+      .body
+      .pointer("/result/structuredContent/error/code")
+      .and_then(Value::as_str)
+}
+
+#[tokio::test]
+async fn the_read_surface_is_scoped_to_the_grant() {
+   // A profile with nothing granted sees the two meta tools and the list of what it could be granted —
+   // no wallet tool, because the wallet read is itself a grant.
+   let bare = Fixture::with(&[], &[]);
+   let list = request(
+      bare.port,
+      "POST",
+      "/mcp",
+      &[("Authorization", &format!("Bearer {}", bare.token))],
+      &call(1, "tools/list", json!({})),
+      None,
+   )
+   .await;
+
+   assert_eq!(
+      tool_names(&list),
+      ["settings_get", "settings_list", "zeus_help", "zeus_status"]
+   );
+
+   // Granted everything the read surface needs, it is the whole surface and nothing that writes.
+   let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
+   let list = request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[(
+         "Authorization",
+         &format!("Bearer {}", fixture.token),
+      )],
+      &call(1, "tools/list", json!({})),
+      None,
+   )
+   .await;
+
+   assert_eq!(
+      tool_names(&list),
+      [
+         "approvals_list",
+         "contacts_list",
+         "dapps_list",
+         "delegate_status",
+         "networks_list",
+         "pools_list",
+         "portfolio_get",
+         "railgun_status",
+         "settings_get",
+         "settings_list",
+         "tx_get",
+         "tx_history",
+         "wallet_get",
+         "wallet_list",
+         "zeus_help",
+         "zeus_status"
+      ]
+   );
+}
+
+#[tokio::test]
+async fn every_read_tool_answers_for_a_granted_profile() {
+   let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
+   let address: Address = WALLET.parse().expect("the fixture's address");
+
+   // One recorded transaction, so the history tools answer a row rather than an empty shape.
+   let transaction = TransactionRich {
+      chain: 1,
+      block: 42,
+      hash: TxHash::repeat_byte(9),
+      timestamp: TimeStamp::Seconds(1_700_000_000),
+      value_sent: NumericValue::parse_to_wei("1.5", 6),
+      ..Default::default()
+   };
+   fixture
+      .ctx
+      .tx_db()
+      .add_tx(1, address, transaction)
+      .expect("the history records the transaction");
+
+   // No node answers in this fixture, so the delegation check is told it ran a moment ago.
+   fixture.ctx.write(|ctx| {
+      ctx.delegated_wallets.last_check.insert((1, address), u64::MAX);
+   });
+
+   let hash = format!("{:#x}", TxHash::repeat_byte(9));
+
+   let calls: Vec<(&str, Value)> = vec![
+      ("wallet_list", json!({})),
+      ("wallet_get", json!({"wallet": WALLET})),
+      ("portfolio_get", json!({"wallet": WALLET})),
+      (
+         "tx_history",
+         json!({"wallet": WALLET, "chain": 1}),
+      ),
+      ("tx_get", json!({"wallet": WALLET, "hash": hash})),
+      ("approvals_list", json!({"wallet": WALLET})),
+      ("railgun_status", json!({"wallet": WALLET})),
+      (
+         "delegate_status",
+         json!({"wallet": WALLET, "chain": 1}),
+      ),
+      ("contacts_list", json!({})),
+      ("networks_list", json!({})),
+      ("pools_list", json!({})),
+      ("dapps_list", json!({})),
+      ("settings_list", json!({})),
+      ("settings_get", json!({"screen": "general"})),
+      ("settings_get", json!({"screen": "security"})),
+      ("settings_get", json!({"screen": "networks"})),
+      ("settings_get", json!({"screen": "railgun"})),
+      ("settings_get", json!({"screen": "contacts"})),
+      ("settings_get", json!({"screen": "pools"})),
+      ("settings_get", json!({"screen": "dapps"})),
+      ("settings_get", json!({"screen": "wallets"})),
+   ];
+
+   for (name, arguments) in calls {
+      let reply = call_tool(&fixture, name, arguments).await;
+
+      assert_eq!(reply.status, 200, "{name}");
+      assert_eq!(
+         reply.body.pointer("/result/isError"),
+         None,
+         "{name} refused: {}",
+         reply.body
+      );
+      assert!(
+         data(&reply).is_object(),
+         "{name} did not answer an object"
+      );
+   }
+
+   // The row the history tools answer names the recorded block and carries an exact amount: the raw
+   // integer as a string, the readable form beside it, and the token's own decimals.
+   let history = call_tool(
+      &fixture,
+      "tx_history",
+      json!({"wallet": WALLET, "chain": 1}),
+   )
+   .await;
+   let rows = data(&history)["transactions"].as_array().expect("a transaction list");
+
+   assert_eq!(rows.len(), 1);
+   assert_eq!(rows[0]["block"], 42);
+   assert_eq!(rows[0]["value"]["raw"], "1500000");
+   assert!(rows[0]["value"]["amount"].is_string());
+   assert_eq!(
+      rows[0]["value"]["decimals"], 18,
+      "a row whose event names no token falls back to the native decimals"
+   );
+   assert!(rows[0]["value"]["usd"]["known"].is_boolean());
+   assert_eq!(rows[0]["fee"]["decimals"], 18);
+   assert!(
+      rows[0]["timestamp"].as_u64().is_some(),
+      "a row carries the instant it landed"
+   );
+}
+
+#[tokio::test]
+async fn a_read_tool_without_its_capability_names_the_switch() {
+   let fixture = Fixture::with(&[], &["settings.wallets.read"]);
+
+   let reply = call_tool(
+      &fixture,
+      "portfolio_get",
+      json!({"wallet": WALLET}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError").and_then(Value::as_bool),
+      Some(true)
+   );
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(
+      message.contains("wallet.read.portfolio"),
+      "{message}"
+   );
+}
+
+#[tokio::test]
+async fn an_ungranted_wallet_is_not_found_on_the_global_tools() {
+   let fixture = Fixture::with(&[], &["settings.wallets.read"]);
+
+   let reply = call_tool(
+      &fixture,
+      "delegate_status",
+      json!({"wallet": "0x2222222222222222222222222222222222222222"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_FOUND"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(message.contains("0x2222"), "{message}");
+}
+
+#[tokio::test]
+async fn a_locked_vault_refuses_every_read_tool() {
+   let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
+
+   // The auto-lock timer fired: the server is still up, and every wallet read is refused.
+   fixture.ctx.write(|ctx| ctx.locked = true);
+
+   let calls: Vec<(&str, Value)> = vec![
+      ("wallet_list", json!({})),
+      ("wallet_get", json!({"wallet": WALLET})),
+      ("portfolio_get", json!({"wallet": WALLET})),
+      ("tx_history", json!({"wallet": WALLET})),
+      (
+         "tx_get",
+         json!({"wallet": WALLET, "hash": format!("{:#x}", TxHash::repeat_byte(1))}),
+      ),
+      ("approvals_list", json!({"wallet": WALLET})),
+      ("railgun_status", json!({"wallet": WALLET})),
+      ("delegate_status", json!({"wallet": WALLET})),
+      ("contacts_list", json!({})),
+      ("networks_list", json!({})),
+      ("pools_list", json!({})),
+      ("dapps_list", json!({})),
+      ("settings_list", json!({})),
+      ("settings_get", json!({"screen": "general"})),
+   ];
+
+   for (name, arguments) in calls {
+      let reply = call_tool(&fixture, name, arguments).await;
+      assert_eq!(error_code(&reply), Some("VAULT_LOCKED"), "{name}");
+   }
+
+   // Status is the one answer that still works: it is how a harness learns *why* everything else fails.
+   let status = call_tool(&fixture, "zeus_status", json!({})).await;
+
+   assert_eq!(status.body.pointer("/result/isError"), None);
+   assert_eq!(
+      data(&status)["vault"]["unlocked"],
+      false,
+      "status is still answered while locked, and says the wallet is not open"
+   );
+}
+
+#[tokio::test]
+async fn a_settings_screen_needs_its_own_switch() {
+   let fixture = Fixture::with(&[], &["settings.wallets.read"]);
+
+   let refused = call_tool(
+      &fixture,
+      "settings_get",
+      json!({"screen": "general"}),
+   )
+   .await;
+   assert_eq!(error_code(&refused), Some("NOT_GRANTED"));
+
+   // An unknown screen is not a grant refusal at all: this build has no values for it, so it is not
+   // found.
+   let missing = call_tool(
+      &fixture,
+      "settings_get",
+      json!({"screen": "nowhere"}),
+   )
+   .await;
+   assert_eq!(error_code(&missing), Some("NOT_FOUND"));
+}
+
+#[tokio::test]
+async fn a_resource_follows_the_grant_and_the_templates_are_published() {
+   let uri = format!("zeus://wallet/{WALLET}/portfolio");
+
+   let bare = Fixture::with(&[], &[]);
+   let refused = request(
+      bare.port,
+      "POST",
+      "/mcp",
+      &[("Authorization", &format!("Bearer {}", bare.token))],
+      &call(1, "resources/read", json!({"uri": uri})),
+      None,
+   )
+   .await;
+
+   assert_eq!(refused.error_code(), Some(-32602));
+
+   let templates = request(
+      bare.port,
+      "POST",
+      "/mcp",
+      &[("Authorization", &format!("Bearer {}", bare.token))],
+      &call(2, "resources/templates/list", json!({})),
+      None,
+   )
+   .await;
+
+   let templates = templates
+      .body
+      .pointer("/result/resourceTemplates")
+      .and_then(Value::as_array)
+      .expect("a template list");
+
+   assert_eq!(templates.len(), 4);
+
+   // Granted, the same URI answers the same document portfolio_get would.
+   let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
+   let granted = request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[(
+         "Authorization",
+         &format!("Bearer {}", fixture.token),
+      )],
+      &call(1, "resources/read", json!({"uri": uri})),
+      None,
+   )
+   .await;
+
+   assert_eq!(granted.status, 200);
+
+   let text = granted
+      .body
+      .pointer("/result/contents/0/text")
+      .and_then(Value::as_str)
+      .expect("the document as text");
+
+   let document: Value = serde_json::from_str(text).expect("the document is JSON");
+   assert_eq!(document["wallet"], WALLET);
+
+   let screen = request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[(
+         "Authorization",
+         &format!("Bearer {}", fixture.token),
+      )],
+      &call(
+         2,
+         "resources/read",
+         json!({"uri": "zeus://settings/general"}),
+      ),
+      None,
+   )
+   .await;
+
+   assert_eq!(screen.status, 200);
 }

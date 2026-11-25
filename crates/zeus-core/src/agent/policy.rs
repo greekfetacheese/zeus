@@ -111,7 +111,7 @@ impl fmt::Display for Denial {
 
 /// Decide a request at its entry, before anything is built, simulated or signed.
 pub fn precheck(ctx: &ZeusCtx, profile: &AgentProfile, intent: &Intent) -> Decision {
-   if !is_open(ctx) {
+   if !vault_open(ctx) {
       return Decision::Denied(Denial::VaultLocked);
    }
 
@@ -188,7 +188,7 @@ pub fn authorise(
    profile: &AgentProfile,
    analysis: &TransactionAnalysis,
 ) -> Decision {
-   if !is_open(ctx) {
+   if !vault_open(ctx) {
       return Decision::Denied(Denial::VaultLocked);
    }
 
@@ -249,7 +249,11 @@ pub fn authorise(
 ///
 /// Both halves are one question to a caller — an agent must not act on a wallet it cannot see — so the
 /// two flags are read together and a context that is neither is never mistaken for one that is.
-fn is_open(ctx: &ZeusCtx) -> bool {
+///
+/// Public because a caller that answers without a capability — the settings list, which only reports the
+/// profile's own switches — still has to refuse while the app is locked, and it must ask the same
+/// question the policy asks rather than reading the two flags itself.
+pub fn vault_open(ctx: &ZeusCtx) -> bool {
    ctx.read(|open: &ZeusContext| open.vault_unlocked && !open.locked)
 }
 

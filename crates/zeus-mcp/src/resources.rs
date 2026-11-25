@@ -1,26 +1,35 @@
 //! The documents an agent can pull by URI instead of calling a tool.
 //!
 //! Resources are the read surface that never changes shape: the grant the caller is acting under, the
-//! wallets it covers, and the catalog that explains both. They are what a harness re-reads when it wants
-//! context without spending a call, and none of them is secret material — the grant is exactly the
+//! wallets it covers, the catalog that explains both, and — through templates — one wallet's portfolio
+//! or approvals, one transaction, one settings screen. They are what a harness re-reads when it wants
+//! context without spending a call, and none of them is secret material: the grant is exactly the
 //! document the policy enforces, and the caller already presented the credential it belongs to.
 //!
 //! A resource the grant does not cover answers "unknown resource" rather than an empty document, because
 //! an empty document reads as "there is nothing there" and hides the refusal.
 
-use crate::error::ProtocolError;
+use crate::error::{ErrorCode, ProtocolError, ToolError};
 use crate::protocol::types;
-use crate::tools::{Call, catalog, guard, wallets};
+use crate::tools::{Call, catalog, guard, read_error};
 use serde_json::{Value, json};
-use zeus_core::agent::Intent;
+use zeus_core::agent::{Intent, read};
+use zeus_eth::alloy_primitives::Address;
 
-/// One document this server serves.
+/// One document this server serves by a fixed URI.
 pub struct Resource {
    pub uri: &'static str,
    pub name: &'static str,
    pub description: &'static str,
    /// The capability a read needs, or nothing when the document describes the caller's own grant.
    pub capability: Option<&'static str>,
+}
+
+/// One family of documents addressed by a path segment.
+pub struct Template {
+   pub uri: &'static str,
+   pub name: &'static str,
+   pub description: &'static str,
 }
 
 const PROFILE: Resource = Resource {
@@ -46,10 +55,34 @@ const PERMISSIONS: Resource = Resource {
    capability: None,
 };
 
-/// Every resource this server serves, in a stable order.
+/// Every resource this server serves by a fixed URI, in a stable order.
 pub const RESOURCES: &[Resource] = &[PROFILE, PERMISSIONS, WALLETS];
 
-/// A `resources/list` result, scoped to the grant.
+/// Every family of documents addressed by an argument, as RFC 6570 templates.
+pub const TEMPLATES: &[Template] = &[
+   Template {
+      uri: "zeus://wallet/{address}/portfolio",
+      name: "One wallet's portfolio",
+      description: "The portfolio portfolio_get answers for one address.",
+   },
+   Template {
+      uri: "zeus://wallet/{address}/approvals",
+      name: "One wallet's approvals",
+      description: "The approvals approvals_list answers for one address.",
+   },
+   Template {
+      uri: "zeus://tx/{hash}",
+      name: "One transaction",
+      description: "The row tx_get answers for one hash, from whichever granted wallet recorded it.",
+   },
+   Template {
+      uri: "zeus://settings/{screen}",
+      name: "One settings screen",
+      description: "The values settings_get answers for one screen.",
+   },
+];
+
+/// A resources/list result, scoped to the grant.
 pub fn list(call: &Call, modern: bool) -> Value {
    let resources = RESOURCES
       .iter()
@@ -64,35 +97,157 @@ pub fn list(call: &Call, modern: bool) -> Value {
    types::resource_list(resources, modern)
 }
 
-/// A `resources/templates/list` result.
+/// A resources/templates/list result.
 ///
-/// Empty until a tool has an object an agent can address by name rather than by argument.
+/// The templates are the same for every grant: which of them actually answers is decided when one is
+/// read, where the refusal can say why.
 pub fn templates(modern: bool) -> Value {
-   types::resource_template_list(Vec::new(), modern)
+   let templates = TEMPLATES
+      .iter()
+      .map(|template| types::resource_template(template.uri, template.name, template.description))
+      .collect();
+
+   types::resource_template_list(templates, modern)
 }
 
 /// Read one resource by its URI.
 pub fn read(call: &Call, uri: &str, modern: bool) -> Result<Value, ProtocolError> {
-   let resource = RESOURCES
-      .iter()
-      .find(|resource| resource.uri == uri)
-      .ok_or_else(|| ProtocolError::unknown_resource(uri))?;
+   let document = match RESOURCES.iter().find(|resource| resource.uri == uri) {
+      Some(resource) => fixed(call, resource)?,
+      None => keyed(call, uri)?,
+   };
 
+   Ok(types::resource_contents(uri, &document, modern))
+}
+
+/// One document served at a fixed URI.
+fn fixed(call: &Call, resource: &Resource) -> Result<Value, ProtocolError> {
    // An ungranted document is answered as unknown rather than empty: whether it exists is itself part of
    // what the grant decides.
    if let Some(capability) = resource.capability {
-      guard(call, uri, &Intent::GlobalRead { capability })
-         .map_err(|_| ProtocolError::unknown_resource(uri))?;
+      guard(
+         call,
+         resource.uri,
+         &Intent::GlobalRead { capability },
+      )
+      .map_err(|error| refused(resource.uri, error))?;
    }
 
-   let document = match resource.uri {
+   Ok(match resource.uri {
       "zeus://profile" => serde_json::to_value(&call.profile).unwrap_or(Value::Null),
-      "zeus://wallets" => json!({"wallets": wallets::wallets(call)}),
+      "zeus://wallets" => json!({"wallets": crate::tools::wallet::rows(call)}),
       _ => json!({
          "catalog": catalog(&call.profile),
          "switch": crate::protocol::GRANT_LOCATION,
       }),
+   })
+}
+
+/// One document addressed by a path segment.
+fn keyed(call: &Call, uri: &str) -> Result<Value, ProtocolError> {
+   if let Some((address, kind)) = wallet_uri(uri) {
+      let capability = match kind {
+         "portfolio" => "wallet.read.portfolio",
+         "approvals" => "wallet.read.approvals",
+         _ => return Err(ProtocolError::unknown_resource(uri)),
+      };
+
+      guard(
+         call,
+         uri,
+         &Intent::WalletRead {
+            capability,
+            wallet: address,
+         },
+      )
+      .map_err(|error| refused(uri, error))?;
+
+      return call
+         .ctx
+         .read(|ctx| match kind {
+            "portfolio" => read::portfolio(ctx, &call.profile, address, None),
+            _ => read::approvals(ctx, &call.profile, address, None),
+         })
+         .map_err(|error| refused(uri, read_error(error)));
+   }
+
+   if let Some(hash) = uri.strip_prefix("zeus://tx/") {
+      return transaction(call, uri, hash);
+   }
+
+   if let Some(screen) = uri.strip_prefix("zeus://settings/") {
+      let Some(capability) = read::screen_read(screen) else {
+         return Err(ProtocolError::unknown_resource(uri));
+      };
+
+      guard(call, uri, &Intent::GlobalRead { capability }).map_err(|error| refused(uri, error))?;
+
+      return call
+         .ctx
+         .read(|ctx| read::screen(ctx, &call.profile, screen))
+         .map_err(|error| refused(uri, read_error(error)));
+   }
+
+   Err(ProtocolError::unknown_resource(uri))
+}
+
+/// One transaction, from whichever granted wallet recorded it.
+///
+/// A hash does not name its wallet, so the search runs over the wallets whose grant allows history; a hash
+/// no granted wallet recorded is unknown, exactly as an ungranted document is.
+fn transaction(call: &Call, uri: &str, hash: &str) -> Result<Value, ProtocolError> {
+   let wallets: Vec<Address> = call
+      .profile
+      .wallets
+      .iter()
+      .filter(|(_, grant)| grant.enabled && grant.caps.contains("wallet.read.history"))
+      .map(|(address, _)| *address)
+      .collect();
+
+   let Some(&first) = wallets.first() else {
+      return Err(ProtocolError::unknown_resource(uri));
    };
 
-   Ok(types::resource_contents(uri, &document, modern))
+   guard(
+      call,
+      uri,
+      &Intent::WalletRead {
+         capability: "wallet.read.history",
+         wallet: first,
+      },
+   )
+   .map_err(|error| refused(uri, error))?;
+
+   let hash = hash.parse().map_err(|_| ProtocolError::unknown_resource(uri))?;
+
+   for wallet in wallets {
+      if let Ok(document) = call.ctx.read(|ctx| read::transaction(ctx, &call.profile, wallet, hash))
+      {
+         return Ok(document);
+      }
+   }
+
+   Err(ProtocolError::unknown_resource(uri))
+}
+
+/// A refusal a resource read cannot carry as a tool error.
+///
+/// A locked vault is reported as unavailable rather than unknown, because "unknown resource" would be a
+/// lie a user could act on: the document exists, it is simply unreadable until the app is unlocked.
+fn refused(uri: &str, error: ToolError) -> ProtocolError {
+   match error.code {
+      ErrorCode::VaultLocked => ProtocolError::new(
+         ProtocolError::INTERNAL_ERROR,
+         format!("Zeus is locked: {uri} is unreadable until it is unlocked"),
+      )
+      .with_data(json!({"code": "VAULT_LOCKED"})),
+      _ => ProtocolError::unknown_resource(uri),
+   }
+}
+
+/// The wallet and the document a wallet URI names.
+fn wallet_uri(uri: &str) -> Option<(Address, &str)> {
+   let rest = uri.strip_prefix("zeus://wallet/")?;
+   let (address, kind) = rest.split_once('/')?;
+   Some((address.parse().ok()?, kind))
 }

@@ -10,8 +10,17 @@
 //! lands, and a refusal always is, because "it tried to send outside its allowlist" is the line a user
 //! most needs to see.
 
+pub mod approvals;
+pub mod contacts;
+pub mod dapps;
 pub mod meta;
-pub mod wallets;
+pub mod networks;
+pub mod pools;
+pub mod portfolio;
+pub mod railgun;
+pub mod settings;
+pub mod tx;
+pub mod wallet;
 
 use crate::error::{ErrorCode, ProtocolError, ToolError};
 use crate::now_secs;
@@ -25,10 +34,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 use zeus_core::ZeusCtx;
+use zeus_core::agent::read::ReadError;
 use zeus_core::agent::{
    AgentProfile, AuditEntry, CAPABILITIES, CapabilityScope, Decision, Denial, Intent, PrivacyBadge,
    capability, precheck,
 };
+use zeus_eth::alloy_primitives::Address;
+use zeus_eth::types::ChainId;
 
 /// Everything one call is given.
 #[derive(Clone)]
@@ -117,7 +129,24 @@ impl ToolSpec {
 }
 
 /// Every tool this build has, in the order the protocol asks for: sorted by name.
-pub const TOOLS: &[ToolSpec] = &[wallets::LIST, meta::HELP, meta::STATUS];
+pub const TOOLS: &[ToolSpec] = &[
+   approvals::LIST,
+   contacts::LIST,
+   dapps::LIST,
+   wallet::DELEGATE,
+   networks::LIST,
+   pools::LIST,
+   portfolio::GET,
+   railgun::STATUS,
+   settings::GET,
+   settings::LIST,
+   tx::GET,
+   tx::HISTORY,
+   wallet::GET,
+   wallet::LIST,
+   meta::HELP,
+   meta::STATUS,
+];
 
 /// The tool with that name, if this build has one.
 pub fn find(name: &str) -> Option<&'static ToolSpec> {
@@ -194,16 +223,94 @@ pub async fn call_request(
 }
 
 /// Gate one call and run it.
+///
+/// The intent is built from the capability's own scope, because the same string decides differently in
+/// each: a wallet-scoped read is decided against the wallet the call names, and a global one against the
+/// profile. Asking the catalog rather than the tool table keeps the two from drifting.
 pub async fn run(spec: &ToolSpec, call: &Call, arguments: Value) -> Result<ToolOutput, ToolError> {
    if let Some(name) = spec.capability {
-      guard(
-         call,
-         spec.name,
-         &Intent::GlobalRead { capability: name },
-      )?;
+      let intent = if capability(name).is_some_and(|entry| entry.scope == CapabilityScope::Wallet) {
+         Intent::WalletRead {
+            capability: name,
+            wallet: wallet_argument(&arguments)?,
+         }
+      } else {
+         Intent::GlobalRead { capability: name }
+      };
+
+      guard(call, spec.name, &intent)?;
    }
 
    (spec.call)(call, arguments).await
+}
+
+/// The wallet address a call names.
+pub fn wallet_argument(arguments: &Value) -> Result<Address, ToolError> {
+   let text = arguments
+      .get("wallet")
+      .and_then(Value::as_str)
+      .ok_or_else(|| ToolError::validation("wallet is required: the address wallet_list shows"))?;
+
+   text
+      .parse()
+      .map_err(|_| ToolError::validation(format!("wallet is not an address: {text}")))
+}
+
+/// The chain a call names, if it names one.
+pub fn chain_argument(arguments: &Value) -> Result<Option<u64>, ToolError> {
+   let Some(value) = arguments.get("chain") else {
+      return Ok(None);
+   };
+
+   if value.is_null() {
+      return Ok(None);
+   }
+
+   let chain = value.as_u64().ok_or_else(|| ToolError::validation("chain must be a number"))?;
+
+   if !ChainId::is_supported(chain) {
+      return Err(ToolError::new(
+         ErrorCode::Unsupported,
+         format!("chain {chain} is not one Zeus supports"),
+      ));
+   }
+
+   Ok(Some(chain))
+}
+
+/// A whole-number argument with a default.
+pub fn integer_argument(arguments: &Value, key: &str, default: u64) -> Result<u64, ToolError> {
+   match arguments.get(key) {
+      None | Some(Value::Null) => Ok(default),
+      Some(value) => value
+         .as_u64()
+         .ok_or_else(|| ToolError::validation(format!("{key} must be a whole number"))),
+   }
+}
+
+/// A string argument a call cannot run without.
+pub fn string_argument<'a>(arguments: &'a Value, key: &str) -> Result<&'a str, ToolError> {
+   arguments
+      .get(key)
+      .and_then(Value::as_str)
+      .ok_or_else(|| ToolError::validation(format!("{key} is required")))
+}
+
+/// The refusal a projection's error becomes, naming the switch the way the policy does.
+pub fn read_error(error: ReadError) -> ToolError {
+   match error {
+      ReadError::NotGranted { capability } => ToolError::new(
+         ErrorCode::NotGranted,
+         format!("the grant does not include {capability}"),
+      )
+      .with_hint(format!(
+         "Ask the app owner to grant {capability} in {GRANT_LOCATION}, then try again."
+      )),
+      ReadError::NotFound { what, id } => ToolError::new(
+         ErrorCode::NotFound,
+         format!("no {what} {id} is available to this profile"),
+      ),
+   }
 }
 
 /// Decide a request against the grant, and record a refusal.
