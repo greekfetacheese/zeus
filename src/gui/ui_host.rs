@@ -158,6 +158,13 @@ impl UiHost for GuiHost {
       });
    }
 
+   fn set_bundler_url(&self, url: String) {
+      SHARED_GUI.write(|gui| {
+         gui.shield_ui.set_bundler_url(url);
+         gui.request_repaint();
+      });
+   }
+
    fn lockout_and_shutdown(&self, msg: &str) {
       SHARED_GUI.write(|gui| {
          gui.open_msg_window(msg);

@@ -10,13 +10,12 @@
 //! gate as every other tool, so a locked vault and an ungranted screen read exactly as they do elsewhere.
 
 use super::{
-   Call, ToolFuture, ToolOutput, ToolSpec, decide, guard, read_error, record_allowed,
-   record_refusal, refusal, settings_error, string_argument,
+   Call, ToolFuture, ToolOutput, ToolSpec, ask_user, decide, guard, read_error, record_allowed,
+   refusal, settings_error, string_argument,
 };
 use crate::error::{ErrorCode, ToolError};
 use crate::protocol::types::Annotations;
 use serde_json::{Value, json};
-use zeus_core::agent::settings::SettingsError;
 use zeus_core::agent::{Decision, Intent, read, settings, vault_open};
 
 pub const LIST: ToolSpec = ToolSpec {
@@ -165,24 +164,7 @@ fn set(call: &Call, arguments: Value) -> ToolFuture<'_> {
          Decision::Allowed { prompt: true } => {
             let title = format!("Let the agent write the {screen_name} settings?");
 
-            if let Err(error) = settings::confirm(&title).await {
-               let detail = error.to_string();
-               let code = match &error {
-                  SettingsError::Busy => "BUSY",
-                  SettingsError::Rejected => "USER_REJECTED",
-                  _ => "NO_UI",
-               };
-
-               record_refusal(
-                  call,
-                  "settings_set",
-                  screen.capability,
-                  code,
-                  &detail,
-               );
-
-               return Err(settings_error(error));
-            }
+            ask_user(call, "settings_set", screen.capability, &title).await?;
          }
          decision => refusal(&intent, decision)?,
       }

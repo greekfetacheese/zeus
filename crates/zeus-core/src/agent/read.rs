@@ -13,8 +13,9 @@
 use super::profile::{AgentProfile, WalletGrant};
 use super::settings;
 use crate::context::{WalletPortfolio, ZeusContext};
-use crate::platform::truncate_address;
+use crate::platform::{truncate_address, url_host};
 use crate::tx::events::{NftApproveParams, PermitParams, TokenApproveParams};
+use crate::types::BundlerUrl;
 use crate::{DecodedEvent, TransactionRich, WalletInfo};
 use serde_json::{Value, json};
 use zeus_eth::alloy_primitives::{Address, TxHash};
@@ -66,6 +67,10 @@ pub const SCREENS: &[Screen] = &[
    Screen {
       name: "railgun",
       read: "settings.railgun.read",
+   },
+   Screen {
+      name: "unshield",
+      read: "settings.unshield.read",
    },
    Screen {
       name: "pools",
@@ -369,6 +374,7 @@ pub fn screen(ctx: &ZeusContext, profile: &AgentProfile, name: &str) -> Result<V
       "networks" => networks(ctx),
       "contacts" => json!({"contacts": contacts(ctx)}),
       "railgun" => railgun_settings(ctx),
+      "unshield" => unshield_settings(ctx),
       "pools" => pools(ctx, None),
       "dapps" => dapps(ctx),
       "wallets" => json!({"wallets": wallets(ctx, profile)}),
@@ -542,6 +548,19 @@ fn railgun_settings(ctx: &ZeusContext) -> Value {
        "chains": chains,
        "allow_circuit_download": config.allow_circuit_download(),
        "state_update_interval_minutes": config.state_update_interval_secs() / 60,
+   })
+}
+
+/// The settings screen `unshield` reads: the bundler that would submit an unshield UserOperation.
+///
+/// Only the host is answered. The full URL usually carries a provider key in its path or its query — the
+/// page shows the host for the same reason — so a grant on this screen never hands a credential over.
+fn unshield_settings(ctx: &ZeusContext) -> Value {
+   json!({
+       "bundler": {
+           "host": url_host(&ctx.bundler_url.url),
+           "stored": BundlerUrl::exists().unwrap_or(false),
+       },
    })
 }
 

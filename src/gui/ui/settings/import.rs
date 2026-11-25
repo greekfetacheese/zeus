@@ -4,7 +4,6 @@ use crate::core::{data_dir, data_import::import_data_from_zip};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common;
-use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::utils::state;
 use egui::{Frame, Id, Margin, Order, RichText, Ui, vec2};
 use egui_elements::{Button, CredentialsForm, Modal, Theme};
@@ -230,20 +229,8 @@ impl ImportDataUi {
 
          match ctx.reload_from_data_dir(imported.vault) {
             Ok((master_wallet, argon)) => {
-               let key = ctx.read_vault(|vault| vault.wallet_state_key().ok());
-               let bundler_url = match key {
-                  Some(key) => match BundlerUrl::exists() {
-                     Ok(true) => match BundlerUrl::load(&key) {
-                        Ok(url) => Some(url.url),
-                        Err(e) => {
-                           tracing::error!("Error loading Bundler URL: {:?}", e);
-                           None
-                        }
-                     },
-                     _ => None,
-                  },
-                  None => None,
-               };
+               // The reload read the imported bundler URL with the imported key.
+               let bundler_url = ctx.bundler_url().url;
 
                // The reload just read the imported `security.data`, so this is the imported file's
                // verdict — read it before `ctx` goes to `on_startup`.
@@ -266,9 +253,7 @@ impl ImportDataUi {
                   gui.account_panel.open();
                   gui.account_panel.set_current_wallet(master_wallet);
                   gui.portofolio.open();
-                  if let Some(url) = bundler_url {
-                     gui.shield_ui.set_bundler_url(url);
-                  }
+                  gui.shield_ui.set_bundler_url(bundler_url);
                   gui.loading_window.reset();
 
                   let mut msg = format!("Imported {n} files");

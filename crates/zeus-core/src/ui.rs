@@ -126,6 +126,12 @@ pub trait UiHost: Send + Sync + 'static {
    /// drops it.
    fn announce(&self, _message: &str) {}
 
+   /// Point the Shield/Unshield page at the bundler URL that was just stored.
+   ///
+   /// The page keeps its own copy of the field — that copy is what a send reads — so a write that only
+   /// reached the sealed file would not take effect until the next launch.
+   fn set_bundler_url(&self, _url: String) {}
+
    fn lockout_and_shutdown(&self, msg: &str);
 }
 
@@ -153,6 +159,11 @@ pub fn host() -> &'static dyn UiHost {
 /// watching the screen can still receive.
 pub fn announce(message: &str) {
    host().announce(message);
+}
+
+/// Point the page that sends unshields at the URL that was just stored.
+pub fn set_bundler_url(url: String) {
+   host().set_bundler_url(url);
 }
 
 /// The host used when `main` never installed one: no prompt can be answered, so

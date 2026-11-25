@@ -17,13 +17,18 @@
 //! 3. **The save is the screen's own.** A screen backed by a sealed store writes through the helper that
 //!    store already has; a write can never invent a second on-disk shape.
 //!
-//! Writes whose shape is a verb rather than a set of fields — adding a contact, adding an RPC endpoint,
-//! deriving a wallet — are the tools that own them, not a patch here.
+//! A write whose shape is a verb rather than a set of fields belongs to the tool built for it, not to a
+//! patch: `networks_set_rpc` adds, removes, enables and MEV-protects one endpoint, and the rest — adding
+//! a contact, adding a pool, disconnecting an app, exporting the data directory, deriving a wallet —
+//! arrives with the tools that own them. Those screens therefore stay readable and not writable, and
+//! `settings_list` is where that says so.
 
 mod contacts;
 mod general;
 mod networks;
+mod railgun;
 mod security;
+mod unshield;
 
 #[cfg(test)]
 mod tests;
@@ -187,7 +192,9 @@ pub const SCREENS: &[SettingsScreen] = &[
    contacts::SCREEN,
    general::SCREEN,
    networks::SCREEN,
+   railgun::SCREEN,
    security::SCREEN,
+   unshield::SCREEN,
 ];
 
 /// The screen with that name, if this build can write it.

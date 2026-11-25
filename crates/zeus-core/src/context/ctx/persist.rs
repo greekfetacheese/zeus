@@ -392,22 +392,24 @@ impl ZeusCtx {
    }
 
    pub fn save_client_manager(&self) {
-      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
-         Ok(k) => k,
-         Err(e) => {
-            tracing::error!("Error saving ClientManager: {:?}", e);
-            return;
-         }
-      };
-      let client = self.get_client_manager();
-      match client.save_to_file(&key) {
+      match self.try_save_client_manager() {
          Ok(_) => tracing::trace!("ClientManager saved"),
          Err(e) => tracing::error!("Error saving ClientManager: {:?}", e),
       }
+   }
 
-      if let Err(e) = client.save_settings() {
-         tracing::error!("Error saving client settings: {:?}", e);
-      }
+   /// Write `providers.data` and `client_settings.json`, keeping the first error.
+   ///
+   /// Both files are attempted whatever the other did, as the frame's own save has always done. A caller
+   /// that is not a frame needs the result: a refused write is reported, not left in the log.
+   pub fn try_save_client_manager(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let client = self.get_client_manager();
+
+      let providers = client.save_to_file(&key);
+      let settings = client.save_settings();
+
+      providers.and(settings)
    }
 
    /// Load sealed `providers.data` into the live client (no-op if the file is missing).
@@ -520,6 +522,7 @@ impl ZeusCtx {
       self.set_wallet_state(wallet_state);
       self.load_tx_db();
       self.load_security_settings()?;
+      self.load_bundler_url()?;
 
       self.address_book().replace_from(&AddressBookHandle::default());
       self.ens_cache().clear();
@@ -704,5 +707,35 @@ impl ZeusCtx {
    /// result, so a refused write is reported rather than left in the log.
    pub fn save_misc_config(&self) -> Result<(), anyhow::Error> {
       self.read(|ctx| ctx.misc_config.clone()).save()
+   }
+
+   /// Read `data/bundler_url.data` into the live context.
+   ///
+   /// A missing file is a first run, and the default for Ethereum is the answer then — the same value the
+   /// page starts with, so an unset bundler and an unread one behave alike.
+   pub fn load_bundler_url(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+
+      let url = if BundlerUrl::exists()? {
+         BundlerUrl::load(&key)?
+      } else {
+         BundlerUrl::default()
+      };
+
+      self.write(|ctx| ctx.bundler_url = url);
+      Ok(())
+   }
+
+   /// The bundler URL the running app would use.
+   pub fn bundler_url(&self) -> BundlerUrl {
+      self.read(|ctx| ctx.bundler_url.clone())
+   }
+
+   /// Seal and write `data/bundler_url.data`, keeping the live copy in step.
+   pub fn save_bundler_url(&self, url: BundlerUrl) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      url.save(&key)?;
+      self.write(|ctx| ctx.bundler_url = url);
+      Ok(())
    }
 }

@@ -16,8 +16,8 @@ use crate::tx::fees::FeeTiers;
 use crate::{
    WalletInfo, WalletStateKey, ZK_ADDRESS_UNAVAILABLE,
    context::{
-      DELEGATE_WALLET_CHECK_TIMEOUT, disabled_chains_dir, misc_config_dir, railgun_config_dir,
-      security_dir,
+      DELEGATE_WALLET_CHECK_TIMEOUT, bundler_url_dir, disabled_chains_dir, misc_config_dir,
+      railgun_config_dir, security_dir,
    },
 };
 
@@ -169,6 +169,52 @@ impl RailgunConfig {
 impl Default for RailgunConfig {
    fn default() -> Self {
       Self::new()
+   }
+}
+
+/// Where an unshield sends its UserOperation, sealed with the vault-held key.
+///
+/// The URL is infrastructure, but it is not public: a provider key usually rides in the path or the
+/// query (`https://api.example/rpc?apikey=…`), which is why the app never prints it and why the read
+/// surface answers its host instead. It is sealed rather than written as JSON for the same reason.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BundlerUrl {
+   pub url: String,
+}
+
+/// Bound the ciphertext to this logical slot (AAD).
+const BUNDLER_URL_AAD: &[u8] = b"zeus-bundler-url-v1";
+
+impl Default for BundlerUrl {
+   fn default() -> Self {
+      Self {
+         url: crate::urls::pimlico_bundler(1),
+      }
+   }
+}
+
+impl BundlerUrl {
+   pub fn new(url: String) -> Self {
+      Self { url }
+   }
+
+   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      let sealed = key.seal_json(self, BUNDLER_URL_AAD)?;
+      write_private_atomic(&Self::dir()?, &sealed)?;
+      Ok(())
+   }
+
+   pub fn load(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let sealed = std::fs::read(Self::dir()?)?;
+      key.open_json(&sealed, BUNDLER_URL_AAD)
+   }
+
+   pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
+      bundler_url_dir()
+   }
+
+   pub fn exists() -> Result<bool, anyhow::Error> {
+      Ok(Self::dir()?.exists())
    }
 }
 
@@ -1814,6 +1860,28 @@ mod tests {
             MAX_AMBIENT_INTERVAL_SECS
          ),
          (0.0, 120.0)
+      );
+   }
+
+   #[test]
+   fn a_bundler_url_seals_with_its_own_aad() {
+      let key = WalletStateKey::generate().expect("a key");
+      let url = BundlerUrl::new("https://example.invalid/rpc".into());
+      let sealed = key.seal_json(&url, BUNDLER_URL_AAD).expect("sealed");
+      let loaded: BundlerUrl = key.open_json(&sealed, BUNDLER_URL_AAD).expect("opened");
+
+      assert_eq!(loaded.url, url.url);
+      assert!(
+         key.open_json::<BundlerUrl>(&sealed, b"wrong-aad").is_err(),
+         "the slot is bound to its own AAD, so one store's bytes cannot open as another's"
+      );
+   }
+
+   #[test]
+   fn a_bundler_url_defaults_to_the_ethereum_endpoint() {
+      assert_eq!(
+         BundlerUrl::default().url,
+         crate::urls::pimlico_bundler(1)
       );
    }
 }

@@ -254,6 +254,7 @@ impl ZeusContext {
          railgun_status: RailgunStatus::new(),
          railgun_config,
          misc_config,
+         bundler_url: BundlerUrl::default(),
       }
    }
 

@@ -136,6 +136,7 @@ pub const TOOLS: &[ToolSpec] = &[
    dapps::LIST,
    wallet::DELEGATE,
    networks::LIST,
+   networks::SET_RPC,
    pools::LIST,
    portfolio::GET,
    railgun::STATUS,
@@ -388,6 +389,40 @@ fn denial_error(denial: &Denial, capability: &str) -> ToolError {
       )),
       _ => error,
    }
+}
+
+/// Ask the user before a write, and record what they answered.
+///
+/// `precheck` has always answered `Allowed { prompt: true }` for a write in the mode where every change
+/// is confirmed, and the gate in front of a tool only looks at "allowed" — so the tool that can reach
+/// such a write asks here, through the app's generic yes/no window. No answer is not "yes": a busy
+/// window, a declined prompt and a window that cannot be drawn are three refusals, and each is recorded
+/// before it is answered, because "it asked and nobody agreed" is exactly what a user needs to see.
+pub async fn ask_user(
+   call: &Call,
+   subject: &str,
+   capability: &str,
+   title: &str,
+) -> Result<(), ToolError> {
+   let Err(error) = zeus_core::agent::settings::confirm(title).await else {
+      return Ok(());
+   };
+
+   let code = match &error {
+      SettingsError::Busy => "BUSY",
+      SettingsError::Rejected => "USER_REJECTED",
+      _ => "NO_UI",
+   };
+
+   record_refusal(
+      call,
+      subject,
+      capability,
+      code,
+      &error.to_string(),
+   );
+
+   Err(settings_error(error))
 }
 
 /// Write one refusal to the audit ring.

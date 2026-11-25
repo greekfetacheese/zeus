@@ -27,6 +27,18 @@ pub fn truncate_address(address: String) -> String {
    format!("{head}...{tail}")
 }
 
+/// The host part of a URL: what sits between `://` and the first `/` or `?`.
+///
+/// This is the part of an endpoint that a caller may echo. A provider key usually rides in the path or
+/// the query, so a spoken sentence, an accessibility label or an answer to an agent names the host and
+/// nothing else. `None` means the string is not shaped like a URL at all.
+pub fn url_host(url: &str) -> Option<&str> {
+   let (_, rest) = url.split_once("://")?;
+   let host = rest.split(['/', '?']).next()?;
+
+   if host.is_empty() { None } else { Some(host) }
+}
+
 pub fn truncate_hash(hash: String) -> String {
    if hash.len() > 38 {
       format!("{}...{}", &hash[..6], &hash[hash.len() - 4..])

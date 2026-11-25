@@ -134,6 +134,17 @@ impl Fixture {
       self.ctx.agent_profiles()
    }
 
+   /// Give the context the key a sealed store is written with.
+   ///
+   /// The real app has one from the first unlock; a test that writes a sealed file has to make one, or the
+   /// save is refused for a reason that has nothing to do with what the test is about.
+   fn with_wallet_state_key(&self) {
+      self
+         .ctx
+         .write_vault(|vault| vault.ensure_wallet_state_key())
+         .expect("a wallet state key");
+   }
+
    /// Put the profile in the cautious mode, where every state change is asked about.
    fn ask_before_every_change(&self) {
       let mut profile = self.store().profile(&self.profile).expect("the fixture's profile");
@@ -1187,6 +1198,7 @@ const READ_SCREENS: &[&str] = &[
    "settings.networks.read",
    "settings.contacts.read",
    "settings.railgun.read",
+   "settings.unshield.read",
    "settings.pools.read",
    "settings.dapps.read",
 ];
@@ -1494,6 +1506,10 @@ async fn a_locked_vault_refuses_every_tool_but_status() {
          "settings_set",
          json!({"screen": "general", "patch": {"check_for_updates": true}}),
       ),
+      (
+         "networks_set_rpc",
+         json!({"chain": 1, "url": "https://example.invalid", "action": "add"}),
+      ),
    ];
 
    for (name, arguments) in calls {
@@ -1742,10 +1758,18 @@ async fn settings_list_says_which_screens_this_build_can_write() {
    );
    assert_eq!(general["write"], false, "the grant does not");
 
+   for name in ["railgun", "unshield"] {
+      assert_eq!(
+         row(name)["writable"],
+         true,
+         "this build writes {name}"
+      );
+   }
+
    let pools = row("pools");
    assert_eq!(
       pools["writable"], false,
-      "no writer for pools yet"
+      "no writer for pools: adding one is an action, not a patch"
    );
    assert_eq!(
       pools["read"], false,
@@ -1884,4 +1908,216 @@ async fn a_resource_follows_the_grant_and_the_templates_are_published() {
    .await;
 
    assert_eq!(screen.status, 200);
+}
+
+#[tokio::test]
+async fn a_railgun_patch_is_saved_for_the_next_launch() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.railgun.read"],
+      &["settings.railgun.write"],
+   );
+   fixture.with_wallet_state_key();
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "railgun", "patch": {"syncer_concurrency": 3}}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(
+      data(&reply)["changed"],
+      json!(["syncer_concurrency"])
+   );
+   assert_eq!(
+      data(&reply)["values"]["syncer_concurrency"],
+      3,
+      "the answer carries the screen as it stands now"
+   );
+   assert_eq!(
+      fixture.ctx.read(|ctx| ctx.railgun_config.rpc_syncer_concurrency()),
+      3
+   );
+
+   // The file a restart reads, not only the copy in memory.
+   let saved = std::fs::read_to_string(workspace().join("data").join("railgun_config.json"))
+      .expect("the saved config");
+
+   assert!(
+      saved.contains("\"rpc_syncer_concurrency\":3"),
+      "{saved}"
+   );
+}
+
+#[tokio::test]
+async fn an_unshield_bundler_url_is_saved_and_answered_as_a_host() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.unshield.read"],
+      &["settings.unshield.write"],
+   );
+   fixture.with_wallet_state_key();
+
+   let url = "https://bundler.example/v1/1/rpc?apikey=secret";
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "unshield", "patch": {"bundler_url": url}}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["changed"], json!(["bundler_url"]));
+   assert_eq!(
+      data(&reply)["values"]["bundler"]["host"],
+      "bundler.example",
+      "the answer names the host, which is the part without the key"
+   );
+
+   let answer = data(&reply).to_string();
+   assert!(!answer.contains("apikey"), "{answer}");
+
+   assert_eq!(fixture.ctx.bundler_url().url, url);
+   assert!(workspace().join("data").join("bundler_url.data").exists());
+}
+
+#[tokio::test]
+async fn an_endpoint_can_be_disabled_mev_protected_and_removed() {
+   let fixture = Fixture::with_writes(
+      &[],
+      &["settings.networks.read"],
+      &["settings.networks.write"],
+   );
+   fixture.with_wallet_state_key();
+
+   // Zeus ships endpoints for Ethereum; acting on one of them keeps this test off the network.
+   let url = fixture
+      .ctx
+      .get_client_manager()
+      .get_rpcs(1)
+      .keys()
+      .next()
+      .expect("a built-in endpoint")
+      .to_string();
+
+   let reply = call_tool(
+      &fixture,
+      "networks_set_rpc",
+      json!({"chain": 1, "url": url, "action": "disable"}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["endpoint"]["enabled"], false);
+
+   let reply = call_tool(
+      &fixture,
+      "networks_set_rpc",
+      json!({"chain": 1, "url": url, "action": "mev_protect", "value": true}),
+   )
+   .await;
+
+   assert_eq!(data(&reply)["endpoint"]["mev_protect"], true);
+
+   let reply = call_tool(
+      &fixture,
+      "networks_set_rpc",
+      json!({"chain": 1, "url": url, "action": "remove"}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert!(
+      !fixture.ctx.get_client_manager().get_rpcs(1).contains_key(url.as_str()),
+      "the endpoint is gone from the live set"
+   );
+
+   // A write that landed is on the ring, whatever it changed.
+   let entry = fixture.ctx.agent_audit().tail(10).last().cloned().expect("an audit entry");
+
+   assert_eq!(entry.tool, "networks_set_rpc");
+   assert_eq!(entry.capability, "settings.networks.write");
+   assert_eq!(
+      entry.decision,
+      zeus_core::agent::AuditDecision::Allowed
+   );
+}
+
+#[tokio::test]
+async fn an_endpoint_change_needs_the_networks_write_switch() {
+   let fixture = Fixture::with(&[], &["settings.networks.read"]);
+
+   let reply = call_tool(
+      &fixture,
+      "networks_set_rpc",
+      json!({"chain": 1, "url": "https://example.invalid", "action": "add"}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(
+      message.contains("settings.networks.write"),
+      "{message}"
+   );
+}
+
+#[tokio::test]
+async fn adding_an_endpoint_that_is_already_listed_is_refused_first() {
+   let fixture = Fixture::with_writes(&[], &[], &["settings.networks.write"]);
+
+   let url = fixture
+      .ctx
+      .get_client_manager()
+      .get_rpcs(1)
+      .keys()
+      .next()
+      .expect("a built-in endpoint")
+      .to_string();
+
+   let before = fixture.ctx.get_client_manager().get_rpcs(1).len();
+
+   let reply = call_tool(
+      &fixture,
+      "networks_set_rpc",
+      json!({"chain": 1, "url": url, "action": "add"}),
+   )
+   .await;
+
+   // Refused before a connection is attempted: re-adding would replace a record the user set up,
+   // health readings included.
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+   assert_eq!(
+      fixture.ctx.get_client_manager().get_rpcs(1).len(),
+      before
+   );
 }

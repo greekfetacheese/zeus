@@ -865,6 +865,14 @@ impl ClientManager {
       self.evict_client(chain, url);
    }
 
+   /// Turn MEV-protect on or off for one endpoint.
+   ///
+   /// The endpoint's own record is the only place this lives: `get_mev_protect_client` reads it from
+   /// there, so there is no second, global flag to keep in step.
+   pub fn set_rpc_mev_protect(&self, chain: u64, url: &str, protect: bool) {
+      self.update_rpc(chain, url, |rpc| rpc.mev_protect = protect);
+   }
+
    pub async fn run_latency_check_for(&self, rpc: Rpc) {
       let client = connect_rpc(&rpc, REQUEST_TIMEOUT).await;
 

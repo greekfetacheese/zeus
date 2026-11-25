@@ -311,3 +311,209 @@ fn a_screen_with_no_writer_says_so_instead_of_offering_a_schema() {
    assert!(described["schema"].is_null());
    assert!(screen("pools").is_none());
 }
+
+#[test]
+fn a_railgun_patch_sets_the_knobs_and_the_chain_it_names() {
+   let ctx = context();
+
+   let patch = railgun::check(&json!({
+      "syncer_concurrency": 4,
+      "state_update_interval_minutes": 15,
+      "allow_circuit_download": true,
+      "chains": [{"chain": 1, "enabled": true, "block_range": 500}],
+   }))
+   .expect("a patch");
+
+   assert_eq!(
+      railgun::apply(&ctx, patch).expect("the patch applies").changed,
+      [
+         "syncer_concurrency",
+         "state_update_interval_minutes",
+         "allow_circuit_download",
+         "chains"
+      ]
+   );
+
+   let config = ctx.read(|ctx| ctx.railgun_config.clone());
+
+   assert_eq!(config.rpc_syncer_concurrency(), 4);
+   assert_eq!(config.state_update_interval_secs(), 15 * 60);
+   assert!(config.allow_circuit_download());
+   assert!(config.is_enabled(1));
+   assert_eq!(config.rpc_syncer_block_range(1), 500);
+}
+
+#[test]
+fn a_railgun_number_outside_the_range_the_slider_allows_is_refused() {
+   for (patch, expected) in [
+      (
+         json!({"syncer_concurrency": 11}),
+         "between 1 and 10",
+      ),
+      (
+         json!({"state_update_interval_minutes": 0}),
+         "between 1 and 60",
+      ),
+      (
+         json!({"chains": [{"chain": 1, "block_range": 50}]}),
+         "between 100 and 30000",
+      ),
+   ] {
+      let error = railgun::check(&patch).expect_err("out of range");
+
+      assert!(error.to_string().contains(expected), "{error}");
+   }
+}
+
+#[test]
+fn a_railgun_chain_it_cannot_run_on_is_refused_before_anything_lands() {
+   let ctx = context();
+   let before = ctx.read(|ctx| ctx.railgun_config.rpc_syncer_concurrency());
+
+   let patch = railgun::check(&json!({
+      "syncer_concurrency": 4,
+      "chains": [{"chain": 8453, "enabled": true}],
+   }))
+   .expect("a patch");
+
+   let error = railgun::apply(&ctx, patch).expect_err("Railgun does not run on Base");
+
+   assert!(
+      error.to_string().contains("Ethereum and Ethereum Sepolia"),
+      "{error}"
+   );
+   assert_eq!(
+      ctx.read(|ctx| ctx.railgun_config.rpc_syncer_concurrency()),
+      before,
+      "a refused patch changes nothing at all"
+   );
+   assert!(!ctx.read(|ctx| ctx.railgun_config.is_enabled(8453)));
+}
+
+#[test]
+fn a_railgun_chain_entry_has_to_say_something_and_say_it_once() {
+   let empty = railgun::check(&json!({"chains": [{"chain": 1}]})).expect_err("no field is set");
+   assert!(empty.to_string().contains("neither"), "{empty}");
+
+   let twice = railgun::check(&json!({
+      "chains": [{"chain": 1, "enabled": true}, {"chain": 1, "enabled": false}],
+   }))
+   .expect_err("two entries for one chain");
+   assert!(twice.to_string().contains("twice"), "{twice}");
+
+   let unknown =
+      railgun::check(&json!({"chains": [{"chain": 999, "enabled": true}]})).expect("a patch");
+
+   assert_eq!(
+      railgun::apply(&context(), unknown),
+      Err(SettingsError::Unsupported { chain: 999 })
+   );
+}
+
+#[test]
+fn the_bundler_url_belongs_to_the_unshield_screen() {
+   let error = railgun::check(&json!({"bundler_url": "https://bundler.example"}))
+      .expect_err("the syncer screen does not own it");
+
+   assert!(
+      matches!(
+         error,
+         SettingsError::Closed {
+            field: "bundler_url",
+            ..
+         }
+      ),
+      "{error}"
+   );
+   assert!(error.to_string().contains("unshield"), "{error}");
+}
+
+#[test]
+fn an_unshield_patch_writes_the_bundler_url_and_nothing_else() {
+   let ctx = context();
+   let patch = unshield::check(&json!({
+      "bundler_url": "https://bundler.example/v1/1/rpc?apikey=k"
+   }))
+   .expect("a patch");
+
+   assert_eq!(
+      unshield::apply(&ctx, patch).expect("the patch applies").changed,
+      ["bundler_url"]
+   );
+
+   assert_eq!(
+      unshield::apply(
+         &ctx,
+         unshield::check(&json!({})).expect("an empty patch")
+      )
+      .expect("the patch applies"),
+      Applied::none()
+   );
+}
+
+#[test]
+fn a_bundler_url_that_is_not_one_is_refused() {
+   for (value, expected) in [
+      (json!({"bundler_url": ""}), "cannot be empty"),
+      (
+         json!({"bundler_url": "bundler.example"}),
+         "http:// or https://",
+      ),
+      (
+         json!({"bundler_url": "https://a b"}),
+         "whitespace",
+      ),
+      (
+         json!({"bundler_url": "https://"}),
+         "names no host",
+      ),
+   ] {
+      let error = unshield::check(&value).expect_err("not a URL");
+
+      assert!(error.to_string().contains(expected), "{error}");
+   }
+}
+
+#[test]
+fn the_unshield_broadcast_choices_are_per_call_and_say_so() {
+   for field in ["self_broadcast", "memo", "unwrap_to_eth"] {
+      let error = unshield::check(&json!({field: true})).expect_err("runtime state");
+
+      assert_eq!(
+         error,
+         SettingsError::RuntimeOnly {
+            field: field.to_owned(),
+         }
+      );
+      assert!(error.to_string().contains("per call"));
+   }
+}
+
+#[test]
+fn the_two_new_schemas_name_what_they_take_and_nothing_more() {
+   let railgun = railgun::schema();
+
+   for field in [
+      "syncer_concurrency",
+      "state_update_interval_minutes",
+      "allow_circuit_download",
+      "chains",
+   ] {
+      assert!(
+         !railgun["properties"][field].is_null(),
+         "railgun names {field}"
+      );
+   }
+   assert!(railgun["properties"]["bundler_url"].is_null());
+
+   let unshield = unshield::schema();
+
+   assert_eq!(
+      unshield["properties"]
+         .as_object()
+         .expect("properties")
+         .keys()
+         .collect::<Vec<_>>(),
+      ["bundler_url"]
+   );
+}

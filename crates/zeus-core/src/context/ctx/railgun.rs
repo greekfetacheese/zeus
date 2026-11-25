@@ -326,6 +326,50 @@ impl ZeusCtx {
       Ok(())
    }
 
+   /// Point the running app at the config that was just saved.
+   ///
+   /// A saved config is numbers in a file until the app is told: an indexer keeps the block range and
+   /// the concurrency it was built with, and a chain turned on has no signers registered yet. The
+   /// Settings page's Save runs this, and so does an agent's write, so the two paths cannot disagree
+   /// about what a saved config means.
+   pub async fn apply_railgun_config(&self) {
+      let config = self.read(|ctx| ctx.railgun_config.clone());
+
+      for chain in ChainId::supported_chains() {
+         let id = chain.id();
+
+         if !self.railgun_is_supported(chain) || !config.is_enabled(id) {
+            continue;
+         }
+
+         if let Err(e) = self.register_railgun_signers(id, false).await {
+            tracing::error!("Error registering Railgun signers on chain {id}: {e:?}");
+         }
+
+         let provider = match self.get_railgun_provider(id, false).await {
+            Ok(provider) => provider,
+            Err(e) => {
+               tracing::error!("Error getting the Railgun provider for chain {id}: {e:?}");
+               continue;
+            }
+         };
+
+         {
+            let syncer = provider.utxo_indexer.lock().await.rpc_syncer.clone();
+            syncer.set_block_range(config.rpc_syncer_block_range(id)).await;
+            syncer.set_concurrency(config.rpc_syncer_concurrency()).await;
+         }
+
+         if let Err(e) = self.sync_railgun(id, false).await {
+            tracing::error!("Error syncing Railgun on chain {id}: {e:?}");
+         }
+
+         for wallet in self.get_all_wallets_info() {
+            self.update_private_data(id, wallet.address).await;
+         }
+      }
+   }
+
    pub async fn get_railgun_provider(
       &self,
       chain: u64,

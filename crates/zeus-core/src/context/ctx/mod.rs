@@ -193,6 +193,9 @@ pub struct ZeusContext {
 
    /// Misc persisted settings (token icons, Sourcify names, …)
    pub misc_config: MiscConfig,
+
+   /// The bundler an unshield submits its UserOperation through (sealed on disk).
+   pub bundler_url: BundlerUrl,
 }
 
 mod auth;
