@@ -517,3 +517,32 @@ fn the_two_new_schemas_name_what_they_take_and_nothing_more() {
       ["bundler_url"]
    );
 }
+
+#[test]
+fn a_general_patch_records_the_application_menu_choice() {
+   let ctx = context();
+
+   let patch =
+      general::check(&json!({"desktop_integration": true})).expect("the flag is a field again");
+   let applied = general::apply(&ctx, patch).expect("the choice");
+
+   assert_eq!(applied.changed, ["desktop_integration"]);
+   assert!(
+      ctx.read(|ctx| ctx.misc_config.desktop_integration()),
+      "the flag the port's installer runs before is the flag this patch writes"
+   );
+
+   // The one switch that stays out of reach is the endpoint's own.
+   let error =
+      general::check(&json!({"agent_server": true})).expect_err("the switch is the user's");
+   assert!(
+      matches!(
+         error,
+         SettingsError::Closed {
+            field: "agent_server",
+            ..
+         }
+      ),
+      "{error}"
+   );
+}

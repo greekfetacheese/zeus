@@ -11,6 +11,7 @@ use tracing_subscriber::{
 };
 
 pub mod agent_ops;
+pub mod agent_screens;
 pub mod assets;
 pub mod connector;
 pub use zeus_core as core;

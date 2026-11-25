@@ -1,12 +1,15 @@
 //! The `general` screen: the flags that change what Zeus fetches and how it behaves, all of them
 //! persisted in `misc_config.json`.
 //!
-//! Two switches on the page are deliberately not writable here. The agent endpoint's own switch is the
+//! One switch on the page is deliberately not writable here: the agent endpoint's own switch is the
 //! user's in both directions — a tool that could turn the server on would bypass the master switch, and
-//! one that could turn it off would be a denial of service — and the desktop-integration entry installs
-//! a file outside Zeus's data folder from the GUI's own handler, so it is not a field this patch can
-//! honestly set on its own. Both are named in `CLOSED` with the reason, so the refusal is the same
-//! sentence the documentation would give.
+//! one that could turn it off would be a denial of service. It is named in `CLOSED` with the reason, so
+//! the refusal is the same sentence the documentation would give.
+//!
+//! `desktop_integration` is the other shape: a flag here, and an entry installed outside Zeus's data
+//! folder. This patch writes the flag, and the entry is the binary's — `settings_set` reaches the
+//! installer through the port **before** the write runs, so the file never says "on" with no menu entry
+//! beside it while an agent, rather than the page, is the one that asked.
 
 use super::{Applied, Closed, SettingsError, SettingsScreen, deserialize, refuse_closed};
 use crate::ZeusCtx;
@@ -22,21 +25,15 @@ pub(super) struct Patch {
    fetch_contract_names: Option<bool>,
    check_for_updates: Option<bool>,
    minimize_to_tray: Option<bool>,
+   desktop_integration: Option<bool>,
 }
 
 /// What this screen never lets an agent write.
-const CLOSED: &[Closed] = &[
-   Closed {
-      field: "agent_server",
-      runtime: false,
-      why: "starting or stopping the agent endpoint is the app owner's decision in both directions, so no agent can reach it",
-   },
-   Closed {
-      field: "desktop_integration",
-      runtime: false,
-      why: "the application-menu entry it installs lives outside Zeus's data folder, so that write arrives with the port that can reach the installer",
-   },
-];
+const CLOSED: &[Closed] = &[Closed {
+   field: "agent_server",
+   runtime: false,
+   why: "starting or stopping the agent endpoint is the app owner's decision in both directions, so no agent can reach it",
+}];
 
 pub const SCREEN: SettingsScreen = SettingsScreen {
    name: "general",
@@ -70,6 +67,12 @@ fn schema() -> Value {
                "type": "boolean",
                "persisted": true,
                "description": "Hide to the system tray instead of the taskbar when the window is minimized.",
+           },
+           "desktop_integration": {
+               "type": "boolean",
+               "persisted": true,
+               "description": "Add Zeus to the application menu. The entry is installed when this is \
+                  written, so turning it on with no application menu (anything but Linux) is refused.",
            },
        },
    })
@@ -118,6 +121,11 @@ pub(super) fn apply(ctx: &ZeusCtx, patch: Patch) -> Result<Applied, SettingsErro
       if let Some(enabled) = patch.minimize_to_tray {
          config.set_minimize_to_tray(enabled);
          changed.push("minimize_to_tray");
+      }
+
+      if let Some(enabled) = patch.desktop_integration {
+         config.set_desktop_integration(enabled);
+         changed.push("desktop_integration");
       }
    });
 

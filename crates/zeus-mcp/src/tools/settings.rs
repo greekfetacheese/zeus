@@ -8,15 +8,22 @@
 //! `settings_describe` and `settings_set` carry no static capability: the argument names the screen, and
 //! the screen names its own switch. The decision is therefore taken inside the handler, through the same
 //! gate as every other tool, so a locked vault and an ungranted screen read exactly as they do elsewhere.
+//!
+//! Three screens — `keyboard`, `appearance`, `bridge` — are typed in the binary, so their values, patch
+//! and writer arrive through the port. They are listed, described and written exactly like the rest: the
+//! gate, the record and the announcement happen here, whichever half of the app owns the type.
 
 use super::{
    Call, ToolFuture, ToolOutput, ToolSpec, ask_user, decide, guard, read_error, record_allowed,
    refusal, settings_error, string_argument,
 };
 use crate::error::{ErrorCode, ToolError};
+use crate::ops::BinScreen;
 use crate::protocol::types::Annotations;
 use serde_json::{Value, json};
+use zeus_core::agent::settings::Applied;
 use zeus_core::agent::{Decision, Intent, read, settings, vault_open};
+use zeus_core::ui;
 
 pub const LIST: ToolSpec = ToolSpec {
    name: "settings_list",
@@ -83,13 +90,43 @@ fn list(call: &Call, _arguments: Value) -> ToolFuture<'_> {
          ));
       }
 
-      Ok(ToolOutput::new(read::screens(&call.profile)))
+      let mut value = read::screens(&call.profile);
+
+      // The binary's own screens are listed beside the core ones, from the same row builder, so one
+      // list has one shape however a screen is written.
+      if let Some(rows) = value.get_mut("screens").and_then(Value::as_array_mut) {
+         for screen in call.ops.bin_screens() {
+            rows.push(read::screen_row(
+               screen.name,
+               call.profile.screen(screen.read).is_some_and(|grant| grant.read),
+               call.profile.allows_global(screen.write),
+               true,
+            ));
+         }
+      }
+
+      Ok(ToolOutput::new(value))
    })
 }
 
 fn get(call: &Call, arguments: Value) -> ToolFuture<'_> {
    Box::pin(async move {
       let screen = string_argument(&arguments, "screen")?.to_owned();
+
+      if let Some(bin) = bin_screen(call, &screen) {
+         guard(
+            call,
+            "settings_get",
+            &Intent::GlobalRead {
+               capability: bin.read,
+            },
+         )?;
+
+         return Ok(ToolOutput::new(json!({
+             "screen": bin.name,
+             "values": bin.values,
+         })));
+      }
 
       let Some(capability) = read::screen_read(&screen) else {
          return Err(ToolError::new(
@@ -120,6 +157,23 @@ fn describe(call: &Call, arguments: Value) -> ToolFuture<'_> {
    Box::pin(async move {
       let screen = string_argument(&arguments, "screen")?.to_owned();
 
+      if let Some(bin) = bin_screen(call, &screen) {
+         guard(
+            call,
+            "settings_describe",
+            &Intent::GlobalRead {
+               capability: bin.read,
+            },
+         )?;
+
+         return Ok(ToolOutput::new(settings::describe_parts(
+            bin.name,
+            bin.write,
+            bin.schema,
+            &bin.closed,
+         )));
+      }
+
       let Some(capability) = read::screen_read(&screen) else {
          return Err(ToolError::new(
             ErrorCode::NotFound,
@@ -145,6 +199,12 @@ fn set(call: &Call, arguments: Value) -> ToolFuture<'_> {
          ToolError::validation("patch is required: settings_describe lists the fields it takes")
       })?;
 
+      // A screen whose writer is in the binary is written through the port; one whose writer is here is
+      // written here. The gate and the answer are the same either way.
+      if let Some(screen) = bin_screen(call, &screen_name) {
+         return write_bin(call, screen, patch).await;
+      }
+
       let screen = settings::screen(&screen_name).ok_or_else(|| {
          ToolError::new(
             ErrorCode::NotFound,
@@ -169,6 +229,19 @@ fn set(call: &Call, arguments: Value) -> ToolFuture<'_> {
          decision => refusal(&intent, decision)?,
       }
 
+      // The application-menu entry is installed before the flag that records it, so a host that cannot
+      // install refuses the write rather than leaving the file saying "on" with no entry beside it.
+      if screen.name == "general"
+         && let Some(on) = patch.get("desktop_integration").and_then(Value::as_bool)
+      {
+         call.ops.set_desktop_integration(on).map_err(|error| {
+            ToolError::internal(format!(
+               "the application-menu entry could not be changed: {error}"
+            ))
+            .with_hint("Nothing was stored.")
+         })?;
+      }
+
       // Every store behind a screen is a file, and none of them is written on the runtime the request
       // is being answered on.
       let ctx = call.ctx.clone();
@@ -177,39 +250,115 @@ fn set(call: &Call, arguments: Value) -> ToolFuture<'_> {
          .map_err(|error| ToolError::internal(format!("the settings write did not run: {error}")))?
          .map_err(settings_error)?;
 
-      if applied.changed.is_empty() {
-         return Ok(ToolOutput::new(json!({
-             "screen": screen_name,
-             "changed": [],
-         })));
-      }
-
-      record_allowed(call, "settings_set", screen.capability);
-
-      // A granted write runs without a prompt, so the announcement is the part of its trace a user who
-      // is not watching the screen still receives.
-      zeus_core::ui::announce(&format!(
-         "Agent wrote the {screen_name} settings: {}.",
-         applied.changed.join(", ")
-      ));
-
-      let mut data = json!({
-          "screen": screen_name,
-          "changed": applied.changed,
-      });
-
       // Reading the screen back is a read, so it needs the read switch as well as the write.
+      let mut values = None;
+
       if let Some(readable) = read::screen_read(&screen_name)
          && call.profile.allows_global(readable)
       {
-         let values = call
+         let value = call
             .ctx
             .read(|ctx| read::screen(ctx, &call.profile, &screen_name))
             .map_err(read_error)?;
 
-         data["values"] = values["values"].clone();
+         values = Some(value["values"].clone());
       }
 
-      Ok(ToolOutput::new(data))
+      Ok(landed(
+         call,
+         &screen_name,
+         screen.capability,
+         applied,
+         values,
+      ))
    })
+}
+
+/// Write one of the binary's own screens.
+///
+/// The patch is the binary's to validate, because it is the only half that can name the type it
+/// describes. Everything around it is the same as for a core screen: one gate, one record, one
+/// announcement, and the values read back only when the profile may read them.
+async fn write_bin(call: &Call, screen: BinScreen, patch: Value) -> Result<ToolOutput, ToolError> {
+   let intent = Intent::GlobalWrite {
+      capability: screen.write,
+   };
+
+   match decide(call, "settings_set", &intent) {
+      Decision::Allowed { prompt: true } => {
+         let title = format!(
+            "Let the agent write the {} settings?",
+            screen.name
+         );
+
+         ask_user(call, "settings_set", screen.write, &title).await?;
+      }
+      decision => refusal(&intent, decision)?,
+   }
+
+   let ops = call.ops.clone();
+   let name = screen.name;
+
+   let applied = tokio::task::spawn_blocking(move || ops.apply_bin_screen(name, &patch))
+      .await
+      .map_err(|error| ToolError::internal(format!("the settings write did not run: {error}")))?
+      .map_err(settings_error)?;
+
+   let values = if call.profile.allows_global(screen.read) {
+      bin_screen(call, screen.name).map(|screen| screen.values)
+   } else {
+      None
+   };
+
+   Ok(landed(
+      call,
+      screen.name,
+      screen.write,
+      applied,
+      values,
+   ))
+}
+
+/// The answer one landed write gives.
+///
+/// A write that changed nothing is neither recorded nor announced: nothing happened, and the ring is for
+/// what this thing has been doing.
+fn landed(
+   call: &Call,
+   screen: &str,
+   capability: &str,
+   applied: Applied,
+   values: Option<Value>,
+) -> ToolOutput {
+   if applied.changed.is_empty() {
+      return ToolOutput::new(json!({
+          "screen": screen,
+          "changed": [],
+      }));
+   }
+
+   record_allowed(call, "settings_set", capability);
+
+   // A granted write runs without a prompt, so the announcement is the part of its trace a user who
+   // is not watching the screen still receives.
+   ui::announce(&format!(
+      "Agent wrote the {screen} settings: {}.",
+      applied.changed.join(", ")
+   ));
+
+   let mut data = json!({
+       "screen": screen,
+       "changed": applied.changed,
+   });
+
+   if let Some(values) = values {
+      data["values"] = values;
+   }
+
+   ToolOutput::new(data)
+}
+
+/// The binary's record of one screen, read now.
+fn bin_screen(call: &Call, name: &str) -> Option<BinScreen> {
+   call.ops.bin_screens().into_iter().find(|screen| screen.name == name)
 }

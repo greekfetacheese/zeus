@@ -91,16 +91,27 @@ pub fn set_enabled(enabled: bool) {
 
 /// Make the system match a recorded choice: install the entry when enabled, remove it when not.
 ///
-/// A no-op where there is no application menu, so callers may invoke it unconditionally.
+/// A no-op where there is no application menu, so callers may invoke it unconditionally. Best effort: the
+/// launch path and the page's checkbox have nowhere to put an error, so it is logged.
 pub fn apply(enabled: bool) {
+   if let Err(e) = try_apply(enabled) {
+      tracing::warn!("Application-menu entry: {e}");
+   }
+}
+
+/// Make the system match a recorded choice, reporting why it could not.
+///
+/// An agent's write goes through this one: a recorded "on" with no menu entry beside it is the outcome a
+/// setting must not allow.
+pub fn try_apply(enabled: bool) -> anyhow::Result<()> {
    if !SUPPORTED {
-      return;
+      return Ok(());
    }
 
    if enabled {
-      install_desktop_entry();
+      try_install_desktop_entry()
    } else {
-      uninstall_desktop_entry();
+      try_uninstall_desktop_entry()
    }
 }
 
@@ -116,20 +127,29 @@ pub fn install_file_icon() {
    }
 }
 
-/// Add Zeus to the application menu, with its own icon.
+/// Add Zeus to the application menu, with its own icon. Best effort.
 pub fn install_desktop_entry() {
-   #[cfg(target_os = "linux")]
-   if let Err(e) = install_desktop_entry_linux() {
+   if let Err(e) = try_install_desktop_entry() {
       tracing::warn!("Application-menu entry: {e}");
    }
 }
 
-/// Remove the application-menu entry Zeus installed.
-pub fn uninstall_desktop_entry() {
+/// Add Zeus to the application menu, reporting why it could not.
+pub fn try_install_desktop_entry() -> anyhow::Result<()> {
    #[cfg(target_os = "linux")]
-   if let Err(e) = uninstall_desktop_entry_linux() {
-      tracing::warn!("Application-menu entry: {e}");
-   }
+   return install_desktop_entry_linux();
+
+   #[cfg(not(target_os = "linux"))]
+   return Ok(());
+}
+
+/// Remove the application-menu entry Zeus installed, reporting why it could not.
+pub fn try_uninstall_desktop_entry() -> anyhow::Result<()> {
+   #[cfg(target_os = "linux")]
+   return uninstall_desktop_entry_linux();
+
+   #[cfg(not(target_os = "linux"))]
+   return Ok(());
 }
 
 #[cfg(target_os = "linux")]

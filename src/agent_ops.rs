@@ -3,8 +3,14 @@
 //! The crate that speaks MCP cannot call the wallet flows: they are private functions here, and lifting
 //! them into a crate would be a refactor of the money path. So the binary installs this, the same way the
 //! GUI installs a `UiHost` for the opposite direction, and the edge reaches a flow only through it.
+//!
+//! The settings screens whose types live here are the first thing behind it: `keyboard`, `appearance`
+//! and `bridge` are read and written under the window's own lock ([`crate::gui::SHARED_GUI`]), so the
+//! values an agent sees are the ones the page is showing, never a second copy.
 
-use zeus_mcp::{AgentOps, AppInfo};
+use crate::core::agent::settings::{Applied, SettingsError};
+use serde_json::Value;
+use zeus_mcp::{AgentOps, AppInfo, BinScreen};
 
 /// Zeus's own answer to the edge's port.
 pub struct ZeusOps;
@@ -14,5 +20,21 @@ impl AgentOps for ZeusOps {
       AppInfo {
          version: env!("CARGO_PKG_VERSION").to_owned(),
       }
+   }
+
+   fn bin_screens(&self) -> Vec<BinScreen> {
+      crate::agent_screens::screens()
+   }
+
+   fn apply_bin_screen(&self, name: &str, patch: &Value) -> Result<Applied, SettingsError> {
+      crate::agent_screens::apply(name, patch)
+   }
+
+   fn set_desktop_integration(&self, on: bool) -> Result<(), String> {
+      if !crate::utils::desktop_integration::SUPPORTED {
+         return Err("this platform has no application menu to add Zeus to".to_owned());
+      }
+
+      crate::utils::desktop_integration::try_apply(on).map_err(|error| error.to_string())
    }
 }

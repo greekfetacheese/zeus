@@ -500,7 +500,7 @@ impl KeyBindings {
 
 impl Binding {
    /// The binding a saved entry names, or `None` when this build has no such key or chord.
-   fn from_parts(key: &str, chord: &str) -> Option<Self> {
+   pub(crate) fn from_parts(key: &str, chord: &str) -> Option<Self> {
       Some(Self::new(
          Key::from_name(key)?,
          Chord::from_name(chord)?,

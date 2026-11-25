@@ -65,38 +65,9 @@ pub(super) fn check(value: &Value) -> Result<Patch, SettingsError> {
    Ok(patch)
 }
 
-/// A URL the bundler client can be pointed at.
-///
-/// It is a shape check, not a resolution: the client parses the URL again when it dials it, and an
-/// endpoint that is down is a failure of that call rather than a reason to refuse the setting.
+/// A URL the bundler client can be pointed at, in the one shape check the app has.
 fn check_url(url: &str) -> Result<(), SettingsError> {
-   let url = url.trim();
-
-   if url.is_empty() {
-      return Err(SettingsError::invalid(
-         "bundler_url cannot be empty: pass the URL to use, or leave the field out",
-      ));
-   }
-
-   if !(url.starts_with("http://") || url.starts_with("https://")) {
-      return Err(SettingsError::invalid(
-         "bundler_url must be an http:// or https:// URL",
-      ));
-   }
-
-   if url.chars().any(|c| c.is_whitespace() || c.is_control()) {
-      return Err(SettingsError::invalid(
-         "bundler_url cannot contain whitespace",
-      ));
-   }
-
-   if crate::platform::url_host(url).is_none() {
-      return Err(SettingsError::invalid(
-         "bundler_url names no host",
-      ));
-   }
-
-   Ok(())
+   crate::platform::check_url("bundler_url", url).map_err(SettingsError::invalid)
 }
 
 /// Nothing is mutated: whoever sends an unshield reads the URL from the sealed file, so the patch's

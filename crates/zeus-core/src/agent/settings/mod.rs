@@ -22,6 +22,11 @@
 //! a contact, adding a pool, disconnecting an app, exporting the data directory, deriving a wallet —
 //! arrives with the tools that own them. Those screens therefore stay readable and not writable, and
 //! `settings_list` is where that says so.
+//!
+//! Three screens are typed in the binary crate, which this one cannot name: `keyboard`, `appearance` and
+//! `bridge`. Their patches, values and writers arrive through the `AgentOps` port instead, so this
+//! registry is the source of truth only for the screens whose writer is a file in core. Nothing a caller
+//! sees changes with the location: one row shape, one `describe` shape, one gate.
 
 mod contacts;
 mod general;
@@ -216,8 +221,20 @@ pub fn describe(name: &str) -> Value {
       });
    };
 
-   let closed: Vec<Value> = screen
-      .closed
+   describe_parts(
+      screen.name,
+      screen.capability,
+      (screen.schema)(),
+      screen.closed,
+   )
+}
+
+/// The description of one writable screen, from the parts whichever half of the app supplies.
+///
+/// A screen's patch can live here or in the binary, but the answer `settings_describe` gives must not:
+/// one shape, built once, so a caller cannot tell where the writer sits.
+pub fn describe_parts(name: &str, capability: &str, schema: Value, closed: &[Closed]) -> Value {
+   let closed: Vec<Value> = closed
       .iter()
       .map(|entry| {
          json!({
@@ -229,10 +246,10 @@ pub fn describe(name: &str) -> Value {
       .collect();
 
    json!({
-       "screen": screen.name,
+       "screen": name,
        "writable": true,
-       "capability": screen.capability,
-       "schema": (screen.schema)(),
+       "capability": capability,
+       "schema": schema,
        "closed": closed,
    })
 }

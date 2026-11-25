@@ -7,8 +7,9 @@
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use zeus_core::agent::settings::{Applied, Closed, SettingsError};
 use zeus_core::agent::{
    AgentProfile, AgentProfileId, AgentProfileStore, ProfileMode, ScreenGrant, WalletGrant,
 };
@@ -16,7 +17,7 @@ use zeus_core::{TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
 use zeus_eth::alloy_primitives::{Address, TxHash};
 use zeus_eth::utils::NumericValue;
 use zeus_mcp::protocol::{LEGACY_VERSION, MODERN_VERSION, meta};
-use zeus_mcp::{NoOps, ServerConfig, ServerHandle, ServerStatus};
+use zeus_mcp::{AgentOps, AppInfo, BinScreen, NoOps, ServerConfig, ServerHandle, ServerStatus};
 
 /// The one working directory this test binary uses.
 ///
@@ -63,6 +64,14 @@ impl Fixture {
    /// A screen named in both lists is read and written; one named only in `writes` is written and not
    /// read, which is the grant a write-only profile holds.
    fn with_writes(caps: &[&str], screens: &[&str], writes: &[&str]) -> Self {
+      Self::with_port(caps, screens, writes, Arc::new(NoOps))
+   }
+
+   /// A server over the port it is given, so the binary's own screens can be tested.
+   ///
+   /// The real three are typed in the binary crate, which this one cannot name; the port is the seam, and
+   /// the double below is the other side of it.
+   fn with_port(caps: &[&str], screens: &[&str], writes: &[&str], ops: Arc<dyn AgentOps>) -> Self {
       workspace();
 
       let ctx = ZeusCtx::new(tokio::runtime::Handle::current());
@@ -113,7 +122,7 @@ impl Fixture {
 
       let mut config = ServerConfig::new(
          ctx.clone(),
-         std::sync::Arc::new(NoOps),
+         ops,
          tokio::runtime::Handle::current(),
       );
       config.preferred_port = 0;
@@ -2119,5 +2128,400 @@ async fn adding_an_endpoint_that_is_already_listed_is_refused_first() {
    assert_eq!(
       fixture.ctx.get_client_manager().get_rpcs(1).len(),
       before
+   );
+}
+
+// --- the binary's own screens, through the port --------------------------------------------------
+
+/// The three screens whose types live in the binary, as a double.
+///
+/// The real implementation is `crate::agent_screens`, which this crate cannot name. This double answers
+/// the same records and keeps the keyboard screen's values in memory, so a test can watch a patch go
+/// through the port and read the screen back afterwards.
+#[derive(Clone)]
+struct FakeOps {
+   state: Arc<Mutex<FakeState>>,
+}
+
+#[derive(Default)]
+struct FakeState {
+   keyboard: Value,
+   /// Every patch the port was asked to apply, in order.
+   applied: Vec<(String, Value)>,
+   /// Every application-menu change the port was asked for, in order.
+   desktop: Vec<bool>,
+   /// When set, the installer has nothing to install, so a test can prove the flag is not stored anyway.
+   desktop_fails: bool,
+}
+
+impl FakeOps {
+   fn new() -> Self {
+      let state = FakeState {
+         keyboard: json!({
+             "bindings": [
+                 {"action": "next_region", "binding": "F6", "key": "F6", "chord": "plain", "default": true},
+             ],
+         }),
+         ..Default::default()
+      };
+
+      Self {
+         state: Arc::new(Mutex::new(state)),
+      }
+   }
+
+   fn applied(&self) -> Vec<(String, Value)> {
+      self.state.lock().expect("the double").applied.clone()
+   }
+
+   fn desktop_calls(&self) -> Vec<bool> {
+      self.state.lock().expect("the double").desktop.clone()
+   }
+
+   fn refuse_desktop(&self) {
+      self.state.lock().expect("the double").desktop_fails = true;
+   }
+}
+
+impl AgentOps for FakeOps {
+   fn app_info(&self) -> AppInfo {
+      AppInfo {
+         version: "0.0.0-fake".to_owned(),
+      }
+   }
+
+   fn bin_screens(&self) -> Vec<BinScreen> {
+      let state = self.state.lock().expect("the double");
+
+      vec![
+         BinScreen {
+            name: "appearance",
+            read: "settings.appearance.read",
+            write: "settings.appearance.write",
+            values: json!({"hold_to_confirm": false}),
+            schema: json!({"type": "object", "additionalProperties": false}),
+            closed: Vec::new(),
+         },
+         BinScreen {
+            name: "bridge",
+            read: "settings.bridge.read",
+            write: "settings.bridge.write",
+            // The URL never leaves the process: an answer carries its host.
+            values: json!({"api": {"host": "across.to", "default": true, "use_api": true}}),
+            schema: json!({"type": "object", "additionalProperties": false}),
+            closed: Vec::new(),
+         },
+         BinScreen {
+            name: "keyboard",
+            read: "settings.keyboard.read",
+            write: "settings.keyboard.write",
+            values: state.keyboard.clone(),
+            schema: json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {"bindings": {"type": "array"}},
+            }),
+            closed: vec![Closed {
+               field: "capture",
+               runtime: true,
+               why: "the page hands the keyboard over while it records one, so a write names the chord \
+                     it wants instead",
+            }],
+         },
+      ]
+   }
+
+   fn apply_bin_screen(&self, name: &str, patch: &Value) -> Result<Applied, SettingsError> {
+      if name != "keyboard" {
+         return Err(SettingsError::refused(format!(
+            "the {name} screen is not written by this double"
+         )));
+      }
+
+      let bindings = patch.get("bindings").and_then(Value::as_array).ok_or_else(|| {
+         SettingsError::invalid(
+            "the patch is not one the keyboard screen takes: bindings is required",
+         )
+      })?;
+
+      if bindings.iter().any(|entry| entry.get("key").is_none()) {
+         return Err(SettingsError::invalid("a binding needs a key"));
+      }
+
+      // An empty patch changes nothing, and the real screen says so too.
+      if bindings.is_empty() {
+         return Ok(Applied::none());
+      }
+
+      let mut state = self.state.lock().expect("the double");
+      state.keyboard = json!({"bindings": bindings});
+      state.applied.push((name.to_owned(), patch.clone()));
+
+      Ok(Applied {
+         changed: vec!["bindings"],
+      })
+   }
+
+   fn set_desktop_integration(&self, on: bool) -> Result<(), String> {
+      let mut state = self.state.lock().expect("the double");
+      state.desktop.push(on);
+
+      if state.desktop_fails {
+         return Err("the double cannot install a menu entry".to_owned());
+      }
+
+      Ok(())
+   }
+}
+
+#[tokio::test]
+async fn a_binary_screen_is_listed_described_and_read_through_the_port() {
+   let fixture = Fixture::with_port(
+      &[],
+      &["settings.keyboard.read"],
+      &[],
+      Arc::new(FakeOps::new()),
+   );
+
+   let list = call_tool(&fixture, "settings_list", json!({})).await;
+   let rows = data(&list)["screens"].as_array().cloned().expect("the list");
+
+   let keyboard = rows
+      .iter()
+      .find(|row| row["screen"] == "keyboard")
+      .expect("the port's keyboard screen is listed beside the core ones");
+
+   assert_eq!(keyboard["read"], true);
+   assert_eq!(keyboard["write"], false);
+   assert_eq!(
+      keyboard["writable"], true,
+      "the port said it writes this screen, so the list says so too"
+   );
+
+   // A screen the grant does not read is still listed: its values are simply not reachable.
+   let bridge = rows
+      .iter()
+      .find(|row| row["screen"] == "bridge")
+      .expect("the port's bridge screen");
+
+   assert_eq!(bridge["read"], false);
+   assert_eq!(bridge["writable"], true);
+
+   let get = call_tool(
+      &fixture,
+      "settings_get",
+      json!({"screen": "keyboard"}),
+   )
+   .await;
+   assert_eq!(data(&get)["screen"], "keyboard");
+   assert_eq!(
+      data(&get)["values"]["bindings"][0]["binding"],
+      "F6"
+   );
+
+   let describe = call_tool(
+      &fixture,
+      "settings_describe",
+      json!({"screen": "keyboard"}),
+   )
+   .await;
+
+   assert_eq!(data(&describe)["writable"], true);
+   assert_eq!(
+      data(&describe)["capability"],
+      "settings.keyboard.write"
+   );
+   assert_eq!(data(&describe)["closed"][0]["field"], "capture");
+   assert_eq!(data(&describe)["closed"][0]["runtime"], true);
+
+   // A read the grant does not hold names the switch, the same way a core screen does.
+   let refused = call_tool(
+      &fixture,
+      "settings_get",
+      json!({"screen": "bridge"}),
+   )
+   .await;
+   assert_eq!(error_code(&refused), Some("NOT_GRANTED"));
+}
+
+#[tokio::test]
+async fn a_binary_screen_is_written_through_the_port_and_audited() {
+   let ops = Arc::new(FakeOps::new());
+
+   let fixture = Fixture::with_port(
+      &[],
+      &["settings.keyboard.read"],
+      &["settings.keyboard.write"],
+      ops.clone(),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({
+          "screen": "keyboard",
+          "patch": {"bindings": [{"action": "next_region", "key": "F7", "chord": "plain"}]},
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(data(&reply)["changed"], json!(["bindings"]));
+   assert_eq!(
+      data(&reply)["values"]["bindings"][0]["key"],
+      "F7",
+      "the answer carries the screen as the port reads it now"
+   );
+
+   let applied = ops.applied();
+   assert_eq!(applied.len(), 1, "one call, one write");
+   assert_eq!(applied[0].0, "keyboard");
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("an audit entry");
+
+   assert_eq!(entry.tool, "settings_set");
+   assert_eq!(entry.capability, "settings.keyboard.write");
+   assert_eq!(
+      entry.decision,
+      zeus_core::agent::AuditDecision::Allowed
+   );
+}
+
+#[tokio::test]
+async fn a_binary_screen_write_needs_its_own_switch() {
+   let ops = Arc::new(FakeOps::new());
+
+   let fixture = Fixture::with_port(&[], &["settings.keyboard.read"], &[], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "keyboard", "patch": {"bindings": []}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+   assert!(
+      ops.applied().is_empty(),
+      "nothing reached the port"
+   );
+}
+
+#[tokio::test]
+async fn a_binary_screen_refusal_is_the_ports_own_sentence() {
+   let fixture = Fixture::with_port(
+      &[],
+      &["settings.keyboard.read"],
+      &["settings.keyboard.write"],
+      Arc::new(FakeOps::new()),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "keyboard", "patch": {"bindings": [{"action": "next_region"}]}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+
+   let message = reply
+      .body
+      .pointer("/result/structuredContent/error/message")
+      .and_then(Value::as_str)
+      .unwrap_or_default();
+
+   assert!(
+      message.contains("a binding needs a key"),
+      "{message}"
+   );
+}
+
+#[tokio::test]
+async fn a_binary_screen_write_is_asked_about_when_every_change_is() {
+   let ops = Arc::new(FakeOps::new());
+
+   let fixture = Fixture::with_port(
+      &[],
+      &["settings.keyboard.read"],
+      &["settings.keyboard.write"],
+      ops.clone(),
+   );
+
+   fixture.ask_before_every_change();
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "keyboard", "patch": {"bindings": []}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("USER_ACTION_REQUIRED"));
+   assert!(
+      ops.applied().is_empty(),
+      "a prompt nobody can answer does not write"
+   );
+}
+
+#[tokio::test]
+async fn the_desktop_entry_is_installed_before_the_flag_is_stored() {
+   let ops = Arc::new(FakeOps::new());
+
+   let fixture = Fixture::with_port(
+      &[],
+      &["settings.general.read"],
+      &["settings.general.write"],
+      ops.clone(),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "general", "patch": {"desktop_integration": true}}),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+   assert_eq!(ops.desktop_calls(), vec![true]);
+   assert_eq!(
+      data(&reply)["values"]["desktop_integration"],
+      true
+   );
+
+   // A host that cannot install refuses the write, and the file keeps saying what it said before.
+   ops.refuse_desktop();
+
+   let refused = call_tool(
+      &fixture,
+      "settings_set",
+      json!({"screen": "general", "patch": {"desktop_integration": false}}),
+   )
+   .await;
+
+   assert_eq!(error_code(&refused), Some("INTERNAL"));
+
+   let values = call_tool(
+      &fixture,
+      "settings_get",
+      json!({"screen": "general"}),
+   )
+   .await;
+
+   assert_eq!(
+      data(&values)["values"]["desktop_integration"],
+      true,
+      "the flag the earlier write stored is untouched"
    );
 }

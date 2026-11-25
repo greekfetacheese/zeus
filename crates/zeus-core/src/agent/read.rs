@@ -44,9 +44,9 @@ pub struct Screen {
 
 /// The screens this build can read, in the order the settings page shows them.
 ///
-/// Only the screens a projection exists for appear: the bin-resident screens (`keyboard`, `appearance`,
-/// `bridge`) and the ones whose value is a sealed store (`unshield`) arrive with their writers, because a
-/// screen listed here is a promise that `settings_get` answers for it.
+/// Only the screens whose values are projected here appear. The three bin-resident screens (`keyboard`,
+/// `appearance`, `bridge`) are typed in the binary, so their values come through the port instead; a
+/// screen listed here is a promise that `screen` answers for it.
 pub const SCREENS: &[Screen] = &[
    Screen {
       name: "general",
@@ -343,16 +343,29 @@ pub fn screens(profile: &AgentProfile) -> Value {
       .map(|screen| {
          let writable = settings::screen(screen.name);
 
-         json!({
-             "screen": screen.name,
-             "read": profile.screen(screen.read).is_some_and(|grant| grant.read),
-             "write": writable.is_some_and(|settings| profile.allows_global(settings.capability)),
-             "writable": writable.is_some(),
-         })
+         screen_row(
+            screen.name,
+            profile.screen(screen.read).is_some_and(|grant| grant.read),
+            writable.is_some_and(|settings| profile.allows_global(settings.capability)),
+            writable.is_some(),
+         )
       })
       .collect();
 
    json!({"screens": screens})
+}
+
+/// One row of `settings_list`.
+///
+/// Built here rather than in the edge because the binary's own screens are listed beside these, and two
+/// shapes for one list is exactly the drift this module exists to prevent.
+pub fn screen_row(name: &str, read: bool, write: bool, writable: bool) -> Value {
+   json!({
+       "screen": name,
+       "read": read,
+       "write": write,
+       "writable": writable,
+   })
 }
 
 /// One screen's current values, in the same shape its write takes.

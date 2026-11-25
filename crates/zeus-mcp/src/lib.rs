@@ -29,6 +29,6 @@ pub(crate) fn now_secs() -> u64 {
 
 pub use auth::{AuthError, Caller};
 pub use error::{ErrorCode, ProtocolError, ToolError};
-pub use ops::{AgentOps, AppInfo, NoOps};
+pub use ops::{AgentOps, AppInfo, BinScreen, NoOps};
 pub use probe::Report;
 pub use server::{PREFERRED_PORT, ServerConfig, ServerHandle, ServerStatus};

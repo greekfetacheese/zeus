@@ -1245,6 +1245,55 @@ impl AcrossBridge {
       });
       Ok(())
    }
+
+   /// The Across API the page would call, as the agent port reads it.
+   ///
+   /// A URL can carry a provider key, so only its host ever leaves this module.
+   pub(crate) fn agent_api_url(&self) -> &str {
+      &self.settings.api_url
+   }
+
+   /// Whether the page asks the Across API for a fee, as the agent port reads it.
+   pub(crate) fn agent_use_api(&self) -> bool {
+      self.settings.use_api
+   }
+
+   /// The endpoint the page ships with, so a reader can tell a chosen one from the stock one.
+   pub(crate) fn agent_default_api_url() -> String {
+      Settings::default().api_url
+   }
+
+   /// Write the two fields the agent port may set, save them, and keep the page in step.
+   ///
+   /// The save happens before the page's copy is replaced, so a file that cannot be written leaves both
+   /// the dialog and the agent's answer agreeing that nothing changed.
+   pub(crate) fn apply_agent_settings(
+      &mut self,
+      api_url: Option<String>,
+      use_api: Option<bool>,
+   ) -> Result<Vec<&'static str>, anyhow::Error> {
+      let mut next = self.settings.clone();
+      let mut changed = Vec::new();
+
+      if let Some(url) = api_url {
+         next.api_url = url;
+         changed.push("api_url");
+      }
+
+      if let Some(use_api) = use_api {
+         next.use_api = use_api;
+         changed.push("use_api");
+      }
+
+      if changed.is_empty() {
+         return Ok(changed);
+      }
+
+      save_settings(next.clone())?;
+      self.settings = next;
+
+      Ok(changed)
+   }
 }
 
 #[cfg(test)]
