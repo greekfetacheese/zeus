@@ -36,9 +36,9 @@ use crate::{
    core::types::EnsRecipientGuard,
    core::{
       AgentEnv, ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy,
-      SendTxOptions, SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome,
-      confirm_tx, ensure_recipient_is_not_contract, record_and_notify, send_transaction,
-      sim::diff::diffs_from_receipt,
+      SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich, UnshieldParams, ZeusCtx,
+      build_tx_outcome, confirm_tx, ensure_recipient_is_not_contract, record_and_notify,
+      send_transaction, sim::diff::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{
@@ -87,7 +87,7 @@ pub async fn unshield(
    bundler_url: String,
    memo: String,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    if asset.is_native() {
       return Err(anyhow!(
          "Unshield requires a token or an NFT (use WETH for native-equivalent)"
@@ -188,7 +188,7 @@ async fn unshield_self_broadcast(
    asset: &RailgunAsset,
    tx: TransactionBuilder,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
@@ -329,7 +329,7 @@ async fn unshield_self_broadcast(
       ..Default::default()
    };
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       true,
       SendTxRequest::new(chain, from, interact_to)
@@ -349,7 +349,7 @@ async fn unshield_self_broadcast(
       asset.settled_op(false),
    ));
 
-   Ok(())
+   Ok(rich)
 }
 
 async fn unshield_via_paymaster(
@@ -366,7 +366,7 @@ async fn unshield_via_paymaster(
    bundler_url: String,
    memo: String,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let mut railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
    let chain_config = railgun_provider.chain_config();
@@ -988,7 +988,7 @@ async fn unshield_via_paymaster(
 
    crate::runtime::rt().spawn(settle_railgun_op(ctx, chain, from, settled_op));
 
-   Ok(())
+   Ok(outcome.tx_rich)
 }
 
 async fn fee_token_selection(chain: u64, from: Address) -> Result<ERC20Token, anyhow::Error> {

@@ -12,6 +12,7 @@
 
 pub mod action;
 pub mod approvals;
+pub mod bridge;
 pub mod contacts;
 pub mod dapps;
 pub mod data;
@@ -21,6 +22,7 @@ pub mod pools;
 pub mod portfolio;
 pub mod railgun;
 pub mod settings;
+pub mod swap;
 pub mod tx;
 pub mod wallet;
 
@@ -166,15 +168,21 @@ pub const TOOLS: &[ToolSpec] = &[
    pools::ADD,
    pools::LIST,
    portfolio::GET,
+   swap::QUOTE,
+   railgun::MERGE_NOTES,
+   railgun::SHIELD,
    railgun::STATUS,
+   railgun::UNSHIELD,
    settings::DESCRIBE,
    settings::GET,
    settings::LIST,
    settings::SET,
+   bridge::BRIDGE,
    tx::GET,
    tx::HISTORY,
    tx::SEND,
    tx::SEND_NFT,
+   swap::SWAP,
    wallet::GET,
    wallet::LIST,
    wallet::DERIVE,
@@ -384,6 +392,26 @@ pub fn required_chain(arguments: &Value) -> Result<u64, ToolError> {
    })
 }
 
+/// A chain argument under another key, for the calls that name two.
+pub fn required_chain_key(arguments: &Value, key: &str) -> Result<u64, ToolError> {
+   let value = arguments
+      .get(key)
+      .ok_or_else(|| ToolError::validation(format!("{key} is required")))?;
+
+   let chain = value
+      .as_u64()
+      .ok_or_else(|| ToolError::validation(format!("{key} must be a number")))?;
+
+   if !ChainId::is_supported(chain) {
+      return Err(ToolError::new(
+         ErrorCode::Unsupported,
+         format!("chain {chain} is not one Zeus supports"),
+      ));
+   }
+
+   Ok(chain)
+}
+
 /// An address argument a call cannot run without.
 pub fn required_address(arguments: &Value, key: &str) -> Result<Address, ToolError> {
    string_argument(arguments, key)?.parse().map_err(|_| {
@@ -413,6 +441,39 @@ pub fn u256_argument(arguments: &Value, key: &str) -> Result<U256, ToolError> {
          "{key} is a whole number, written as a string"
       ))
    })
+}
+
+/// The slippage a swap or a quote allows, in basis points.
+///
+/// It defaults to the swap page's own default rather than to the grant's cap: a call that says nothing gets
+/// what the page offers, and only a call that asks for more is refused.
+pub fn slippage_argument(arguments: &Value) -> Result<u16, ToolError> {
+   let bps = match arguments.get("slippage_bps") {
+      None | Some(Value::Null) => return Ok(5),
+      Some(value) => value.as_u64().filter(|bps| *bps <= 10_000).ok_or_else(|| {
+         ToolError::validation("slippage_bps is a whole number of basis points, at most 10000")
+      })?,
+   };
+
+   Ok(bps as u16)
+}
+
+/// How long a swap stays valid, in minutes.
+pub fn deadline_argument(arguments: &Value) -> Result<u64, ToolError> {
+   let minutes = match arguments.get("deadline") {
+      None | Some(Value::Null) => return Ok(5),
+      Some(value) => value
+         .as_u64()
+         .ok_or_else(|| ToolError::validation("deadline is a whole number of minutes"))?,
+   };
+
+   if !(1..=60).contains(&minutes) {
+      return Err(ToolError::validation(
+         "deadline is between 1 and 60 minutes, the range the swap page offers",
+      ));
+   }
+
+   Ok(minutes)
 }
 
 /// The `dry_run` flag every fund-moving tool carries.

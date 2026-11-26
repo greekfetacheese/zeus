@@ -736,7 +736,7 @@ fn address_row(ctx: &ZeusContext, chain: u64, address: Address) -> Value {
 /// Never a JSON number: a `u256` does not survive a double, and a model that reads "1.2345" back has to be
 /// able to be exact. `usd.known` is false when no price exists, so an agent cannot mistake "unknown" for
 /// "worth nothing".
-pub(crate) fn amount(
+pub fn amount(
    value: &NumericValue,
    decimals: u8,
    symbol: &str,
@@ -771,7 +771,7 @@ fn token_row(token: &ERC20Token) -> Value {
 }
 
 /// A currency as an action would name it. The native token is the zero address.
-pub(crate) fn currency_row(currency: &Currency) -> Value {
+pub fn currency_row(currency: &Currency) -> Value {
    json!({
        "address": hex(currency.address()),
        "decimals": currency.decimals(),
@@ -990,7 +990,7 @@ fn standard_name(standard: NftStandard) -> &'static str {
 }
 
 /// A chain's native symbol, for an amount that has no token of its own.
-pub(crate) fn native_symbol(chain: u64) -> String {
+pub fn native_symbol(chain: u64) -> String {
    ChainId::new(chain)
       .map(|chain| chain.coin_symbol().to_owned())
       .unwrap_or_else(|_| "ETH".to_owned())

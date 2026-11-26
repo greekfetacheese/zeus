@@ -41,6 +41,13 @@ use zeus_eth::nft::NftStandard;
 use zeus_eth::types::ChainId;
 use zeus_eth::utils::NumericValue;
 
+/// What a self-broadcast costs, in the words the app's own switch carries.
+///
+/// A copy, because that switch is a binary module this one cannot name — the same reason and the same risk
+/// as `MAX_SLIPPAGE_BPS` — so the swap page's tip and this must move together.
+pub const SELF_BROADCAST_NOTICE: &str = "Submits the unshield from your public wallet. Breaks anonymity \
+                                        only use if private broadcast is unavailable.";
+
 /// How long a second action waits for the wallet before it is told `BUSY`.
 ///
 /// Short on purpose: an action can be held by a confirmation the user has not answered yet, and an agent
@@ -89,6 +96,158 @@ pub struct DelegateRequest {
    pub priority: PriorityTier,
 }
 
+/// One Uniswap swap.
+///
+/// The allowlisted asset is the one that `currency_in` names: it is what leaves the wallet. The quote is
+/// the route the caller was shown, so the swap it signs is the one it described to its user.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SwapRequest {
+   pub chain: u64,
+   pub from: Address,
+   pub currency_in: Address,
+   pub currency_out: Address,
+   /// Exactly what the chain moves, already scaled by `decimals_in`.
+   pub amount_in: U256,
+   /// The input token's decimals.
+   pub decimals_in: u8,
+   /// How far the output may fall below the quote, in basis points.
+   pub slippage_bps: u16,
+   /// How long the transaction stays valid, in minutes.
+   pub deadline: u64,
+   pub priority: PriorityTier,
+}
+
+/// One Across bridge.
+///
+/// The recipient lives on the destination chain, which is why the pipeline screens it there and refuses a
+/// bridge whose destination chain it cannot read: a recipient it cannot check is one it cannot vouch for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BridgeRequest {
+   pub chain: u64,
+   pub dest_chain: u64,
+   pub from: Address,
+   pub to: Address,
+   /// The wrapped token the bridge deposits, on the source chain.
+   pub token: Address,
+   /// Exactly what the chain moves, already scaled by `decimals`.
+   pub amount: U256,
+   pub decimals: u8,
+   pub priority: PriorityTier,
+}
+
+/// One way into the private pool.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShieldRequest {
+   pub chain: u64,
+   pub from: Address,
+   /// The fungible token to shield, or — with `nft` — the collection.
+   pub token: Address,
+   pub amount: U256,
+   pub decimals: u8,
+   /// The id and the standard when an NFT is what moves.
+   pub nft: Option<NftMovement>,
+   /// Where the private note goes: the zk address the transfer is addressed to.
+   pub recipient: String,
+   pub priority: PriorityTier,
+}
+
+/// Which id of a collection moves, and how it is held.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct NftMovement {
+   pub token_id: U256,
+   pub standard: NftStandard,
+}
+
+/// One way out of the private pool, through one of the two broadcast paths.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnshieldRequest {
+   pub chain: u64,
+   pub from: Address,
+   /// The fungible token to unshield, or — with `nft` — the collection.
+   pub token: Address,
+   pub amount: U256,
+   pub decimals: u8,
+   pub nft: Option<NftMovement>,
+   /// The public address on the other side.
+   pub to: Address,
+   pub broadcast: Broadcast,
+   /// Unwrap WETH into ETH on the way out. A fungible choice: an NFT has nothing to unwrap.
+   pub unwrap_to_eth: bool,
+   /// Attached to the transfer when one is said.
+   pub memo: Option<String>,
+   pub priority: PriorityTier,
+}
+
+/// Which lane an unshield takes, and the bundler it takes it through.
+///
+/// The two are not one choice: the stored URL is what the page remembers between launches, and the
+/// broadcast is picked per unshield. A call that names the URL the app already holds is not an override.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Broadcast {
+   /// Submit from the wallet itself rather than through the paymaster. Links the sender to the recipient.
+   pub self_broadcast: bool,
+   /// The bundler the sponsored path submits through; `None` is the one the app has stored.
+   pub bundler_url: Option<String>,
+}
+
+/// One merge of the wallet's own notes: a private self-transfer, so no value leaves.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MergeNotesRequest {
+   pub chain: u64,
+   pub from: Address,
+   pub currency: Address,
+   pub amount: U256,
+   pub decimals: u8,
+   pub priority: PriorityTier,
+}
+
+/// What one swap would produce, as the router priced it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct SwapQuote {
+   /// Exactly what the route would produce, in the output token's smallest unit.
+   pub amount_out: U256,
+   /// The output token's decimals, so the amount can be read without another call.
+   pub decimals_out: u8,
+   /// True when the pair is one coin and its own wrapper: the amounts are one to one and there is no route.
+   pub wrapped: bool,
+   pub steps: Vec<QuoteStep>,
+}
+
+/// One hop of a quoted route, as `quote_swap` reports it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuoteStep {
+   /// The pool the hop trades in.
+   pub pool: Address,
+   /// The pool version: 2, 3 or 4.
+   pub version: u8,
+   /// The fee tier, in hundredths of a bip: 3000 is the 0.3% tier.
+   pub fee: u32,
+   /// A V4 pool's tick spacing.
+   pub tick_spacing: i32,
+   /// A V4 pool's hooks contract; the zero address is a pool with no hooks.
+   pub hooks: Address,
+   /// What this hop takes in, in the pool's input token.
+   pub amount_in: U256,
+   /// What this hop produces, in the pool's output token.
+   pub amount_out: U256,
+}
+
+/// One Uniswap quote: what a swap would produce, priced now and never broadcast.
+///
+/// It is the swap's own request minus the fee tier, because nothing is sent: the caller asks what the same
+/// call would get, which is also why a quote is a read rather than a flow.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QuoteRequest {
+   pub chain: u64,
+   pub from: Address,
+   pub currency_in: Address,
+   pub currency_out: Address,
+   pub amount_in: U256,
+   pub decimals_in: u8,
+   pub slippage_bps: u16,
+   pub priority: PriorityTier,
+}
+
 /// One approval to clear.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RevokeRequest {
@@ -124,6 +283,11 @@ pub enum ExecCall {
    Nft(NftSendRequest),
    Revoke(RevokeRequest),
    Delegate(DelegateRequest),
+   Swap(SwapRequest),
+   Bridge(BridgeRequest),
+   Shield(ShieldRequest),
+   Unshield(UnshieldRequest),
+   MergeNotes(MergeNotesRequest),
 }
 
 impl ExecCall {
@@ -134,6 +298,11 @@ impl ExecCall {
          Self::Nft(_) => "wallet.write.nft_send",
          Self::Revoke(_) => "wallet.write.approvals_revoke",
          Self::Delegate(_) => "wallet.write.delegate",
+         Self::Swap(_) => "wallet.write.swap",
+         Self::Bridge(_) => "wallet.write.bridge",
+         Self::Shield(_) => "wallet.write.shield",
+         Self::Unshield(_) => "wallet.write.unshield",
+         Self::MergeNotes(_) => "wallet.write.notes_merge",
       }
    }
 
@@ -143,6 +312,11 @@ impl ExecCall {
          Self::Nft(request) => request.chain,
          Self::Revoke(request) => request.chain,
          Self::Delegate(request) => request.chain,
+         Self::Swap(request) => request.chain,
+         Self::Bridge(request) => request.chain,
+         Self::Shield(request) => request.chain,
+         Self::Unshield(request) => request.chain,
+         Self::MergeNotes(request) => request.chain,
       }
    }
 
@@ -153,6 +327,11 @@ impl ExecCall {
          Self::Nft(request) => request.priority,
          Self::Revoke(request) => request.priority,
          Self::Delegate(request) => request.priority,
+         Self::Swap(request) => request.priority,
+         Self::Bridge(request) => request.priority,
+         Self::Shield(request) => request.priority,
+         Self::Unshield(request) => request.priority,
+         Self::MergeNotes(request) => request.priority,
       }
    }
 
@@ -163,6 +342,11 @@ impl ExecCall {
          Self::Nft(request) => request.from,
          Self::Revoke(request) => request.owner,
          Self::Delegate(request) => request.from,
+         Self::Swap(request) => request.from,
+         Self::Bridge(request) => request.from,
+         Self::Shield(request) => request.from,
+         Self::Unshield(request) => request.from,
+         Self::MergeNotes(request) => request.from,
       }
    }
 
@@ -194,15 +378,60 @@ impl ExecCall {
             capability: self.capability(),
             wallet: request.from,
          },
+         // Every one of the five moves an asset the envelope has to allow: a swap spends its input, a
+         // bridge spends the wrapped token it deposits, and the three private calls spend what they name.
+         Self::Swap(request) => Intent::AssetMove {
+            capability: self.capability(),
+            wallet: request.from,
+            asset: Asset::Token(TokenRef {
+               chain: request.chain,
+               address: request.currency_in,
+            }),
+         },
+         Self::Bridge(request) => Intent::AssetMove {
+            capability: self.capability(),
+            wallet: request.from,
+            asset: Asset::Token(TokenRef {
+               chain: request.chain,
+               address: request.token,
+            }),
+         },
+         Self::Shield(request) => Intent::AssetMove {
+            capability: self.capability(),
+            wallet: request.from,
+            asset: nft_asset(request.chain, request.token, request.nft),
+         },
+         // What an unshield gives up lives in the private pool, which no public allowlist describes, so
+         // the asset here is the one it hands to the public side.
+         Self::Unshield(request) => Intent::AssetMove {
+            capability: self.capability(),
+            wallet: request.from,
+            asset: nft_asset(request.chain, request.token, request.nft),
+         },
+         // Merging a wallet's own notes spends nothing: it rewrites them where they already are, so the
+         // asset envelope has nothing to decide.
+         Self::MergeNotes(request) => Intent::WalletWrite {
+            capability: self.capability(),
+            wallet: request.from,
+         },
       }
    }
 
    /// The recipient a funds screen is about, when the action has one.
+   ///
+   /// A bridge's recipient is deliberately absent: it lives on the destination chain, which the pipeline
+   /// cannot read without being told which one, so the screen is asked for separately.
    const fn recipient(&self) -> Option<Address> {
       match self {
          Self::Send(request) => Some(request.to),
          Self::Nft(request) => Some(request.to),
-         Self::Revoke(_) | Self::Delegate(_) => None,
+         Self::Unshield(request) => Some(request.to),
+         Self::Revoke(_)
+         | Self::Delegate(_)
+         | Self::Swap(_)
+         | Self::Bridge(_)
+         | Self::Shield(_)
+         | Self::MergeNotes(_) => None,
       }
    }
 
@@ -292,7 +521,31 @@ impl ExecCall {
              nothing to simulate"
                .to_owned(),
          )),
+         // Each of these builds its transaction inside its flow, from state only the flow can read: the
+         // route from the pool manager, the deposit from the Across API, the proof from the private state.
+         Self::Swap(_) | Self::Bridge(_) | Self::Shield(_) | Self::Unshield(_) | Self::MergeNotes(_) => {
+            Err(ExecError::Invalid(
+               "this action cannot be previewed: its transaction is built inside its flow, from state \
+                only the flow can read"
+                  .to_owned(),
+            ))
+         }
       }
+   }
+}
+
+/// What a private call is about: one id when it named one, the fungible token otherwise.
+fn nft_asset(chain: u64, token: Address, nft: Option<NftMovement>) -> Asset {
+   match nft {
+      Some(nft) => Asset::Nft {
+         chain,
+         collection: token,
+         token_id: nft.token_id,
+      },
+      None => Asset::Token(TokenRef {
+         chain,
+         address: token,
+      }),
    }
 }
 
@@ -367,6 +620,9 @@ impl From<Decision> for ExecError {
 /// `&dyn TxFlows`.
 pub type TxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
+/// A quote's answer, boxed like every other port future.
+pub type QuoteFuture<'a> = Pin<Box<dyn Future<Output = Result<SwapQuote, ExecError>> + Send + 'a>>;
+
 /// The flows the pipeline drives.
 ///
 /// Implemented by the binary, which owns them — the same seam `zeus_mcp::AgentOps` is, one crate further in,
@@ -415,6 +671,83 @@ pub trait TxFlows: Send + Sync + 'static {
 
       Box::pin(async { Err(ExecError::Unavailable) })
    }
+
+   fn swap(
+      &self,
+      env: AgentEnv,
+      request: SwapRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let _ = (env, request);
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   fn bridge(
+      &self,
+      env: AgentEnv,
+      request: BridgeRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let _ = (env, request);
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   fn shield(
+      &self,
+      env: AgentEnv,
+      request: ShieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let _ = (env, request);
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   fn unshield(
+      &self,
+      env: AgentEnv,
+      request: UnshieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let _ = (env, request);
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   fn merge_notes(
+      &self,
+      env: AgentEnv,
+      request: MergeNotesRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let _ = (env, request);
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   /// Price a swap without making one, and answer the route it would take.
+   ///
+   /// A quote is not an action: it builds no transaction, so it takes no wallet lock and leaves no record.
+   fn quote(&self, request: QuoteRequest) -> QuoteFuture<'_> {
+      let _ = request;
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   /// Whether an address can receive funds on one chain.
+   ///
+   /// The app's own screen, through the port because it reads a chain the pipeline may not be able to open:
+   /// a bridge screens its recipient where that recipient lives.
+   fn screen(&self, chain: ChainId, recipient: Address) -> TxFuture<'_, Result<(), ExecError>> {
+      let _ = (chain, recipient);
+
+      Box::pin(async { Err(ExecError::Unavailable) })
+   }
+
+   /// The bundler URL the app has stored for its own unshields, when it has one.
+   ///
+   /// Read through the port because it is a sealed file the binary owns the key to. It is the value an
+   /// unshield uses when the call names none, so a call can be told whether it changed anything.
+   fn stored_bundler_url(&self) -> Option<String> {
+      None
+   }
 }
 
 /// One wallet's gate: at most one action holds it, and it is released when that action ends.
@@ -444,6 +777,18 @@ impl WalletLock {
          Ok(held) => Ok(Self { _held: held }),
          Err(_) => Err(ExecError::Busy),
       }
+   }
+}
+
+/// Whether an unshield would change the broadcast options the app has stored.
+///
+/// A call that names the URL the app already holds is not an override: it says what the app says, which is
+/// what a caller repeating the settings it read does. A call that changes either one is asking the app to
+/// behave differently from its own configuration, which is the write the grant has to carry.
+pub fn overrides_broadcast(flows: &dyn TxFlows, broadcast: &Broadcast) -> bool {
+   match &broadcast.bundler_url {
+      None => false,
+      Some(url) => flows.stored_bundler_url().is_none_or(|stored| stored != *url),
    }
 }
 
@@ -504,6 +849,13 @@ async fn run(
       screen(ctx, chain, request.to).await?;
    }
 
+   // A bridge hands funds to an address on another chain, and the pipeline has no way to read that one, so
+   // the screen is asked through the port. (An unshield's recipient is on this chain and its flow screens it
+   // before anything is proved, the same way a send's does.)
+   if let ExecCall::Bridge(request) = call {
+      screen_on(flows, request.dest_chain, request.to).await?;
+   }
+
    let env = AgentEnv::agent(profile.id.clone()).with_priority(call.priority());
 
    match call {
@@ -511,7 +863,31 @@ async fn run(
       ExecCall::Nft(request) => flows.send_nft(env, request.clone()).await,
       ExecCall::Revoke(request) => flows.revoke(env, request.clone()).await,
       ExecCall::Delegate(request) => flows.delegate(env, request.clone()).await,
+      ExecCall::Swap(request) => {
+         admit_slippage(profile, request.slippage_bps)?;
+
+         flows.swap(env, request.clone()).await
+      }
+      ExecCall::Bridge(request) => flows.bridge(env, request.clone()).await,
+      ExecCall::Shield(request) => flows.shield(env, request.clone()).await,
+      ExecCall::Unshield(request) => flows.unshield(env, request.clone()).await,
+      ExecCall::MergeNotes(request) => flows.merge_notes(env, request.clone()).await,
    }
+}
+
+/// Whether the grant allows this much slippage.
+///
+/// The cap is the grant's, not the UI's: an agent must not be able to set a slippage a human cannot, and the
+/// grant is where that maximum is written down. A zero cap is no slippage at all rather than no limit.
+fn admit_slippage(profile: &AgentProfile, slippage_bps: u16) -> Result<(), ExecError> {
+   if slippage_bps > profile.max_slippage_bps {
+      return Err(ExecError::Invalid(format!(
+         "this grant caps slippage at {} basis points, and the call asked for {}",
+         profile.max_slippage_bps, slippage_bps
+      )));
+   }
+
+   Ok(())
 }
 
 /// What an action would do, without doing it.
@@ -535,11 +911,13 @@ pub async fn preview(
       decision => return Err(decision.into()),
    }
 
+   // A swap, a bridge and the three private calls build their transaction inside their flow, so the target
+   // is where their preview stops — with the sentence that says this is not a preview of anything.
+   let (interact_to, call_data, value) = call.target()?;
+
    if let Some(recipient) = call.recipient() {
       screen(&ctx, chain, recipient).await?;
    }
-
-   let (interact_to, call_data, value) = call.target()?;
 
    let mut analysis = analyse(
       ctx.clone(),
@@ -572,6 +950,24 @@ async fn screen(ctx: &ZeusCtx, chain: ChainId, recipient: Address) -> Result<(),
    ensure_recipient_is_not_contract(ctx.clone(), chain, recipient)
       .await
       .map_err(|error| ExecError::Invalid(error.to_string()))
+}
+
+/// The funds screen for a bridge, on the chain the money lands on.
+///
+/// A bridge's recipient is only a recipient there, so this is asked port-side: the pipeline has no way to
+/// read a second chain. A chain the port cannot read is a refusal, not a reason to send unscreened.
+async fn screen_on(
+   flows: &dyn TxFlows,
+   dest_chain: u64,
+   recipient: Address,
+) -> Result<(), ExecError> {
+   let dest_chain = ChainId::new(dest_chain).map_err(|_| {
+      ExecError::Invalid(format!(
+         "chain {dest_chain} is not one Zeus supports"
+      ))
+   })?;
+
+   flows.screen(dest_chain, recipient).await
 }
 
 /// What a completed action answers with.
@@ -695,6 +1091,54 @@ fn sentence(call: &ExecCall, done: &TransactionRich) -> String {
          "Agent delegated its wallet to {}",
          display(request.delegate_to)
       ),
+      ExecCall::Swap(request) => {
+         let symbol = read::event_currency(&done.main_event)
+            .map(|currency| currency.symbol().to_owned())
+            .unwrap_or_else(|| {
+               crate::platform::truncate_address(format!("{:#x}", request.currency_in))
+            });
+         let amount = NumericValue::format_wei(request.amount_in, request.decimals_in).flatten();
+
+         format!("Agent swapped {amount} {symbol}")
+      }
+      ExecCall::Bridge(request) => {
+         let amount = NumericValue::format_wei(request.amount, request.decimals).flatten();
+
+         format!(
+            "Agent bridged {amount} to {} on chain {}",
+            display(request.to),
+            request.dest_chain
+         )
+      }
+      ExecCall::Shield(request) => {
+         let amount = NumericValue::format_wei(request.amount, request.decimals).flatten();
+
+         format!(
+            "Agent shielded {amount} on chain {}",
+            request.chain
+         )
+      }
+      // The app's own warning, verbatim: a self-broadcast is the one thing an unshield can do that the user
+      // would not expect to hear about afterwards.
+      ExecCall::Unshield(request) if request.broadcast.self_broadcast => {
+         format!(
+            "{SELF_BROADCAST_NOTICE} Agent unshielded to {}",
+            display(request.to)
+         )
+      }
+      ExecCall::Unshield(request) => {
+         let amount = NumericValue::format_wei(request.amount, request.decimals).flatten();
+
+         format!(
+            "Agent unshielded {amount} to {}",
+            display(request.to)
+         )
+      }
+      ExecCall::MergeNotes(request) => {
+         let amount = NumericValue::format_wei(request.amount, request.decimals).flatten();
+
+         format!("Agent merged {amount} of its private notes")
+      }
    }
 }
 
@@ -918,6 +1362,71 @@ mod tests {
       assert!(
          line.ends_with(" to 0xb0b0...b0b0b0"),
          "and says where it went, short enough to say out loud: {line}"
+      );
+   }
+
+   #[test]
+   fn a_self_broadcast_names_what_it_costs() {
+      let done = TransactionRich::dummy_clear_signed();
+      let unshield = |self_broadcast| {
+         ExecCall::Unshield(UnshieldRequest {
+            chain: 1,
+            from: wallet(),
+            token: token(),
+            amount: U256::from(1_000_000u64),
+            decimals: 6,
+            nft: None,
+            to: recipient(),
+            broadcast: Broadcast {
+               self_broadcast,
+               bundler_url: None,
+            },
+            unwrap_to_eth: false,
+            memo: None,
+            priority: PriorityTier::Normal,
+         })
+      };
+
+      // The sponsored path is the quiet one: it says what happened and nothing more.
+      let quiet = sentence(&unshield(false), &done);
+      assert!(!quiet.contains("Breaks anonymity"), "{quiet}");
+      assert!(quiet.ends_with(" to 0xb0b0...b0b0b0"), "{quiet}");
+
+      // A self-broadcast is not quiet: the app's own warning comes first, because it is the part of the
+      // sentence a user has to be able to act on.
+      let loud = sentence(&unshield(true), &done);
+      assert!(loud.starts_with(SELF_BROADCAST_NOTICE), "{loud}");
+      assert!(loud.ends_with(" to 0xb0b0...b0b0b0"), "{loud}");
+   }
+
+   #[test]
+   fn a_private_asset_is_an_id_only_when_one_was_named() {
+      let asset = |nft: bool| {
+         nft_asset(
+            1,
+            token(),
+            nft.then_some(NftMovement {
+               token_id: U256::from(7),
+               standard: NftStandard::Erc721,
+            }),
+         )
+      };
+
+      assert_eq!(
+         asset(false),
+         Asset::Token(TokenRef {
+            chain: 1,
+            address: token()
+         })
+      );
+      assert_eq!(
+         asset(true),
+         Asset::Nft {
+            chain: 1,
+            collection: token(),
+            token_id: U256::from(7)
+         },
+         "a collection with an id is the envelope's NFT shape, not its token shape"
       );
    }
 }

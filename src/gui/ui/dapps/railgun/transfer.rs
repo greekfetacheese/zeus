@@ -19,7 +19,7 @@ use zeus_railgun::{
 use crate::{
    core::{
       AgentEnv, DecodedEvent, PrivateTransferParams, SendTxOptions, SendTxRequest,
-      TransactionAnalysis, ZeusCtx, send_transaction,
+      TransactionAnalysis, TransactionRich, ZeusCtx, send_transaction,
    },
    gui::SHARED_GUI,
    utils::simulate::{
@@ -46,7 +46,7 @@ pub async fn private_transfer(
    from: Address,
    recipient_zk: String,
    memo: String,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    // A fungible transfer has to move an ERC-20 — native has no note of its own to spend, so WETH stands
    // in. An NFT note *is* the asset, so there is nothing to check for it.
    if let RailgunAsset::Fungible(currency) = &asset
@@ -162,7 +162,7 @@ pub async fn private_merge_notes(
    currency: Currency,
    amount: NumericValue,
    from: Address,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing note merge…");
       gui.request_repaint();
@@ -241,7 +241,7 @@ async fn exec_private_transfer(
    contract: Address,
    tx: TransactionBuilder,
    transfer_params: PrivateTransferParams,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
@@ -344,7 +344,7 @@ async fn exec_private_transfer(
       ..Default::default()
    };
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       true,
       SendTxRequest::new(chain, from, interact_to)
@@ -362,5 +362,5 @@ async fn exec_private_transfer(
       SettledOp::Private,
    ));
 
-   Ok(())
+   Ok(rich)
 }

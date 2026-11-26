@@ -23,8 +23,10 @@ mod tests;
 pub use audit::{AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry, BroadcastPath};
 pub use env::{AgentAuthority, AgentEnv};
 pub use exec::{
-   DelegateRequest, ExecCall, ExecError, NftSendRequest, Origin, RevokeRequest, RevokeTarget,
-   SendRequest, TxFlows, TxFuture, WalletLock, execute, preview,
+   BridgeRequest, Broadcast, DelegateRequest, ExecCall, ExecError, MergeNotesRequest, NftMovement,
+   NftSendRequest, Origin, QuoteFuture, QuoteRequest, QuoteStep, RevokeRequest, RevokeTarget,
+   SELF_BROADCAST_NOTICE, SendRequest, ShieldRequest, SwapQuote, SwapRequest, TxFlows, TxFuture,
+   UnshieldRequest, WalletLock, execute, overrides_broadcast, preview,
 };
 pub use intent::{Asset, Intent};
 pub use policy::{Decision, Denial, authorise, precheck, vault_open};

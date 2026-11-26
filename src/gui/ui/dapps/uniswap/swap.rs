@@ -24,8 +24,8 @@ use zeus_eth::revm::context::ContextTr;
 
 use crate::core::{
    AgentEnv, ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams,
-   TransactionAnalysis, UnwrapWETHParams, WrapETHParams, ZeusCtx, send_token_approve,
-   send_transaction, sign_message, signature::Permit2Info, types::Dapp,
+   TransactionAnalysis, TransactionRich, UnwrapWETHParams, WrapETHParams, ZeusCtx,
+   send_token_approve, send_transaction, sign_message, signature::Permit2Info, types::Dapp,
 };
 use crate::utils::{
    simulate::*,
@@ -1252,7 +1252,7 @@ impl SwapUi {
    ///
    /// A hook that is not a flat cut of the input cannot be modelled; those pools get their exact amount
    /// quoted instead, which is the amount a direct hop asks for.
-   async fn prepare_hook_pools(
+   pub(crate) async fn prepare_hook_pools(
       ctx: ZeusCtx,
       pools: &mut [AnyUniswapPool],
       currency_in: &Currency,
@@ -1598,7 +1598,7 @@ impl SwapUi {
             } else {
                unwrap_weth(ctx, AgentEnv::user(), from, chain, amount_in).await
             };
-            Self::finish_swap_tx(result, false);
+            Self::finish_swap_tx(result.map(|_| ()), false);
          });
          return;
       }
@@ -1630,7 +1630,7 @@ impl SwapUi {
             swap_steps,
          )
          .await;
-         Self::finish_swap_tx(result, true);
+         Self::finish_swap_tx(result.map(|_| ()), true);
       });
    }
 
@@ -1811,7 +1811,7 @@ pub async fn wrap_eth(
    from: Address,
    chain: ChainId,
    amount: NumericValue,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
@@ -1926,7 +1926,7 @@ pub async fn wrap_eth(
    let mev_protect = false;
    let source_is_zeus = true;
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -1936,6 +1936,7 @@ pub async fn wrap_eth(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         priority: env.priority,
          authority: env.authority,
          ..Default::default()
       },
@@ -1961,7 +1962,7 @@ pub async fn wrap_eth(
       ctx.update_public_data(chain.id(), from);
    });
 
-   Ok(())
+   Ok(rich)
 }
 
 pub async fn unwrap_weth(
@@ -1970,7 +1971,7 @@ pub async fn unwrap_weth(
    from: Address,
    chain: ChainId,
    amount: NumericValue,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
    let eth_balance_before = native_balance_at(ctx.clone(), chain, from, block_id).await?;
@@ -2068,7 +2069,7 @@ pub async fn unwrap_weth(
    let mev_protect = false;
    let source_is_zeus = true;
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -2078,6 +2079,7 @@ pub async fn unwrap_weth(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         priority: env.priority,
          authority: env.authority,
          ..Default::default()
       },
@@ -2103,7 +2105,7 @@ pub async fn unwrap_weth(
       ctx.update_public_data(chain.id(), from);
    });
 
-   Ok(())
+   Ok(rich)
 }
 
 async fn handle_approve(
@@ -2196,7 +2198,7 @@ async fn handle_approve(
 }
 
 /// Execute a swap through the Universal Router
-async fn swap_via_ur(
+pub(crate) async fn swap_via_ur(
    ctx: ZeusCtx,
    env: AgentEnv,
    chain: ChainId,
@@ -2208,7 +2210,7 @@ async fn swap_via_ur(
    currency_in: Currency,
    currency_out: Currency,
    swap_steps: Vec<SwapStep<AnyUniswapPool>>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
@@ -2461,7 +2463,7 @@ async fn swap_via_ur(
    let auth_list = Vec::new();
    let source_is_zeus = true;
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, signer_address, router_addr)
@@ -2472,6 +2474,7 @@ async fn swap_via_ur(
       SendTxOptions {
          dapp,
          mev_protect,
+         priority: env.priority,
          authority: env.authority,
          ..Default::default()
       },
@@ -2535,5 +2538,5 @@ async fn swap_via_ur(
       ctx.update_public_data(chain.id(), signer_address);
    });
 
-   Ok(())
+   Ok(rich)
 }

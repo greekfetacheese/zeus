@@ -6,7 +6,8 @@ use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    AgentEnv, BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis,
-   ZeusContext, ZeusCtx, read_recipient_account, refuse_contract_recipient, send_transaction,
+   TransactionRich, ZeusContext, ZeusCtx, read_recipient_account, refuse_contract_recipient,
+   send_transaction,
 };
 use crate::gui::ui::common::notices;
 use crate::gui::{
@@ -60,7 +61,7 @@ const BLOCK_TIMEOUT: u64 = 10;
 /// How long a deposit waits for its fill on the destination chain before the outcome is reported.
 ///
 /// The fill deadline the API suggests is far higher, so this is the wait the user is actually in.
-const FILL_WAIT_SECS: u64 = 300;
+pub(crate) const FILL_WAIT_SECS: u64 = 300;
 
 const ACROSS_URL: &str = "https://across.to";
 
@@ -1258,6 +1259,11 @@ impl AcrossBridge {
       self.settings.use_api
    }
 
+   /// The cut the page takes when it is not asking the API, as the agent port reads it.
+   pub(crate) fn agent_fee_to_pay(&self) -> f64 {
+      self.settings.fee_to_pay
+   }
+
    /// The endpoint the page ships with, so a reader can tell a chosen one from the stock one.
    pub(crate) fn agent_default_api_url() -> String {
       Settings::default().api_url
@@ -1439,7 +1445,7 @@ fn api_host(url: &str) -> &str {
 /// bridge rather than send funds it cannot vouch for.
 const RECIPIENT_UNVERIFIABLE_MSG: &str = "Zeus could not check the recipient on the destination chain, so the bridge was not sent. Check that network's RPC in Settings and try again.";
 
-async fn across_bridge(
+pub(crate) async fn across_bridge(
    ctx: ZeusCtx,
    env: AgentEnv,
    chain: ChainId,
@@ -1451,29 +1457,7 @@ async fn across_bridge(
    call_data: Bytes,
    input_amount: NumericValue,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
-   // First thing first: a bridge recipient lives on the destination chain, so the
-   // screen must read that chain. A recipient Zeus cannot check is refused outright —
-   // sending unscreened would make this guard depend on which RPCs happen to be up.
-   let client = ctx.get_client(dest_chain.id()).await.map_err(|e| {
-      tracing::error!(
-         "Could not open a client for the destination chain: {:?}",
-         e
-      );
-      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
-   })?;
-
-   let recipient_account =
-      read_recipient_account(&client, dest_chain.id(), recipient).await.map_err(|e| {
-         tracing::error!(
-            "Failed to read the destination-chain recipient: {:?}",
-            e
-         );
-         anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
-      })?;
-
-   refuse_contract_recipient(recipient, recipient_account)?;
-
+) -> Result<TransactionRich, anyhow::Error> {
    // Across protocol is very fast on filling the orders
    // So we get the latest block from the destination chain now so we dont miss it and the progress window stucks
    let from_block = Arc::new(Mutex::new(None));
@@ -1496,67 +1480,17 @@ async fn across_bridge(
       }
    });
 
-   let mev_protect = false;
-   let source_is_zeus = true;
-   let auth_list = Vec::new();
-   let value = input_amount.wei();
-
-   let simulated = simulate_for_analysis(
+   let rich = send_bridge_deposit(
       ctx.clone(),
+      env,
       chain,
+      dest_chain,
       from,
+      recipient,
       interact_to,
-      call_data.clone(),
-      value,
-      Vec::new(),
-   )
-   .await?;
-
-   let mut params = None;
-
-   for log in &simulated.logs {
-      if let Ok(p) = BridgeParams::from_log(ctx.clone(), chain.id(), log).await {
-         params = Some(p);
-         break;
-      }
-   }
-
-   let Some(params) = params else {
-      return Err(anyhow!("Failed to decode funds deposited log"));
-   };
-
-   let mut tx_analysis = TransactionAnalysis::new(
-      ctx.clone(),
-      chain.id(),
-      from,
-      interact_to,
-      Some(true),
-      call_data.clone(),
-      value,
-      simulated.logs,
-      simulated.gas_used,
-      simulated.balance_before,
-      simulated.balance_after,
-      auth_list.clone(),
-   )
-   .await?;
-   tx_analysis.set_block_number(simulated.block_number);
-   tx_analysis.set_main_event(DecodedEvent::Bridge(params));
-
-   let (_, _) = send_transaction(
-      ctx.clone(),
-      source_is_zeus,
-      SendTxRequest::new(chain, from, interact_to)
-         .call_data(call_data)
-         .value(value)
-         .authorization_list(auth_list)
-         .analysis(tx_analysis),
-      SendTxOptions {
-         mev_protect,
-         ens_recipient: recipient_guard,
-         authority: env.authority,
-         ..Default::default()
-      },
+      call_data,
+      input_amount,
+      recipient_guard,
    )
    .await?;
 
@@ -1622,7 +1556,114 @@ async fn across_bridge(
       }
    });
 
-   Ok(())
+   Ok(rich)
+}
+
+/// One bridge deposit: the destination screen, the simulation, and the broadcast.
+///
+/// Split from the flow above because the wait that follows it is the page's progress, not the deposit: an
+/// agent's call has to be answerable while the money is still crossing, and the funds are on their way
+/// whether or not this process watches for them land.
+pub(crate) async fn send_bridge_deposit(
+   ctx: ZeusCtx,
+   env: AgentEnv,
+   chain: ChainId,
+   dest_chain: ChainId,
+   from: Address,
+   recipient: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   input_amount: NumericValue,
+   recipient_guard: Option<EnsRecipientGuard>,
+) -> Result<TransactionRich, anyhow::Error> {
+   // First thing first: a bridge recipient lives on the destination chain, so the
+   // screen must read that chain. A recipient Zeus cannot check is refused outright —
+   // sending unscreened would make this guard depend on which RPCs happen to be up.
+   let client = ctx.get_client(dest_chain.id()).await.map_err(|e| {
+      tracing::error!(
+         "Could not open a client for the destination chain: {:?}",
+         e
+      );
+      anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+   })?;
+
+   let recipient_account =
+      read_recipient_account(&client, dest_chain.id(), recipient).await.map_err(|e| {
+         tracing::error!(
+            "Failed to read the destination-chain recipient: {:?}",
+            e
+         );
+         anyhow!(RECIPIENT_UNVERIFIABLE_MSG)
+      })?;
+
+   refuse_contract_recipient(recipient, recipient_account)?;
+
+   let mev_protect = false;
+   let source_is_zeus = true;
+   let auth_list = Vec::new();
+   let value = input_amount.wei();
+
+   let simulated = simulate_for_analysis(
+      ctx.clone(),
+      chain,
+      from,
+      interact_to,
+      call_data.clone(),
+      value,
+      Vec::new(),
+   )
+   .await?;
+
+   let mut params = None;
+
+   for log in &simulated.logs {
+      if let Ok(p) = BridgeParams::from_log(ctx.clone(), chain.id(), log).await {
+         params = Some(p);
+         break;
+      }
+   }
+
+   let Some(params) = params else {
+      return Err(anyhow!("Failed to decode funds deposited log"));
+   };
+
+   let mut tx_analysis = TransactionAnalysis::new(
+      ctx.clone(),
+      chain.id(),
+      from,
+      interact_to,
+      Some(true),
+      call_data.clone(),
+      value,
+      simulated.logs,
+      simulated.gas_used,
+      simulated.balance_before,
+      simulated.balance_after,
+      auth_list.clone(),
+   )
+   .await?;
+   tx_analysis.set_block_number(simulated.block_number);
+   tx_analysis.set_main_event(DecodedEvent::Bridge(params));
+
+   let (_, rich) = send_transaction(
+      ctx.clone(),
+      source_is_zeus,
+      SendTxRequest::new(chain, from, interact_to)
+         .call_data(call_data)
+         .value(value)
+         .authorization_list(auth_list)
+         .analysis(tx_analysis),
+      SendTxOptions {
+         mev_protect,
+         priority: env.priority,
+         ens_recipient: recipient_guard,
+         authority: env.authority,
+         ..Default::default()
+      },
+   )
+   .await?;
+
+   Ok(rich)
 }
 
 async fn wait_for_fill(

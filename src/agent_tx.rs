@@ -6,12 +6,18 @@
 //! types the flows take, and turns their sentences into the codes a caller branches on.
 
 use crate::core::agent::exec::{
-   DelegateRequest, ExecError, NftSendRequest, RevokeRequest, RevokeTarget, SendRequest,
+   DelegateRequest, ExecError, MergeNotesRequest, NftMovement, NftSendRequest, RevokeRequest,
+   RevokeTarget, SendRequest, ShieldRequest, UnshieldRequest,
 };
 use crate::core::tx::events::NftApproveParams;
 use crate::core::tx::{TransactionRich, TxRefusal, delegate_to};
+use crate::core::types::BundlerUrl;
 use crate::core::{AgentEnv, ClientKind, ZeusCtx};
 use crate::gui::ui::approvals::{revoke_erc20_approval, revoke_nft_approval};
+use crate::gui::ui::dapps::railgun::unshield::unshield as unshield_flow;
+use crate::gui::ui::dapps::railgun::{
+   RailgunAsset, default_bundler_url, private_merge_notes, shield::shield as shield_flow,
+};
 use crate::gui::ui::send_crypto::{send_eth, send_nft as send_nft_flow, send_token};
 use zeus_eth::alloy_primitives::{Address, U256};
 use zeus_eth::currency::{Currency, ERC20Token, NativeCurrency};
@@ -171,8 +177,166 @@ pub async fn delegate(
    .map_err(classify)
 }
 
+/// Shield a public asset into the private pool.
+pub async fn shield(
+   ctx: ZeusCtx,
+   env: AgentEnv,
+   request: ShieldRequest,
+) -> Result<TransactionRich, ExecError> {
+   let chain = chain(request.chain)?;
+   let asset = private_asset(
+      &ctx,
+      chain,
+      request.from,
+      request.token,
+      request.nft,
+   )
+   .await?;
+   let amount = NumericValue::format_wei(request.amount, request.decimals);
+
+   offloaded(move || {
+      crate::runtime::rt().block_on(shield_flow(
+         ctx,
+         env,
+         chain,
+         asset,
+         amount,
+         request.from,
+         request.recipient,
+         None,
+      ))
+   })
+   .await
+}
+
+/// Unshield private notes to a public address.
+pub async fn unshield(
+   ctx: ZeusCtx,
+   env: AgentEnv,
+   request: UnshieldRequest,
+) -> Result<TransactionRich, ExecError> {
+   let chain = chain(request.chain)?;
+   let asset = private_asset(
+      &ctx,
+      chain,
+      request.from,
+      request.token,
+      request.nft,
+   )
+   .await?;
+   let amount = NumericValue::format_wei(request.amount, request.decimals);
+
+   // The URL the app holds is what the page would have sent through; a call that names another one has
+   // already been checked against the grant that may change it.
+   let bundler_url = match &request.broadcast.bundler_url {
+      Some(url) => url.clone(),
+      None => stored_bundler_url(&ctx).unwrap_or_else(|| default_bundler_url(chain.id())),
+   };
+
+   let to = format!("{:#x}", request.to);
+   let memo = request.memo.unwrap_or_default();
+   let self_broadcast = request.broadcast.self_broadcast;
+   // An NFT has nothing to unwrap, so the flag is a fungible one whether or not the call set it.
+   let unwrap_to_eth = request.unwrap_to_eth && request.nft.is_none();
+   let from = request.from;
+
+   offloaded(move || {
+      crate::runtime::rt().block_on(unshield_flow(
+         ctx,
+         env,
+         chain,
+         asset,
+         amount,
+         from,
+         to,
+         self_broadcast,
+         unwrap_to_eth,
+         bundler_url,
+         memo,
+         None,
+      ))
+   })
+   .await
+}
+
+/// Merge the wallet's own notes: a private self-transfer, so no value leaves.
+pub async fn merge_notes(
+   ctx: ZeusCtx,
+   env: AgentEnv,
+   request: MergeNotesRequest,
+) -> Result<TransactionRich, ExecError> {
+   let chain = chain(request.chain)?;
+   let currency = Currency::from(erc20(&ctx, chain, request.from, request.currency).await?);
+   let amount = NumericValue::format_wei(request.amount, request.decimals);
+   let from = request.from;
+
+   offloaded(move || {
+      crate::runtime::rt().block_on(private_merge_notes(
+         ctx, env, chain, currency, amount, from,
+      ))
+   })
+   .await
+}
+
+/// Whether an address can receive funds on one chain, in the app's own words.
+pub async fn screen(ctx: ZeusCtx, chain: ChainId, recipient: Address) -> Result<(), ExecError> {
+   crate::core::tx::ensure_recipient_is_not_contract(ctx, chain, recipient)
+      .await
+      .map_err(classify)
+}
+
+/// The sealed bundler URL the app holds for its own unshields, when it holds one.
+pub fn stored_bundler_url(ctx: &ZeusCtx) -> Option<String> {
+   let key = ctx.read_vault(|vault| vault.wallet_state_key()).ok()?;
+
+   BundlerUrl::load(&key).ok().map(|stored| stored.url)
+}
+
+/// What a private call is about, in the shape the flows take.
+async fn private_asset(
+   ctx: &ZeusCtx,
+   chain: ChainId,
+   owner: Address,
+   token: Address,
+   nft: Option<NftMovement>,
+) -> Result<RailgunAsset, ExecError> {
+   let Some(nft) = nft else {
+      let currency = if token.is_zero() {
+         Currency::from(NativeCurrency::from(chain.id()))
+      } else {
+         Currency::from(erc20(ctx, chain, owner, token).await?)
+      };
+
+      return Ok(RailgunAsset::Fungible(currency));
+   };
+
+   Ok(RailgunAsset::Nft(NftToken {
+      chain_id: chain.id(),
+      collection: token,
+      token_id: nft.token_id,
+      standard: nft.standard,
+      metadata_uri: None,
+   }))
+}
+
+/// Run one private flow on a blocking thread of the process runtime.
+///
+/// Proving is CPU work and the bundler client is not Send, so neither the flow nor its future can run on
+/// the request's own task. The GUI does the same thing, for the same reason.
+async fn offloaded<T, F>(work: F) -> Result<T, ExecError>
+where
+   F: FnOnce() -> Result<T, anyhow::Error> + Send + 'static,
+   T: Send + 'static,
+{
+   crate::runtime::rt()
+      .spawn_blocking(work)
+      .await
+      .map_err(|error| ExecError::Failed(format!("the flow did not run: {error}")))?
+      .map_err(classify)
+}
+
 /// The chain a call named, as the flows take it.
-fn chain(chain: u64) -> Result<ChainId, ExecError> {
+pub(crate) fn chain(chain: u64) -> Result<ChainId, ExecError> {
    ChainId::new(chain)
       .map_err(|_| ExecError::Invalid(format!("chain {chain} is not one Zeus supports")))
 }
@@ -182,7 +346,7 @@ fn chain(chain: u64) -> Result<ChainId, ExecError> {
 /// The app's portfolio answers when it holds the token, which is the common case and costs no node call; a
 /// token the wallet has never seen is read from its own contract, which is also how it is told from an
 /// address that is not an ERC-20 at all.
-async fn erc20(
+pub(crate) async fn erc20(
    ctx: &ZeusCtx,
    chain: ChainId,
    owner: Address,
@@ -215,7 +379,7 @@ async fn erc20(
 }
 
 /// The pipeline's typed refusals, as the pipeline reports them, and everything else as itself.
-fn classify(error: anyhow::Error) -> ExecError {
+pub(crate) fn classify(error: anyhow::Error) -> ExecError {
    match error.downcast_ref::<TxRefusal>() {
       Some(TxRefusal::Locked) => ExecError::Locked,
       Some(TxRefusal::Busy) => ExecError::Busy,

@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use zeus_core::agent::exec::{
-   DelegateRequest, ExecError, NftSendRequest, RevokeRequest, RevokeTarget, SendRequest, TxFlows,
-   TxFuture, WalletLock,
+   BridgeRequest, DelegateRequest, ExecError, MergeNotesRequest, NftSendRequest, QuoteFuture,
+   QuoteRequest, RevokeRequest, RevokeTarget, SendRequest, ShieldRequest, SwapQuote, SwapRequest,
+   TxFlows, TxFuture, UnshieldRequest, WalletLock,
 };
 use zeus_core::agent::settings::{Applied, Closed, SettingsError};
 use zeus_core::agent::{
@@ -21,6 +22,8 @@ use zeus_core::agent::{
 use zeus_core::context::PoolError;
 use zeus_core::{AgentEnv, TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
 use zeus_eth::alloy_primitives::{Address, TxHash, U256};
+use zeus_eth::currency::ERC20Token;
+use zeus_eth::types::ChainId;
 use zeus_eth::utils::NumericValue;
 use zeus_mcp::protocol::{LEGACY_VERSION, MODERN_VERSION, meta};
 use zeus_mcp::{
@@ -1339,6 +1342,7 @@ async fn the_read_surface_is_scoped_to_the_grant() {
          "networks_list",
          "pools_list",
          "portfolio_get",
+         "quote_swap",
          "railgun_status",
          "settings_describe",
          "settings_get",
@@ -2189,6 +2193,24 @@ struct FakeState {
    send_refusal: Option<ExecError>,
    /// Every delegation the port was asked for, in order.
    delegations: Vec<DelegateRequest>,
+   /// Every swap the port was asked for, in order.
+   swaps: Vec<SwapRequest>,
+   /// Every bridge the port was asked for, in order.
+   bridges: Vec<BridgeRequest>,
+   /// Every shield the port was asked for, in order.
+   shields: Vec<ShieldRequest>,
+   /// Every unshield the port was asked for, in order.
+   unshields: Vec<UnshieldRequest>,
+   /// Every note merge the port was asked for, in order.
+   merges: Vec<MergeNotesRequest>,
+   /// Every quote the port was asked for, in order.
+   quotes: Vec<QuoteRequest>,
+   /// Every address the port was asked to screen, in order.
+   screened: Vec<(u64, Address)>,
+   /// When set, the screen refuses, which is what a chain that cannot be read looks like.
+   screen_fails: bool,
+   /// The bundler URL the double says the app has stored.
+   bundler: Option<String>,
 }
 
 impl FakeOps {
@@ -2253,6 +2275,39 @@ impl FakeOps {
 
    fn delegations(&self) -> Vec<DelegateRequest> {
       self.state.lock().expect("the double").delegations.clone()
+   }
+
+   fn swaps(&self) -> Vec<SwapRequest> {
+      self.state.lock().expect("the double").swaps.clone()
+   }
+
+   fn bridges(&self) -> Vec<BridgeRequest> {
+      self.state.lock().expect("the double").bridges.clone()
+   }
+
+   fn unshields(&self) -> Vec<UnshieldRequest> {
+      self.state.lock().expect("the double").unshields.clone()
+   }
+
+   fn merges(&self) -> Vec<MergeNotesRequest> {
+      self.state.lock().expect("the double").merges.clone()
+   }
+
+   fn quotes(&self) -> Vec<QuoteRequest> {
+      self.state.lock().expect("the double").quotes.clone()
+   }
+
+   fn screened(&self) -> Vec<(u64, Address)> {
+      self.state.lock().expect("the double").screened.clone()
+   }
+
+   /// A destination chain nobody can read, which is what the bridge must refuse.
+   fn unreadable_destination(&self) {
+      self.state.lock().expect("the double").screen_fails = true;
+   }
+
+   fn store_bundler(&self, url: &str) {
+      self.state.lock().expect("the double").bundler = Some(url.to_owned());
    }
 }
 
@@ -3026,6 +3081,90 @@ fn answered() -> TransactionRich {
 }
 
 impl TxFlows for FakeOps {
+   fn swap(
+      &self,
+      _env: AgentEnv,
+      request: SwapRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").swaps.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn bridge(
+      &self,
+      _env: AgentEnv,
+      request: BridgeRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").bridges.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn shield(
+      &self,
+      _env: AgentEnv,
+      request: ShieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").shields.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn unshield(
+      &self,
+      _env: AgentEnv,
+      request: UnshieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").unshields.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn merge_notes(
+      &self,
+      _env: AgentEnv,
+      request: MergeNotesRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.state.lock().expect("the double").merges.push(request);
+
+      Box::pin(async { Ok(answered()) })
+   }
+
+   fn quote(&self, request: QuoteRequest) -> QuoteFuture<'_> {
+      self.state.lock().expect("the double").quotes.push(request);
+
+      Box::pin(async {
+         Ok(SwapQuote {
+            amount_out: U256::from(2_000_000u64),
+            decimals_out: 6,
+            wrapped: false,
+            steps: Vec::new(),
+         })
+      })
+   }
+
+   fn screen(&self, chain: ChainId, recipient: Address) -> TxFuture<'_, Result<(), ExecError>> {
+      let refusal = {
+         let mut state = self.state.lock().expect("the double");
+         state.screened.push((chain.id(), recipient));
+         state.screen_fails
+      };
+
+      Box::pin(async move {
+         match refusal {
+            true => Err(ExecError::Invalid(
+               "Zeus could not check the recipient on the destination chain".to_owned(),
+            )),
+            false => Ok(()),
+         }
+      })
+   }
+
+   fn stored_bundler_url(&self) -> Option<String> {
+      self.state.lock().expect("the double").bundler.clone()
+   }
+
    fn send(
       &self,
       _env: AgentEnv,
@@ -3283,9 +3422,7 @@ async fn a_second_action_on_the_same_wallet_is_busy() {
 
    // A chain of its own: the lock is keyed by (chain, wallet) and this suite runs its tests in parallel, so
    // holding chain 1 here would make every other send test in this file answer BUSY.
-   let held = WalletLock::take(8453, wallet)
-      .await
-      .expect("this test holds the wallet");
+   let held = WalletLock::take(8453, wallet).await.expect("this test holds the wallet");
 
    let reply = call_tool(
       &fixture,
@@ -3561,4 +3698,404 @@ async fn a_delegation_cannot_be_previewed() {
       ops.delegations().is_empty(),
       "a dry run must never become a real delegation"
    );
+}
+
+/// Let the profile's wallet move one token, instead of the allowance `allow_native` gave it.
+fn allow_token(fixture: &Fixture, address: Address, chain: u64) {
+   let mut profile = fixture
+      .ctx
+      .agent_profiles()
+      .profile(&fixture.profile)
+      .expect("the fixture's profile");
+   let wallet = profile.wallets.keys().next().copied().expect("a granted wallet");
+
+   profile.wallets.get_mut(&wallet).expect("the grant").tokens = TokenScope::Allowlist {
+      tokens: vec![TokenRef { chain, address }],
+   };
+
+   fixture.ctx.agent_profiles().insert(profile);
+}
+
+/// Cap the profile's slippage, the way the grant editor does.
+fn cap_slippage(fixture: &Fixture, bps: u16) {
+   let mut profile = fixture
+      .ctx
+      .agent_profiles()
+      .profile(&fixture.profile)
+      .expect("the fixture's profile");
+
+   profile.max_slippage_bps = bps;
+
+   fixture.ctx.agent_profiles().insert(profile);
+}
+
+#[tokio::test]
+async fn a_swap_runs_through_the_port_and_is_recorded() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.swap"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_swap",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token_out": MONEY_TOKEN,
+          "amount": "0.5",
+          "slippage_bps": 50,
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let asked = ops.swaps();
+   assert_eq!(asked.len(), 1, "one call, one swap");
+   assert_eq!(asked[0].chain, 1);
+   assert_eq!(
+      asked[0].currency_in,
+      Address::ZERO,
+      "no token in is the chain's coin"
+   );
+   assert_eq!(asked[0].slippage_bps, 50);
+   assert_eq!(
+      asked[0].amount_in,
+      U256::from(500_000_000_000_000_000u64)
+   );
+
+   let answer = data(&reply);
+   assert_eq!(
+      answer["policy"]["capability"],
+      "wallet.write.swap"
+   );
+   assert_eq!(answer["policy"]["decision"], "allowed");
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("a record of what was swapped");
+
+   assert_eq!(entry.tool, "tx_swap");
+   assert_eq!(entry.tx_hash, Some(TxHash::repeat_byte(0x77)));
+}
+
+#[tokio::test]
+async fn a_swap_over_the_grant_s_cap_never_reaches_the_port() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.swap"], &[], &[], ops.clone());
+   allow_native(&fixture);
+   cap_slippage(&fixture, 50);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_swap",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token_out": MONEY_TOKEN,
+          "amount": "0.5",
+          "slippage_bps": 5_000,
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+   assert!(
+      ops.swaps().is_empty(),
+      "the cap is checked before the route is priced"
+   );
+}
+
+#[tokio::test]
+async fn a_swap_whose_input_is_not_allowlisted_never_reaches_the_port() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.swap"], &[], &[], ops.clone());
+   allow_token(&fixture, ERC20Token::weth().address, 1);
+
+   // The wrapped coin is allowlisted; this one is not.
+   let reply = call_tool(
+      &fixture,
+      "tx_swap",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token_in": MONEY_TOKEN,
+          "decimals": 6,
+          "token_out": ERC20Token::weth().address.to_string(),
+          "amount": "12",
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("TOKEN_NOT_ALLOWED"));
+   assert!(ops.swaps().is_empty());
+}
+
+#[tokio::test]
+async fn a_quote_answers_what_the_port_priced() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.read.portfolio"], &[], &[], ops.clone());
+
+   let reply = call_tool(
+      &fixture,
+      "quote_swap",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token_out": MONEY_TOKEN,
+          "amount": "1",
+          "slippage_bps": 100,
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let answer = data(&reply);
+
+   assert_eq!(answer["amount_out"]["raw"], "2000000");
+   assert_eq!(answer["amount_out"]["decimals"], 6);
+   assert_eq!(
+      answer["min_received"]["raw"], "1980000",
+      "a percent of slippage leaves a floor below the quote"
+   );
+   assert_eq!(answer["slippage_bps"], 100);
+   assert_eq!(
+      ops.quotes().len(),
+      1,
+      "a quote is one port call and no flow"
+   );
+   assert!(ops.swaps().is_empty());
+}
+
+#[tokio::test]
+async fn a_bridge_screens_the_destination_chain() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.bridge"], &[], &[], ops.clone());
+   allow_token(
+      &fixture,
+      ERC20Token::wrapped_native_token(1).address,
+      1,
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "tx_bridge",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "to_chain": 10,
+          "to": MONEY_RECIPIENT,
+          "amount": "0.25",
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let screened = ops.screened();
+   assert_eq!(screened.len(), 1);
+   assert_eq!(
+      screened[0].0, 10,
+      "the recipient is screened where it lives, not where the deposit happens"
+   );
+
+   let asked = ops.bridges();
+   assert_eq!(asked.len(), 1);
+   assert_eq!(asked[0].dest_chain, 10);
+   assert_eq!(
+      asked[0].token,
+      ERC20Token::wrapped_native_token(1).address,
+      "the deposit is made in the chain's wrapped native token"
+   );
+}
+
+#[tokio::test]
+async fn a_bridge_whose_recipient_cannot_be_screened_is_refused() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.bridge"], &[], &[], ops.clone());
+   allow_token(
+      &fixture,
+      ERC20Token::wrapped_native_token(1).address,
+      1,
+   );
+   ops.unreadable_destination();
+
+   let reply = call_tool(
+      &fixture,
+      "tx_bridge",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "to_chain": 10,
+          "to": MONEY_RECIPIENT,
+          "amount": "0.25",
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+   assert!(
+      ops.bridges().is_empty(),
+      "a recipient the destination chain cannot be read for is refused, not sent unscreened"
+   );
+}
+
+#[tokio::test]
+async fn an_unshield_that_changes_the_bundler_needs_the_setting_s_own_grant() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.unshield"], &[], &[], ops.clone());
+   allow_native(&fixture);
+   ops.store_bundler("https://stored.example/rpc");
+
+   let reply = call_tool(
+      &fixture,
+      "railgun_unshield",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token": MONEY_TOKEN,
+          "decimals": 6,
+          "amount": "1",
+          "to": MONEY_RECIPIENT,
+          "bundler_url": "https://mine.example/rpc",
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("NOT_GRANTED"));
+   assert!(
+      ops.unshields().is_empty(),
+      "where the userOp goes is a stored setting, and changing it is its own grant"
+   );
+}
+
+#[tokio::test]
+async fn an_unshield_that_names_the_stored_bundler_is_not_an_override() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.unshield"], &[], &[], ops.clone());
+   allow_token(
+      &fixture,
+      MONEY_TOKEN.parse().expect("an address"),
+      1,
+   );
+   ops.store_bundler("https://stored.example/rpc");
+
+   let reply = call_tool(
+      &fixture,
+      "railgun_unshield",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token": MONEY_TOKEN,
+          "decimals": 6,
+          "amount": "1",
+          "to": MONEY_RECIPIENT,
+          "bundler_url": "https://stored.example/rpc",
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      error_code(&reply),
+      None,
+      "saying what the app already says asks for nothing: {}",
+      reply.body
+   );
+   assert_eq!(ops.unshields().len(), 1);
+   assert!(
+      ops.screened().is_empty(),
+      "the unshield's own flow screens its recipient before it proves anything, so the pipeline does not"
+   );
+}
+
+#[tokio::test]
+async fn a_merge_runs_without_a_prompt_and_is_recorded() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(
+      &["wallet.write.notes_merge"],
+      &[],
+      &[],
+      ops.clone(),
+   );
+
+   let reply = call_tool(
+      &fixture,
+      "railgun_merge_notes",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token": MONEY_TOKEN,
+          "decimals": 6,
+          "amount": "4",
+      }),
+   )
+   .await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let answer = data(&reply);
+   assert_eq!(
+      answer["policy"]["capability"],
+      "wallet.write.notes_merge"
+   );
+   assert_eq!(answer["policy"]["decision"], "allowed");
+
+   assert_eq!(ops.merges().len(), 1);
+   assert!(
+      ops.screened().is_empty(),
+      "nothing leaves the wallet, so there is no recipient to screen"
+   );
+
+   let tail = fixture.ctx.agent_audit().tail(10);
+   let entry = tail.last().expect("a record of the merge");
+
+   assert_eq!(entry.decision, AuditDecision::Allowed);
+}
+
+#[tokio::test]
+async fn a_dry_run_of_a_flow_built_transaction_says_why_it_cannot() {
+   let ops = Arc::new(FakeOps::new());
+   let fixture = Fixture::with_port(&["wallet.write.swap"], &[], &[], ops.clone());
+   allow_native(&fixture);
+
+   let reply = call_tool(
+      &fixture,
+      "tx_swap",
+      json!({
+          "wallet": MONEY_WALLET,
+          "chain": 1,
+          "token_out": MONEY_TOKEN,
+          "amount": "0.5",
+          "dry_run": true,
+      }),
+   )
+   .await;
+
+   assert_eq!(error_code(&reply), Some("VALIDATION"));
+   assert!(
+      reply.body.to_string().contains("cannot be previewed"),
+      "the refusal says what is missing rather than that something failed: {}",
+      reply.body
+   );
+   assert!(ops.swaps().is_empty());
 }

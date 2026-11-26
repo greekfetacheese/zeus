@@ -3,7 +3,9 @@
 use super::audit::{AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry};
 use super::env::AgentEnv;
 use super::exec::{
-   ExecCall, ExecError, Origin, SendRequest, TxFlows, TxFuture, WalletLock, execute, preview,
+   BridgeRequest, Broadcast, ExecCall, ExecError, Origin, QuoteFuture, QuoteRequest, SendRequest,
+   SwapQuote, SwapRequest, TxFlows, TxFuture, UnshieldRequest, WalletLock, execute,
+   overrides_broadcast, preview,
 };
 use super::intent::{Asset, Intent};
 use super::policy::{Decision, Denial, authorise, precheck};
@@ -1298,11 +1300,19 @@ fn an_audit_save_is_blocked_after_the_file_did_not_read() {
 #[derive(Default)]
 struct RecordingFlows {
    sends: std::sync::atomic::AtomicUsize,
+   swaps: std::sync::atomic::AtomicUsize,
+   unshields: std::sync::atomic::AtomicUsize,
+   /// The URL the app "has stored", for the unshield override question.
+   bundler: Option<&'static str>,
 }
 
 impl RecordingFlows {
    fn sends(&self) -> usize {
       self.sends.load(std::sync::atomic::Ordering::SeqCst)
+   }
+
+   fn swaps(&self) -> usize {
+      self.swaps.load(std::sync::atomic::Ordering::SeqCst)
    }
 }
 
@@ -1315,6 +1325,34 @@ impl TxFlows for RecordingFlows {
       self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
       Box::pin(async { Ok(TransactionRich::dummy_clear_signed()) })
+   }
+
+   fn swap(
+      &self,
+      _env: AgentEnv,
+      _request: SwapRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.swaps.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+      Box::pin(async { Ok(TransactionRich::dummy_clear_signed()) })
+   }
+
+   fn unshield(
+      &self,
+      _env: AgentEnv,
+      _request: UnshieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      self.unshields.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+      Box::pin(async { Ok(TransactionRich::dummy_clear_signed()) })
+   }
+
+   fn quote(&self, _request: QuoteRequest) -> QuoteFuture<'_> {
+      Box::pin(async { Ok(SwapQuote::default()) })
+   }
+
+   fn stored_bundler_url(&self) -> Option<String> {
+      self.bundler.map(str::to_owned)
    }
 }
 
@@ -1518,6 +1556,178 @@ async fn a_completed_action_is_recorded_and_said_out_loud() {
       "nothing asked the user first, so the app says what it did: {:?}",
       announcements()
    );
+}
+
+/// Two wallets the money tests of this group act for, so their actions queue behind nothing.
+fn carol() -> Address {
+   Address::repeat_byte(0xa3)
+}
+
+fn dave() -> Address {
+   Address::repeat_byte(0xa4)
+}
+
+/// A profile that may bridge dave's own coin, and no more than that.
+fn bridging_profile() -> AgentProfile {
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+
+   let mut caps = BTreeSet::new();
+   caps.insert("wallet.write.bridge".to_string());
+
+   profile.wallets.insert(
+      dave(),
+      WalletGrant {
+         enabled: true,
+         caps,
+         tokens: TokenScope::Allowlist {
+            tokens: vec![TokenRef {
+               chain: 1,
+               address: Address::ZERO,
+            }],
+         },
+         ..WalletGrant::default()
+      },
+   );
+
+   profile
+}
+
+/// A swap carol's grant would allow: the native token leaves, and the route's own tokens are not named.
+fn exec_swap(slippage_bps: u16) -> ExecCall {
+   ExecCall::Swap(SwapRequest {
+      chain: 1,
+      from: carol(),
+      currency_in: Address::ZERO,
+      currency_out: usdc().address,
+      amount_in: U256::from(1_000_000_000_000_000u64),
+      decimals_in: 18,
+      slippage_bps,
+      deadline: 5,
+      priority: PriorityTier::Normal,
+   })
+}
+
+/// A profile that may swap carol's own coin, and no more than that.
+fn swapping_profile(max_slippage_bps: u16) -> AgentProfile {
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+   profile.max_slippage_bps = max_slippage_bps;
+
+   let mut caps = BTreeSet::new();
+   caps.insert("wallet.write.swap".to_string());
+
+   profile.wallets.insert(
+      carol(),
+      WalletGrant {
+         enabled: true,
+         caps,
+         tokens: TokenScope::Allowlist {
+            tokens: vec![TokenRef {
+               chain: 1,
+               address: Address::ZERO,
+            }],
+         },
+         ..WalletGrant::default()
+      },
+   );
+
+   profile
+}
+
+#[tokio::test]
+async fn a_swap_over_the_grant_s_cap_never_reaches_the_flow() {
+   let flows = RecordingFlows::default();
+   let profile = swapping_profile(50);
+
+   let error = execute(
+      unlocked(),
+      &profile,
+      exec_swap(500),
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect_err("5% is over a 0.5% cap");
+
+   assert_eq!(
+      error.code(),
+      "VALIDATION",
+      "an agent may not pick a slippage its grant does not allow"
+   );
+   assert_eq!(flows.swaps(), 0);
+}
+
+#[tokio::test]
+async fn a_swap_within_the_cap_runs_through_the_port() {
+   let flows = RecordingFlows::default();
+   let profile = swapping_profile(50);
+
+   execute(
+      unlocked(),
+      &profile,
+      exec_swap(50),
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect("the cap allows this one");
+
+   assert_eq!(flows.swaps(), 1);
+}
+
+#[tokio::test]
+async fn a_bridge_asks_the_port_to_screen_the_destination_chain() {
+   let flows = RecordingFlows::default();
+   let profile = bridging_profile();
+
+   let call = ExecCall::Bridge(BridgeRequest {
+      chain: 1,
+      dest_chain: 10,
+      from: dave(),
+      to: bob(),
+      token: Address::ZERO,
+      amount: U256::from(1_000_000u64),
+      decimals: 18,
+      priority: PriorityTier::Normal,
+   });
+
+   // Every port method refuses unless it is implemented, and the screen is the first thing a bridge asks
+   // for: an unscreened recipient is one the bridge must not send to.
+   let error = execute(unlocked(), &profile, call, &exec_origin(), &flows)
+      .await
+      .expect_err("a port that cannot screen cannot bridge");
+
+   assert_eq!(error, ExecError::Unavailable);
+}
+
+#[test]
+fn a_bundler_url_is_an_override_only_when_it_differs() {
+   // Saying what the app already says is not an override: a caller repeating the settings it read has not
+   // asked for anything new.
+   let stored = RecordingFlows {
+      bundler: Some("https://bundler.example/rpc"),
+      ..RecordingFlows::default()
+   };
+
+   let same = Broadcast {
+      self_broadcast: false,
+      bundler_url: Some("https://bundler.example/rpc".to_owned()),
+   };
+   assert!(!overrides_broadcast(&stored, &same));
+
+   let different = Broadcast {
+      self_broadcast: false,
+      bundler_url: Some("https://mine.example/rpc".to_owned()),
+   };
+   assert!(overrides_broadcast(&stored, &different));
+   assert!(!overrides_broadcast(
+      &stored,
+      &Broadcast {
+         self_broadcast: false,
+         bundler_url: None,
+      }
+   ));
 }
 
 #[tokio::test]

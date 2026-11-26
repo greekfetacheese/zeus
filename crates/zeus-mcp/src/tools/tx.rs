@@ -210,7 +210,7 @@ fn send_request(arguments: &Value) -> Result<SendRequest, ToolError> {
 ///
 /// A token's come from the contract and the caller states them, because the amount's scale is the one thing
 /// that cannot be guessed: one digit wrong is three orders of magnitude. The coin's are always 18.
-fn decimals_argument(arguments: &Value, token: bool) -> Result<u8, ToolError> {
+pub(super) fn decimals_argument(arguments: &Value, token: bool) -> Result<u8, ToolError> {
    let stated =
       match arguments.get("decimals") {
          None | Some(Value::Null) => None,
@@ -235,7 +235,7 @@ fn decimals_argument(arguments: &Value, token: bool) -> Result<u8, ToolError> {
 }
 
 /// An amount in whole units, as the smallest unit the chain moves.
-fn wei_amount(text: &str, decimals: u8) -> Result<U256, ToolError> {
+pub(super) fn wei_amount(text: &str, decimals: u8) -> Result<U256, ToolError> {
    if text.starts_with('-') || text.starts_with('+') {
       return Err(ToolError::validation(
          "amount is a plain decimal number: no sign and no exponent",

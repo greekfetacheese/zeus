@@ -13,8 +13,8 @@ use crate::core::types::{BundlerUrl, EnsRecipientGuard};
 use crate::core::urls::ZeusUrl;
 use crate::core::{
    AgentEnv, DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis,
-   ZeusContext, ZeusCtx, ensure_allowance, ensure_approval_for_all, ensure_erc721_approve,
-   send_transaction,
+   TransactionRich, ZeusContext, ZeusCtx, ensure_allowance, ensure_approval_for_all,
+   ensure_erc721_approve, send_transaction,
 };
 use crate::{
    gui::ui::common::{
@@ -2101,7 +2101,7 @@ fn value(
    value
 }
 
-async fn shield(
+pub(crate) async fn shield(
    ctx: ZeusCtx,
    env: AgentEnv,
    chain: ChainId,
@@ -2110,7 +2110,7 @@ async fn shield(
    from: Address,
    recipient: String,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let railgun_provider = railgun_ready(ctx.clone(), chain).await?;
 
    let recipient = match RailgunAddress::from_zk_address(&recipient) {
@@ -2292,7 +2292,7 @@ async fn shield(
    tx_analysis.set_block_number(block_number);
    tx_analysis.set_main_event(DecodedEvent::Shield(shield_params));
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       true,
       SendTxRequest::new(chain, from, interact_to)
@@ -2303,6 +2303,7 @@ async fn shield(
          dapp: "Railgun".to_string(),
          keep_intent_event: true,
          ens_recipient: recipient_guard,
+         priority: env.priority,
          authority: env.authority.clone(),
          ..Default::default()
       },
@@ -2319,7 +2320,7 @@ async fn shield(
       asset.settled_op(false),
    ));
 
-   Ok(())
+   Ok(rich)
 }
 
 /// The host of the bundler URL — what the options dialog may say instead of a URL that can carry

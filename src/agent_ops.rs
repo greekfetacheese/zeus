@@ -15,7 +15,9 @@
 use crate::core::AgentEnv;
 use crate::core::PoolError;
 use crate::core::agent::exec::{
-   DelegateRequest, ExecError, NftSendRequest, RevokeRequest, SendRequest, TxFlows, TxFuture,
+   BridgeRequest, DelegateRequest, ExecError, MergeNotesRequest, NftSendRequest, QuoteFuture,
+   QuoteRequest, RevokeRequest, SendRequest, ShieldRequest, SwapRequest, TxFlows, TxFuture,
+   UnshieldRequest,
 };
 use crate::core::agent::settings::{Applied, SettingsError};
 use crate::core::tx::TransactionRich;
@@ -135,5 +137,77 @@ impl TxFlows for ZeusOps {
       let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
 
       Box::pin(crate::agent_tx::delegate(ctx, env, request))
+   }
+
+   fn swap(
+      &self,
+      env: AgentEnv,
+      request: SwapRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_swap::swap(ctx, env, request))
+   }
+
+   fn bridge(
+      &self,
+      env: AgentEnv,
+      request: BridgeRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_bridge::bridge(ctx, env, request))
+   }
+
+   fn shield(
+      &self,
+      env: AgentEnv,
+      request: ShieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::shield(ctx, env, request))
+   }
+
+   fn unshield(
+      &self,
+      env: AgentEnv,
+      request: UnshieldRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::unshield(ctx, env, request))
+   }
+
+   fn merge_notes(
+      &self,
+      env: AgentEnv,
+      request: MergeNotesRequest,
+   ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::merge_notes(ctx, env, request))
+   }
+
+   fn quote(&self, request: QuoteRequest) -> QuoteFuture<'_> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_swap::quote(ctx, request))
+   }
+
+   fn screen(
+      &self,
+      chain: zeus_eth::types::ChainId,
+      recipient: zeus_eth::alloy_primitives::Address,
+   ) -> TxFuture<'_, Result<(), ExecError>> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      Box::pin(crate::agent_tx::screen(ctx, chain, recipient))
+   }
+
+   fn stored_bundler_url(&self) -> Option<String> {
+      let ctx = crate::gui::SHARED_GUI.read(|gui| gui.ctx.clone());
+
+      crate::agent_tx::stored_bundler_url(&ctx)
    }
 }
