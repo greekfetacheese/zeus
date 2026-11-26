@@ -12,8 +12,8 @@ use std::{
 use crate::core::types::{BundlerUrl, EnsRecipientGuard};
 use crate::core::urls::ZeusUrl;
 use crate::core::{
-   AgentEnv, DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis,
-   TransactionRich, ZeusContext, ZeusCtx, ensure_allowance, ensure_approval_for_all,
+   AgentEnv, Amount, DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis,
+   TransactionRich, TxPromise, ZeusContext, ZeusCtx, ensure_allowance, ensure_approval_for_all,
    ensure_erc721_approve, send_transaction,
 };
 use crate::{
@@ -2290,6 +2290,17 @@ pub(crate) async fn shield(
 
    // Transact logs are not public ERC-20 transfers, so record the intent.
    tx_analysis.set_block_number(block_number);
+   // What the shield's own event says entered the private pool, in the asset's units. An NFT has no
+   // currency to weigh it against, so it states no promise and is reviewed by nothing — the same
+   // behaviour it had before this review existed.
+   tx_analysis.set_measured_out(amount.clone());
+
+   let promise = match &asset {
+      RailgunAsset::Fungible(currency) => Some(TxPromise::Shield {
+         amount: Amount::new(currency.clone(), amount.clone()),
+      }),
+      RailgunAsset::Nft(_) => None,
+   };
    tx_analysis.set_main_event(DecodedEvent::Shield(shield_params));
 
    let (_, rich) = send_transaction(
@@ -2305,6 +2316,9 @@ pub(crate) async fn shield(
          ens_recipient: recipient_guard,
          priority: env.priority,
          authority: env.authority.clone(),
+         // A shield moves one asset and trades nothing: the promise is the amount, and the simulation
+         // says whether all of it entered the pool.
+         promise,
          ..Default::default()
       },
    )

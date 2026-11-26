@@ -5,9 +5,9 @@ use crate::core::persisted::{PersistedFile, ensure_data_dir, file_path};
 use crate::core::types::EnsRecipientGuard;
 use crate::core::urls::ZeusUrl;
 use crate::core::{
-   AgentEnv, BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis,
-   TransactionRich, ZeusContext, ZeusCtx, read_recipient_account, refuse_contract_recipient,
-   send_transaction,
+   AgentEnv, Amount, BridgeParams, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis,
+   TransactionRich, TxPromise, ZeusContext, ZeusCtx, read_recipient_account,
+   refuse_contract_recipient, send_transaction,
 };
 use crate::gui::ui::common::notices;
 use crate::gui::{
@@ -1643,7 +1643,10 @@ pub(crate) async fn send_bridge_deposit(
    )
    .await?;
    tx_analysis.set_block_number(simulated.block_number);
-   tx_analysis.set_main_event(DecodedEvent::Bridge(params));
+   // The destination promise is what the deposit's own log says will arrive there; the source chain can
+   // only be simulated, so this is the bridge's measured value rather than a public balance delta.
+   tx_analysis.set_measured_out(params.received.clone());
+   tx_analysis.set_main_event(DecodedEvent::Bridge(params.clone()));
 
    let (_, rich) = send_transaction(
       ctx.clone(),
@@ -1658,6 +1661,21 @@ pub(crate) async fn send_bridge_deposit(
          priority: env.priority,
          ens_recipient: recipient_guard,
          authority: env.authority,
+         promise: Some(TxPromise::Bridge {
+            input: Amount::new(
+               params.input_currency.clone(),
+               input_amount.clone(),
+            ),
+            output: params.output_currency.clone(),
+            expected_out: params.amount.clone(),
+            // The relay fee is part of the bargain, not a loss, and the review excludes it by name.
+            fee: (params.amount.wei() > params.received.wei()).then(|| {
+               NumericValue::format_wei(
+                  params.amount.wei().saturating_sub(params.received.wei()),
+                  params.input_currency.decimals(),
+               )
+            }),
+         }),
          ..Default::default()
       },
    )

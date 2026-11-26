@@ -167,6 +167,8 @@ pub async fn swap(
       amount_in,
       currency_in,
       currency_out,
+      // The route this call priced, which is what the agent was answered with a moment ago.
+      quote.amount_out.clone(),
       quote.swap_steps,
    )
    .await

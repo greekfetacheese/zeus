@@ -24,9 +24,10 @@ use zeus_eth::revm::context::ContextTr;
 
 use crate::core::sim::diff::DiffProbe;
 use crate::core::{
-   AgentEnv, ApproveSimulation, DecodedEvent, DiffWatch, SendTxOptions, SendTxRequest, SwapParams,
-   TransactionAnalysis, TransactionRich, UnwrapWETHParams, WrapETHParams, ZeusCtx,
-   send_token_approve, send_transaction, sign_message, signature::Permit2Info, types::Dapp,
+   AgentEnv, Amount, ApproveSimulation, DecodedEvent, DiffWatch, SendTxOptions, SendTxRequest,
+   SwapParams, TransactionAnalysis, TransactionRich, TxPromise, UnwrapWETHParams, WrapETHParams,
+   ZeusCtx, send_token_approve, send_transaction, sign_message, signature::Permit2Info,
+   types::Dapp,
 };
 use crate::utils::{
    simulate::*,
@@ -1608,6 +1609,9 @@ impl SwapUi {
       let currency_out = self.quote.currency_out.clone();
       let amount_in = self.quote.amount_in.clone();
       let swap_steps = self.quote.swap_steps.clone();
+      // What the form promised: the quote is what the Price Impact row was computed from, so it is also
+      // what the simulation is reviewed against.
+      let expected_out = self.quote.amount_out.clone();
 
       let mev_protect = settings.mev_protect;
       let deadline = settings.deadline;
@@ -1628,6 +1632,7 @@ impl SwapUi {
             amount_in,
             currency_in,
             currency_out,
+            expected_out,
             swap_steps,
          )
          .await;
@@ -2210,6 +2215,9 @@ pub(crate) async fn swap_via_ur(
    amount_in: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
+   // What the caller was quoted. The simulation is measured against this, never against its own output:
+   // a floor derived from the simulation proves the trade did not move, not that it was a good one.
+   expected_out: NumericValue,
    swap_steps: Vec<SwapStep<AnyUniswapPool>>,
 ) -> Result<TransactionRich, anyhow::Error> {
    let client = ctx.get_client_manager();
@@ -2454,7 +2462,7 @@ pub(crate) async fn swap_via_ur(
       amount_in_usd: Some(amount_in_usd),
       received: real_amount_out,
       received_usd: Some(received_usd),
-      min_received: Some(amount_out_min),
+      min_received: Some(amount_out_min.clone()),
       min_received_usd: Some(min_received_usd),
       sender: signer_address,
       recipient: Some(signer_address),
@@ -2490,6 +2498,7 @@ pub(crate) async fn swap_via_ur(
    .await?;
 
    swap_tx_analysis.set_diffs(sim_balance_diff, sim_approval_diff);
+   swap_tx_analysis.set_measured_out(swap_params.received.clone());
 
    let main_event = DecodedEvent::SwapToken(swap_params.clone());
    swap_tx_analysis.set_block_number(block_number);
@@ -2515,6 +2524,14 @@ pub(crate) async fn swap_via_ur(
          mev_protect,
          priority: env.priority,
          authority: env.authority,
+         // What the caller bargained for: this much in, that much quoted out, and the least the calldata
+         // will accept.
+         promise: Some(TxPromise::Swap {
+            input: Amount::new(currency_in.clone(), amount_in.clone()),
+            output: currency_out.clone(),
+            expected_out,
+            floor: amount_out_min.clone(),
+         }),
          ..Default::default()
       },
    )

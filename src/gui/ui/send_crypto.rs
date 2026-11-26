@@ -12,8 +12,9 @@ use std::{
 
 use crate::core::types::EnsRecipientGuard;
 use crate::core::{
-   AgentEnv, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich,
-   TransferParams, ZeusContext, ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
+   AgentEnv, Amount, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis,
+   TransactionRich, TransferParams, TxPromise, ZeusContext, ZeusCtx,
+   ensure_recipient_is_not_contract, send_transaction,
 };
 use crate::utils::{TimeStamp, estimate_tx_cost, simulate};
 
@@ -1571,13 +1572,16 @@ pub(crate) async fn send_eth(
 
    let eth_cur = eth.clone().into();
    let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &eth_cur);
-   // let real_amount_sent = NumericValue::format_wei(real_amount_sent, eth.decimals);
-   // let real_amount_send_usd = ctx.get_currency_value_for_amount(real_amount_sent.f64(), &eth_cur);
+   // What the recipient's balance actually gained in the simulation: the number a transfer tax would show up
+   // in, and the one the confirmation reads against the amount asked for.
+   let real_amount_sent = NumericValue::format_wei(_real_amount_sent, eth.decimals);
+   let real_amount_send_usd = ctx.get_currency_value_for_amount(real_amount_sent.f64(), &eth_cur);
 
-   transfer_params.amount = amount;
+   transfer_params.amount = amount.clone();
    transfer_params.amount_usd = Some(amount_usd);
-   // transfer_params.real_amount_sent = Some(real_amount_sent);
-   // transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+   transfer_params.real_amount_sent = Some(real_amount_sent.clone());
+   transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+   let real_amount_sent_proof = real_amount_sent.clone();
 
    let contract_interact = Some(false);
    let auth_list = Vec::new();
@@ -1601,6 +1605,8 @@ pub(crate) async fn send_eth(
 
    tx_analysis.set_block_number(block.header.number);
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
+   // What the recipient's own balance gained in the simulation: the amount a transfer tax would leave.
+   tx_analysis.set_measured_out(real_amount_sent_proof.clone());
 
    let (_, rich) = send_transaction(
       ctx.clone(),
@@ -1617,6 +1623,10 @@ pub(crate) async fn send_eth(
          recipient_name: recipient_name.map(|name| (recipient, name)),
          priority: env.priority,
          authority: env.authority.clone(),
+         // What the recipient was promised. The simulation above says what it actually gets.
+         promise: Some(TxPromise::Transfer {
+            amount: Amount::new(currency.clone(), amount.clone()),
+         }),
          ..Default::default()
       },
    )
@@ -1743,10 +1753,11 @@ pub(crate) async fn send_token(
    let real_amount_sent = NumericValue::format_wei(real_amount_sent, token.decimals);
    let real_amount_send_usd = ctx.get_token_value_for_amount(real_amount_sent.f64(), &token);
 
-   transfer_params.amount = amount;
+   transfer_params.amount = amount.clone();
    transfer_params.amount_usd = Some(amount_usd);
-   transfer_params.real_amount_sent = Some(real_amount_sent);
+   transfer_params.real_amount_sent = Some(real_amount_sent.clone());
    transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+   let real_amount_sent_proof = real_amount_sent.clone();
 
    let contract_interact = Some(true);
    let auth_list = Vec::new();
@@ -1770,6 +1781,8 @@ pub(crate) async fn send_token(
 
    tx_analysis.set_block_number(block.header.number);
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
+   // What the recipient's own balance gained in the simulation: the amount a transfer tax would leave.
+   tx_analysis.set_measured_out(real_amount_sent_proof.clone());
 
    let (_, rich) = send_transaction(
       ctx.clone(),
@@ -1786,6 +1799,10 @@ pub(crate) async fn send_token(
          recipient_name: recipient_name.map(|name| (recipient, name)),
          priority: env.priority,
          authority: env.authority.clone(),
+         // What the recipient was promised. The simulation above says what it actually gets.
+         promise: Some(TxPromise::Transfer {
+            amount: Amount::new(currency.clone(), amount.clone()),
+         }),
          ..Default::default()
       },
    )

@@ -415,6 +415,26 @@ mod tests {
       assert!(review.usd_in.is_none());
    }
 
+   /// The carrier has to survive the trip from a flow to the review, or every flow's promise is decoration.
+   #[test]
+   fn a_promise_rides_on_the_send_options() {
+      let promise = swap(100.0, 99.5);
+      let opts = crate::tx::send::SendTxOptions::default().promise(promise.clone());
+
+      let held = opts.promise.expect("the promise is carried");
+
+      assert_eq!(held, promise);
+      assert_eq!(held.expected_out().f64(), 100.0);
+   }
+
+   /// A request that names no promise decides exactly as it did before the review existed.
+   #[test]
+   fn a_send_without_a_promise_carries_none() {
+      let opts = crate::tx::send::SendTxOptions::default();
+
+      assert!(opts.promise.is_none());
+   }
+
    /// A price the app does not have must never turn into a zero-dollar output.
    #[test]
    fn a_missing_price_is_absent_not_zero() {

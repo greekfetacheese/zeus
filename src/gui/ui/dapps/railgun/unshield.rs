@@ -35,8 +35,8 @@ use crate::{
    core::sim::diff::DiffProbe,
    core::types::EnsRecipientGuard,
    core::{
-      AgentEnv, ApprovalDiff, BalanceDiff, DecodedEvent, DiffWatch, MainEvent, MinedTx,
-      RecordPolicy, SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich,
+      AgentEnv, Amount, ApprovalDiff, BalanceDiff, DecodedEvent, DiffWatch, MainEvent, MinedTx,
+      RecordPolicy, SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich, TxPromise,
       UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx, ensure_recipient_is_not_contract,
       record_and_notify, send_transaction, sim::diff::diffs_from_receipt,
    },
@@ -67,6 +67,23 @@ fn eip7702_delegated_code(implementation: Address) -> Bytes {
    code.extend_from_slice(&[0xef, 0x01, 0x00]);
    code.extend_from_slice(implementation.as_slice());
    code.into()
+}
+
+/// What an unshield promises, when the asset has a currency to weigh it in.
+///
+/// An NFT has no currency and no price, so it states no promise and is reviewed by nothing — the same
+/// behaviour it had before this review existed. The amount is what the user asked to unshield; the
+/// protocol's own cut is already taken before the withdrawal, so it is not a fee this promise allows.
+fn unshield_promise(asset: &RailgunAsset, amount_wei: U256) -> Option<TxPromise> {
+   match asset {
+      RailgunAsset::Fungible(currency) => Some(TxPromise::Unshield {
+         amount: Amount::new(
+            currency.clone(),
+            NumericValue::format_wei(amount_wei, currency.decimals()),
+         ),
+      }),
+      RailgunAsset::Nft(_) => None,
+   }
 }
 
 /// Unshield private notes to a public address.
@@ -154,6 +171,7 @@ pub async fn unshield(
          from,
          recipient,
          &asset,
+         asset.value(amount.wei()),
          tx,
          recipient_guard,
       )
@@ -186,6 +204,8 @@ async fn unshield_self_broadcast(
    from: Address,
    recipient: Address,
    asset: &RailgunAsset,
+   // What the caller asked to unshield, in the asset's wei: the promise the simulation is read against.
+   amount_wei: U256,
    tx: TransactionBuilder,
    recipient_guard: Option<EnsRecipientGuard>,
 ) -> Result<TransactionRich, anyhow::Error> {
@@ -318,6 +338,8 @@ async fn unshield_self_broadcast(
    .await?;
 
    tx_analysis.set_block_number(block_number);
+   // What the unshield's own event says leaves the private pool for the recipient.
+   tx_analysis.set_measured_out(unshield_params.amount.clone().unwrap_or_default());
    tx_analysis.set_main_event(DecodedEvent::Unshield(unshield_params));
 
    let tx_opt = SendTxOptions {
@@ -326,6 +348,7 @@ async fn unshield_self_broadcast(
       keep_intent_event: true,
       ens_recipient: recipient_guard,
       authority: env.authority.clone(),
+      promise: unshield_promise(asset, asset.value(amount_wei)),
       ..Default::default()
    };
 
@@ -834,6 +857,7 @@ async fn unshield_via_paymaster(
 
    let main_event = DecodedEvent::Unshield(unshield_params.clone());
    tx_analysis.set_block_number(fork_block.header.number);
+   tx_analysis.set_measured_out(unshield_params.amount.clone().unwrap_or_default());
    tx_analysis.set_main_event(main_event);
 
    // Replace the decoded unshield with the main so it can also show
@@ -849,6 +873,7 @@ async fn unshield_via_paymaster(
       sponsored: true,
       ens_recipient: recipient_guard,
       authority: env.authority.clone(),
+      promise: unshield_promise(asset, asset.value(amount)),
       ..Default::default()
    };
 

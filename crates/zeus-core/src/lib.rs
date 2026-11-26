@@ -26,7 +26,10 @@ pub use platform::{
 };
 pub use signature::{msg::SignMsgType, sign::sign_message};
 pub use sim::{approval_diff::*, balance_diff::*};
-pub use tx::{analysis::*, approve::*, events::*, finalize::*, rich::*, send::*, send_calls::*};
+pub use tx::{
+   analysis::*, approve::*, events::*, finalize::*, promise::*, review::*, rich::*, send::*,
+   send_calls::*,
+};
 pub use vault::*;
 pub use wallet::*;
 pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};

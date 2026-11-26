@@ -16,6 +16,7 @@ use crate::clear_signing::ClearDisplay;
 use crate::sim::balance_diff::DiffWatch;
 use crate::sim::diff::{diffs_from_receipt, simulate_and_diff};
 use crate::tx::notification::NotificationType;
+use crate::tx::promise::TxPromise;
 use crate::ui::{self, ConfirmRequest, PromptOpen, TxConfirmRequest};
 use zeus_eth::{
    alloy_contract::private::Provider,
@@ -262,6 +263,23 @@ pub struct SendTxOptions {
    /// answers states the user's own choice — and `None` keeps the ceiling and tip that path used before a
    /// caller could name one.
    pub priority: Option<PriorityTier>,
+   /// What this transaction promised to do, when the flow knows it.
+   ///
+   /// The analysis can say what moved; only the flow knows what was *asked* for — the quote a swap was
+   /// priced against, the amount a transfer was meant to deliver. It is read against the simulation by
+   /// [crate::tx::review::review], and `None` keeps today's decision exactly: a flow that states no promise
+   /// is reviewed by nothing, which is every dapp request and the approval helpers.
+   pub promise: Option<TxPromise>,
+}
+
+impl SendTxOptions {
+   /// State what this transaction promised, so its simulation can be read against it.
+   #[must_use]
+   pub fn promise(mut self, promise: TxPromise) -> Self {
+      self.promise = Some(promise);
+
+      self
+   }
 }
 
 /// What the user left in the transaction confirmation window.
