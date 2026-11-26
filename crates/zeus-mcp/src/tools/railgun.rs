@@ -49,6 +49,7 @@ pub const SHIELD: ToolSpec = ToolSpec {
       "decimals": {"type": "integer", "description": "The token's decimals, as wallet_get reports them. Only for a fungible asset."},
       "amount": {"type": "string", "description": "How much to shield, in whole units, as a decimal string such as 1.25. A fungible asset only."},
       "recipient": {"type": "string", "description": "The zk address the private note goes to, as railgun_status shows it for this wallet."},
+      "dry_run": {"type": "boolean", "description": "Refused for a shield: its transaction is proved inside the flow, so nothing earlier can be simulated."},
       "priority": {"type": "string", "enum": ["normal", "fast", "very_fast"], "description": "The fee tier; fast by default."},
       "action_id": {"type": "string", "description": "A client-chosen id. Repeating a call with the same id and arguments replays the first answer instead of shielding twice."}
    }, "required": ["wallet", "chain", "recipient"], "additionalProperties": false}"#,
@@ -75,6 +76,7 @@ pub const UNSHIELD: ToolSpec = ToolSpec {
       "bundler_url": {"type": "string", "description": "Submit through this bundler instead of the stored one. Needs settings.unshield.write, because it changes the setting the app keeps."},
       "memo": {"type": "string", "description": "A note attached to the transfer, kept in the wallet's private history."},
       "unwrap_to_eth": {"type": "boolean", "description": "Unwrap the WETH to ETH on the way out. A fungible choice only."},
+      "dry_run": {"type": "boolean", "description": "Refused for an unshield: the proof and the bundler call are the flow's, so there is nothing to simulate before it."},
       "priority": {"type": "string", "enum": ["normal", "fast", "very_fast"], "description": "The fee tier; fast by default."},
       "action_id": {"type": "string", "description": "A client-chosen id. Repeating a call with the same id and arguments replays the first answer instead of unshielding twice."}
    }, "required": ["wallet", "chain", "to"], "additionalProperties": false}"#,
@@ -93,6 +95,7 @@ pub const MERGE_NOTES: ToolSpec = ToolSpec {
       "token": {"type": "string", "description": "The ERC-20 whose notes are merged. Required: the pool holds no native coin."},
       "decimals": {"type": "integer", "description": "The token's decimals, as wallet_get reports them."},
       "amount": {"type": "string", "description": "How much to consolidate, in whole units, as a decimal string such as 2.5."},
+      "dry_run": {"type": "boolean", "description": "Refused for a merge: the transaction is proved inside the flow, so nothing earlier can be simulated."},
       "priority": {"type": "string", "enum": ["normal", "fast", "very_fast"], "description": "The fee tier; fast by default."},
       "action_id": {"type": "string", "description": "A client-chosen id. Repeating a call with the same id and arguments replays the first answer instead of merging twice."}
    }, "required": ["wallet", "chain", "token", "decimals", "amount"], "additionalProperties": false}"#,
