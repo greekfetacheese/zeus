@@ -109,6 +109,15 @@ impl fmt::Display for Denial {
    }
 }
 
+/// Say one refusal out loud.
+///
+/// Two gates answer a refusal — the one in front of a tool and the one inside the pipeline — and both
+/// refuse with a [`Denial`]. The sentence is written once here so a user who cannot see the screen
+/// hears the same words whichever gate said no.
+pub fn announce_denial(denial: &Denial) {
+   crate::ui::announce(&format!("Agent was denied: {denial}"));
+}
+
 /// Decide a request at its entry, before anything is built, simulated or signed.
 pub fn precheck(ctx: &ZeusCtx, profile: &AgentProfile, intent: &Intent) -> Decision {
    if !vault_open(ctx) {

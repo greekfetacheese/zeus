@@ -19,7 +19,7 @@
 use super::audit::{AuditDecision, AuditEntry};
 use super::env::AgentEnv;
 use super::intent::{Asset, Intent};
-use super::policy::{Decision, Denial, authorise, precheck, vault_open};
+use super::policy::{Decision, Denial, announce_denial, authorise, precheck, vault_open};
 use super::profile::{AgentProfile, ProfileMode, TokenRef};
 use super::read;
 use crate::sim::approval_diff::ApprovalKind;
@@ -1182,7 +1182,10 @@ fn record_done(
 /// Record an action that was refused after the gate in front of the tool let it through.
 ///
 /// A refusal the *policy* makes at the entry is already recorded by that gate; what lands here is the
-/// screen, the lock and the flow's own no — the three a caller cannot see coming.
+/// screen, the lock and the flow's own no — the three a caller cannot see coming. A denial is also
+/// **said out loud**: the user was not asked first, so the sentence is the only trace they can hear.
+/// The rest answer the caller without a word, because a wallet that is busy or a window nobody
+/// answered is not news about what the agent tried to do.
 fn record_refusal(
    ctx: &ZeusCtx,
    profile: &AgentProfile,
@@ -1207,6 +1210,10 @@ fn record_refusal(
    entry.client_info = origin.client_info.map(str::to_owned);
 
    ctx.agent_audit().record(entry);
+
+   if let ExecError::Denied(denial) = error {
+      announce_denial(denial);
+   }
 }
 
 /// Unix seconds, for the record.

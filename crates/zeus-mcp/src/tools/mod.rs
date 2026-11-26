@@ -46,7 +46,7 @@ use zeus_core::agent::read::ReadError;
 use zeus_core::agent::settings::SettingsError;
 use zeus_core::agent::{
    AgentProfile, AuditDecision, AuditEntry, CAPABILITIES, CapabilityScope, CapabilityVerb,
-   Decision, Denial, Intent, PrivacyBadge, capability, precheck,
+   Decision, Denial, Intent, PrivacyBadge, announce_denial, capability, precheck,
 };
 use zeus_core::tx::PriorityTier;
 use zeus_eth::alloy_primitives::{Address, U256};
@@ -152,6 +152,7 @@ impl ToolSpec {
 
 /// Every tool this build has, in the order the protocol asks for: sorted by name.
 pub const TOOLS: &[ToolSpec] = &[
+   meta::ACTIVITY,
    approvals::LIST,
    approvals::REVOKE,
    contacts::ADD,
@@ -635,10 +636,14 @@ pub async fn gate_write(
    }
 }
 
-/// Write one refusal to the audit ring.
+/// Write one refusal to the audit ring, and say a denial out loud.
 ///
 /// The ring lives in memory. Sealing it to disk from here would let a caller retrying a refusal — the
 /// one case the rate limit exists for — rewrite the whole log once per attempt.
+///
+/// The sentence is the other half of the trace: nothing asked the user first, so a reader who never
+/// sees the page hears it through the same `ui::announce` a landed write uses. The pipeline says its
+/// own denials through the same function, so one refusal is one wording.
 fn record(call: &Call, subject: &str, intent: &Intent, decision: &Decision, started: Instant) {
    let mut entry = AuditEntry::new(
       &call.profile,
@@ -653,6 +658,10 @@ fn record(call: &Call, subject: &str, intent: &Intent, decision: &Decision, star
    entry.client_info = call.client_info();
 
    call.ctx.agent_audit().record(entry);
+
+   if let Decision::Denied(denial) = decision {
+      announce_denial(denial);
+   }
 }
 
 /// Record a write that ran.

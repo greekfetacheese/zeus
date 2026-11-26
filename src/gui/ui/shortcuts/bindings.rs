@@ -209,11 +209,12 @@ pub enum Action {
    OpenNotification,
    CopyAddress,
    ShowShortcuts,
+   StopAgents,
 }
 
 impl Action {
    /// Every action, in the order the sheet and the palette list them.
-   pub const ALL: [Self; 9] = [
+   pub const ALL: [Self; 10] = [
       Self::NextRegion,
       Self::PreviousRegion,
       Self::NextControl,
@@ -222,6 +223,7 @@ impl Action {
       Self::OpenNotification,
       Self::CopyAddress,
       Self::ShowShortcuts,
+      Self::StopAgents,
       // Last, so an empty palette with `Enter` on the first row runs a command that does
       // something rather than opening the palette that is already open.
       Self::OpenPalette,
@@ -307,6 +309,12 @@ impl Action {
             description: "show or hide this list",
             default: Binding::new(Key::F1, Chord::Plain),
             name: "keyboard_shortcuts",
+         },
+         Self::StopAgents => ActionSpec {
+            label: "Stop the agent server",
+            description: "stop the agent server, ending any request in flight",
+            default: Binding::new(Key::A, Chord::CommandShift),
+            name: "stop_agents",
          },
       }
    }

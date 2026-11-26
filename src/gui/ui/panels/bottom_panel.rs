@@ -55,6 +55,26 @@ pub fn _show(gui: &mut GUI, ctx: &mut ZeusContext, ui: &mut Ui) {
 
             gui.announce(sentence);
          }
+
+         // D24's other switch, and the reason it is here rather than behind a modal: one press has to
+         // leave no agent able to talk to this wallet, whether or not the server is still up.
+         if running.is_some() || !ctx.agent_profiles.enabled_profiles().is_empty() {
+            let disconnect =
+               Button::new(RichText::new("Disconnect all agents").size(theme.typography.normal))
+                  .visuals(theme.button_visuals())
+                  .min_size(vec2(180.0, 26.0));
+
+            if ui.add(disconnect).clicked() {
+               let handle = gui.ctx.clone();
+               let sentence = crate::gui::ui::settings::agents::server::disconnect_all(
+                  &mut gui.agent_server,
+                  ctx,
+                  &handle,
+               );
+
+               gui.announce(sentence);
+            }
+         }
       });
    });
 }

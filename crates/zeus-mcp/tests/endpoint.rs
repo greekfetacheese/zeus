@@ -16,8 +16,8 @@ use zeus_core::agent::exec::{
 };
 use zeus_core::agent::settings::{Applied, Closed, SettingsError};
 use zeus_core::agent::{
-   AgentProfile, AgentProfileId, AgentProfileStore, AuditDecision, ProfileMode, ScreenGrant,
-   TokenRef, TokenScope, WalletGrant,
+   AgentProfile, AgentProfileId, AgentProfileStore, AuditDecision, AuditEntry, ProfileMode,
+   ScreenGrant, TokenRef, TokenScope, WalletGrant,
 };
 use zeus_core::context::PoolError;
 use zeus_core::{AgentEnv, TimeStamp, TransactionRich, WalletInfo, ZeusCtx};
@@ -487,6 +487,7 @@ async fn the_legacy_handshake_then_a_tool_call_reads_the_wallets() {
    assert_eq!(
       names,
       [
+         "agent_activity",
          "delegate_status",
          "settings_describe",
          "settings_get",
@@ -755,6 +756,7 @@ async fn the_grant_decides_which_tools_exist_and_which_calls_run() {
    assert_eq!(
       names,
       [
+         "agent_activity",
          "settings_describe",
          "settings_get",
          "settings_list",
@@ -1307,6 +1309,7 @@ async fn the_read_surface_is_scoped_to_the_grant() {
    assert_eq!(
       tool_names(&list),
       [
+         "agent_activity",
          "settings_describe",
          "settings_get",
          "settings_list",
@@ -1335,6 +1338,7 @@ async fn the_read_surface_is_scoped_to_the_grant() {
    assert_eq!(
       tool_names(&list),
       [
+         "agent_activity",
          "approvals_list",
          "contacts_list",
          "dapps_list",
@@ -1413,6 +1417,7 @@ async fn every_read_tool_answers_for_a_granted_profile() {
       ("settings_get", json!({"screen": "pools"})),
       ("settings_get", json!({"screen": "dapps"})),
       ("settings_get", json!({"screen": "wallets"})),
+      ("agent_activity", json!({})),
    ];
 
    for (name, arguments) in calls {
@@ -1455,6 +1460,48 @@ async fn every_read_tool_answers_for_a_granted_profile() {
       rows[0]["timestamp"].as_u64().is_some(),
       "a row carries the instant it landed"
    );
+}
+
+#[tokio::test]
+async fn the_activity_tool_answers_its_own_credential_and_nobody_else_s() {
+   let fixture = Fixture::with(&[], &[]);
+
+   // One refusal this credential caused, and one entry another credential recorded.
+   let refused = call_tool(&fixture, "wallet_list", json!({})).await;
+   assert_eq!(error_code(&refused), Some("NOT_GRANTED"));
+
+   let other = AgentProfile::new("another harness", [7u8; 32], 0);
+   fixture.ctx.agent_audit().record(AuditEntry::new(
+      &other,
+      "tx_send",
+      "wallet.write.send",
+      1,
+   ));
+
+   let reply = call_tool(&fixture, "agent_activity", json!({"limit": 5})).await;
+
+   assert_eq!(
+      reply.body.pointer("/result/isError"),
+      None,
+      "{}",
+      reply.body
+   );
+
+   let answer = data(&reply);
+
+   assert_eq!(answer["count"], 1, "{answer}");
+   assert_eq!(answer["matching"], 1);
+   assert_eq!(answer["entries"][0]["tool"], "wallet_list");
+   assert_eq!(answer["entries"][0]["decision"], "denied");
+   assert_eq!(answer["entries"][0]["denial"], "NOT_GRANTED");
+   assert!(
+      !answer.to_string().contains("another harness"),
+      "a second credential's work is never this one's answer: {answer}"
+   );
+
+   // The window is theirs: a limit above the ceiling is the model's to fix, not a silent clamp.
+   let refused = call_tool(&fixture, "agent_activity", json!({"limit": 500})).await;
+   assert_eq!(error_code(&refused), Some("VALIDATION"));
 }
 
 #[tokio::test]

@@ -20,7 +20,9 @@ pub mod token;
 #[cfg(test)]
 mod tests;
 
-pub use audit::{AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry, BroadcastPath};
+pub use audit::{
+   AUDIT_RING_CAPACITY, AgentAuditLog, AuditDecision, AuditEntry, BroadcastPath, Recent,
+};
 pub use env::{AgentAuthority, AgentEnv};
 pub use exec::{
    BridgeRequest, Broadcast, DelegateRequest, ExecCall, ExecError, MergeNotesRequest, NftMovement,
@@ -29,7 +31,7 @@ pub use exec::{
    UnshieldRequest, WalletLock, execute, overrides_broadcast, preview,
 };
 pub use intent::{Asset, Intent};
-pub use policy::{Decision, Denial, authorise, precheck, vault_open};
+pub use policy::{Decision, Denial, announce_denial, authorise, precheck, vault_open};
 pub use profile::{
    AgentProfile, AgentProfileId, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb,
    MAX_SLIPPAGE_BPS, NftRef, NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant, TokenRef,

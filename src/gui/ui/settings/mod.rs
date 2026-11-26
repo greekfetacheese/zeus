@@ -2,6 +2,7 @@
 
 use crate::assets::icons::Icons;
 use crate::core::{ZeusContext, ZeusCtx};
+use crate::gui::Page;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
    common::{heading, privacy_mode_switch},
@@ -91,6 +92,9 @@ pub struct SettingsUi {
    focus_page: bool,
    /// The words a page asked the app to say, drained right after the window is drawn.
    notice: Option<String>,
+   /// The page a page inside the window asked for — the Activity view's link to the history — for
+   /// the app to open, because a page cannot move the window it is drawn in.
+   page_request: Option<Page>,
    /// The context the pages that start background work need.
    ctx: ZeusCtx,
    agents: AgentsUi,
@@ -126,6 +130,7 @@ impl SettingsUi {
          focus_nav: false,
          focus_page: false,
          notice: None,
+         page_request: None,
          ctx: handle.clone(),
          agents: AgentsUi::new(),
          general,
@@ -211,6 +216,11 @@ impl SettingsUi {
       self.notice.take()
    }
 
+   /// The page a page inside the window asked for, drained by the app that can open it.
+   pub fn take_page(&mut self) -> Option<Page> {
+      self.page_request.take()
+   }
+
    /// Whether the Keyboard page is recording a chord.
    ///
    /// The shortcut layer hands the whole keyboard over while it is: a key taken here would make the
@@ -252,6 +262,12 @@ impl SettingsUi {
    fn promote_agents_notice(&mut self) {
       if let Some(text) = self.agents.take_notice() {
          self.notice = Some(text);
+      }
+
+      // The Activity view links to the history page, which the window draws over: the request goes
+      // up to the app, which closes the window and opens the page in the same frame.
+      if let Some(page) = self.agents.take_page() {
+         self.page_request = Some(page);
       }
    }
 

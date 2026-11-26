@@ -10,6 +10,7 @@
 //! and names the switch — the same rule the policy follows, so a refusal reads the same however it
 //! arrived.
 
+use super::audit::{AuditDecision, AuditEntry, BroadcastPath};
 use super::profile::{AgentProfile, WalletGrant};
 use super::settings;
 use crate::context::{WalletPortfolio, ZeusContext};
@@ -242,6 +243,68 @@ pub fn transaction(
       what: "transaction",
       id: hex_hash(hash),
    })
+}
+
+/// What this profile did recently: the ring, filtered to the credential that is asking.
+///
+/// Every entry names the profile that made it, so the filter is also the answer to "may I see what
+/// the other credentials did" — this projection never answers anything but its own, and it needs no
+/// capability to do it: the grant that opened the endpoint is the one it reads back.
+pub fn activity(
+   ctx: &ZeusContext,
+   profile: &AgentProfile,
+   limit: usize,
+   since: Option<u64>,
+) -> Value {
+   let keep =
+      |entry: &AuditEntry| entry.profile == profile.id && since.is_none_or(|at| entry.ts >= at);
+
+   let recent = ctx.agent_audit.recent(limit, keep);
+   let entries: Vec<Value> = recent.entries.iter().map(activity_row).collect();
+   let count = entries.len();
+
+   json!({
+       "profile": {"id": profile.id.as_str(), "label": &profile.label},
+       "since": since,
+       "count": count,
+       "matching": recent.matching,
+       "entries": entries,
+   })
+}
+
+/// One entry, as the credential that made it reads it back.
+fn activity_row(entry: &AuditEntry) -> Value {
+   json!({
+       "at": entry.ts,
+       "tool": &entry.tool,
+       "capability": &entry.capability,
+       "decision": decision_name(entry.decision),
+       "wallet": entry.wallet.map(|wallet| json!({
+          "address": hex(wallet),
+          "display": truncate_address(hex(wallet)),
+       })),
+       "chain": entry.chain,
+       "denial": &entry.denial,
+       "detail": &entry.detail,
+       "usd_value": entry.usd_value,
+       "broadcast": entry.broadcast.map(|path| match path {
+          BroadcastPath::SelfBroadcast => "self",
+          BroadcastPath::Bundler => "bundler",
+       }),
+       "tx_hash": entry.tx_hash.map(hex_hash),
+       "latency_ms": entry.latency_ms,
+       "client": &entry.client_info,
+   })
+}
+
+/// The decision in the one word the answer and the page both use.
+fn decision_name(decision: AuditDecision) -> &'static str {
+   match decision {
+      AuditDecision::Allowed => "allowed",
+      AuditDecision::Prompted => "prompted",
+      AuditDecision::Denied => "denied",
+      AuditDecision::NeedsUser => "needs_user",
+   }
 }
 
 /// One wallet's live ERC-20, Permit2 and NFT approvals.

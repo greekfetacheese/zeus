@@ -168,6 +168,14 @@ impl AgentAudit {
    }
 }
 
+/// The newest entries one reader asked for, and how many the ring holds for it.
+pub struct Recent {
+   /// Newest first, at most the limit the reader asked for.
+   pub entries: Vec<AuditEntry>,
+   /// How many entries match at any age, so a caller showing twenty rows can still say "of thirty-four".
+   pub matching: usize,
+}
+
 /// Every agent action this machine recorded, held behind a lock and sealed on disk.
 #[derive(Clone)]
 pub struct AgentAuditLog(RwLockHandle<AgentAudit>);
@@ -269,6 +277,31 @@ impl AgentAuditLog {
       self.read(|audit| {
          let skip = audit.entries.len().saturating_sub(limit);
          audit.entries.iter().skip(skip).cloned().collect()
+      })
+   }
+
+   /// Walk back from the newest, keeping the entries `keep` accepts.
+   ///
+   /// One pass: the count the ring holds for this reader comes out of the same walk as the rows, so
+   /// "twenty of thirty-four" never costs a second clone of the log.
+   pub fn recent(&self, limit: usize, keep: impl Fn(&AuditEntry) -> bool) -> Recent {
+      self.read(|audit| {
+         let mut matching = 0;
+         let mut entries = Vec::new();
+
+         for entry in audit.entries.iter().rev() {
+            if !keep(entry) {
+               continue;
+            }
+
+            matching += 1;
+
+            if entries.len() < limit {
+               entries.push(entry.clone());
+            }
+         }
+
+         Recent { entries, matching }
       })
    }
 

@@ -1,17 +1,20 @@
-//! The two tools that describe the server itself.
+//! The three tools that describe the server itself: what it is, what exists, and what it has done.
 //!
-//! They are the only tools with no capability, and the reason is the same for both: an agent that cannot
-//! find out what it is allowed to do will guess, and a guess in a wallet is expensive. The status answers
-//! "what am I, and what may I do with it"; the help answers "what exists, and what does a refusal mean".
-//! Neither touches a wallet, a chain or a file.
+//! They are the only tools with no capability, and the reason is the same for all three: an agent that
+//! cannot find out what it is allowed to do will guess, and a guess in a wallet is expensive. The status
+//! answers "what am I, and what may I do with it"; the help answers "what exists, and what does a refusal
+//! mean"; the activity answers "what have you been doing with that".
+//!
+//! None of them touches a wallet or a chain, and the activity reads the same ring the Agents page shows —
+//! never another credential's rows, because a profile's own work is the only work it is shown.
 
-use super::{Call, TOOLS, ToolFuture, ToolOutput, catalog, granted};
-use crate::error::ErrorCode;
+use super::{Call, TOOLS, ToolFuture, ToolOutput, catalog, granted, integer_argument};
+use crate::error::{ErrorCode, ToolError};
 use crate::protocol::types::Annotations;
 use crate::protocol::{GRANT_LOCATION, LEGACY_VERSIONS, MODERN_VERSION, SERVER_NAME};
 use crate::tools::ToolSpec;
 use serde_json::{Value, json};
-use zeus_core::agent::{AgentProfile, CapabilityScope, ProfileMode};
+use zeus_core::agent::{AgentProfile, CapabilityScope, ProfileMode, read};
 
 /// A tool that takes nothing.
 const EMPTY: &str = r#"{"type": "object", "additionalProperties": false}"#;
@@ -39,6 +42,19 @@ pub const HELP: ToolSpec = ToolSpec {
    annotations: Annotations::READ,
    capability: None,
    call: help,
+};
+
+/// What this credential did recently, read back from the ring the Agents page shows.
+pub const ACTIVITY: ToolSpec = ToolSpec {
+   name: "agent_activity",
+   title: "Your recent activity",
+   description: "What this profile has done lately, newest first: the tool, the wallet, the decision, \
+      the refusal's code and the transaction it produced. It is the trace an autonomous action leaves, \
+      and the answer to 'what have you done in the last hour'.",
+   schema: r#"{"type": "object", "properties": {"limit": {"type": "integer", "description": "How many entries to answer, 1 to 100; 20 by default."}, "since": {"type": "integer", "description": "Only entries at or after this instant, in unix seconds."}}, "additionalProperties": false}"#,
+   annotations: Annotations::READ,
+   capability: None,
+   call: activity,
 };
 
 fn status(call: &Call, _arguments: Value) -> ToolFuture<'_> {
@@ -71,6 +87,23 @@ fn status(call: &Call, _arguments: Value) -> ToolFuture<'_> {
          "vault": {"unlocked": unlocked},
          "chain": {"selected": chain},
       })))
+   })
+}
+
+fn activity(call: &Call, arguments: Value) -> ToolFuture<'_> {
+   Box::pin(async move {
+      let limit = integer_argument(&arguments, "limit", 20)?;
+
+      if !(1..=100).contains(&limit) {
+         return Err(ToolError::validation(
+            "limit is between 1 and 100 entries",
+         ));
+      }
+
+      let since = since_argument(&arguments)?;
+      let value = call.ctx.read(|ctx| read::activity(ctx, &call.profile, limit as usize, since));
+
+      Ok(ToolOutput::new(value))
    })
 }
 
@@ -108,6 +141,17 @@ fn help(call: &Call, _arguments: Value) -> ToolFuture<'_> {
          "switch": GRANT_LOCATION,
       })))
    })
+}
+
+/// The optional start of the window, in unix seconds.
+fn since_argument(arguments: &Value) -> Result<Option<u64>, ToolError> {
+   match arguments.get("since") {
+      None | Some(Value::Null) => Ok(None),
+      Some(value) => value
+         .as_u64()
+         .map(Some)
+         .ok_or_else(|| ToolError::validation("since is unix seconds, as a whole number")),
+   }
 }
 
 /// The live grant, as a model needs to read it: which wallets, and which capabilities where.

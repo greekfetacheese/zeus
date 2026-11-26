@@ -4,13 +4,16 @@
 //! revokes credentials, and edits the grant a credential holds. Every control writes the store and
 //! asks for the save, so what the page shows is what a request would be decided against.
 
+mod activity;
 mod connect;
 mod profile_editor;
 pub mod server;
 
 use crate::core::agent::{AgentProfile, AgentProfileId, generate_token};
 use crate::core::{ZeusContext, ZeusCtx};
+use crate::gui::Page;
 use crate::gui::ui::common::section_heading;
+use activity::Activity;
 use connect::ConnectPanel;
 use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Checkbox, Theme};
@@ -32,6 +35,9 @@ pub struct AgentsUi {
    confirm_delete: Option<AgentProfileId>,
    editor: ProfileEditor,
    connect: ConnectPanel,
+   activity: Activity,
+   /// The page a row of the Activity view asked for, drained by the app that can move pages.
+   page: Option<Page>,
    /// The words this page asked the app to say.
    notice: Option<String>,
 }
@@ -46,12 +52,18 @@ impl AgentsUi {
       self.notice.take()
    }
 
+   /// The page an Activity row asked for, drained by the app that can move pages.
+   pub fn take_page(&mut self) -> Option<Page> {
+      self.page.take()
+   }
+
    /// Called when the window closes: a credential that was shown once is not kept on screen.
    pub fn reset(&mut self) {
       self.token = None;
       self.confirm_delete = None;
       self.editor.reset();
       self.connect.reset();
+      self.page = None;
       self.notice = None;
    }
 
@@ -109,6 +121,14 @@ impl AgentsUi {
 
       if let Some(sentence) = edited.notice {
          self.notice = Some(sentence);
+      }
+
+      ui.add_space(10.0);
+      ui.separator();
+      ui.add_space(10.0);
+
+      if let Some(page) = self.activity.show(ctx, &profile, theme, ui) {
+         self.page = Some(page);
       }
 
       let token = match self.token.clone() {
@@ -415,8 +435,9 @@ impl AgentsUi {
 /// Save the profile store off the frame path.
 ///
 /// The save waits for the frame's own write guard, so it must not run on this thread: a blocking
-/// task lands after the pass that asked for it, which is exactly once per user action.
-fn persist_profiles(handle: &ZeusCtx) {
+/// task lands after the pass that asked for it, which is exactly once per user action. The status
+/// bar's Disconnect all turns every credential off, so it saves through the same path.
+pub(super) fn persist_profiles(handle: &ZeusCtx) {
    let handle = handle.clone();
 
    crate::runtime::rt().spawn_blocking(move || {
@@ -427,7 +448,7 @@ fn persist_profiles(handle: &ZeusCtx) {
 }
 
 /// A timestamp as a sentence a reader can use.
-fn ago(at: u64) -> String {
+pub(super) fn ago(at: u64) -> String {
    match now_secs().saturating_sub(at) {
       0..=59 => "just now".to_owned(),
       60..=3_599 => format!(

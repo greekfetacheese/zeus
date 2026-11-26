@@ -15,6 +15,7 @@ use super::profile::{
    NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant, TokenRef, TokenScope, WalletGrant,
    capability,
 };
+use super::read;
 use super::store::AgentProfileStore;
 use super::token;
 use crate::WalletStateKey;
@@ -1383,6 +1384,16 @@ fn announcements() -> Vec<String> {
    ANNOUNCEMENTS.lock().unwrap().clone()
 }
 
+thread_local! {
+   /// What this test's own thread said, so a test can count its sentences rather than every test's.
+   static SAID: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// Drain the sentences this thread announced, oldest first.
+fn said_on_this_thread() -> Vec<String> {
+   SAID.with(|said| std::mem::take(&mut *said.borrow_mut()))
+}
+
 /// A host that answers like the headless one and remembers what was announced.
 struct CountingHost;
 
@@ -1437,6 +1448,7 @@ impl crate::ui::UiHost for CountingHost {
 
    fn announce(&self, message: &str) {
       ANNOUNCEMENTS.lock().unwrap().push(message.to_owned());
+      SAID.with(|said| said.borrow_mut().push(message.to_owned()));
    }
 
    fn lockout_and_shutdown(&self, _msg: &str) {}
@@ -1555,6 +1567,112 @@ async fn a_completed_action_is_recorded_and_said_out_loud() {
       announcements().iter().any(|line| line == &detail),
       "nothing asked the user first, so the app says what it did: {:?}",
       announcements()
+   );
+
+   assert_eq!(
+      said_on_this_thread(),
+      [detail],
+      "one action is one sentence, not a burst of them"
+   );
+}
+
+/// An action the policy refuses is recorded, and the refusal is the one sentence the user hears.
+#[tokio::test]
+async fn a_denied_action_is_said_out_loud_once() {
+   crate::ui::install(CountingHost);
+
+   let flows = RecordingFlows::default();
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+
+   let call = ExecCall::Send(SendRequest {
+      chain: 1,
+      from: alice(),
+      to: bob(),
+      token: Some(usdc().address),
+      amount: U256::from(1_000_000u64),
+      decimals: 6,
+      priority: PriorityTier::Normal,
+   });
+
+   let ctx = unlocked();
+
+   execute(
+      ctx.clone(),
+      &profile,
+      call,
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect_err("USDC is not in alice's allowlist");
+
+   let detail = ctx.agent_audit().tail(1)[0].detail.clone().expect("the record says why");
+
+   let said = said_on_this_thread();
+
+   assert_eq!(said.len(), 1, "{said:?}");
+   assert_eq!(said[0], format!("Agent was denied: {detail}"));
+   assert!(
+      said[0].contains("token allowlist"),
+      "the sentence names the allowlist that refused it: {}",
+      said[0]
+   );
+}
+
+/// The activity read answers one profile's entries, newest first, and counts what it left out.
+#[test]
+fn the_activity_read_is_one_profile_newest_first() {
+   let ctx = unlocked();
+   let profile = sample_profile();
+   let other = AgentProfile::new("a second credential", [4u8; 32], 0);
+
+   for (ts, tool) in [(10, "wallet_list"), (20, "tx_send"), (30, "settings_set")] {
+      ctx.agent_audit().record(
+         AuditEntry::new(&profile, tool, "wallet.read.history", ts)
+            .decided(&Decision::Allowed { prompt: false }),
+      );
+   }
+
+   ctx.agent_audit().record(
+      AuditEntry::new(&other, "tx_send", "wallet.write.send", 40)
+         .decided(&Decision::Denied(Denial::VaultLocked)),
+   );
+
+   let (all, newest, since) = ctx.read(|state| {
+      (
+         read::activity(state, &profile, 20, None),
+         read::activity(state, &profile, 1, None),
+         read::activity(state, &profile, 20, Some(20)),
+      )
+   });
+
+   assert_eq!(all["count"], 3);
+   assert_eq!(all["matching"], 3);
+   assert_eq!(
+      all["entries"][0]["tool"], "settings_set",
+      "newest first"
+   );
+   assert_eq!(all["entries"][2]["tool"], "wallet_list");
+   assert_eq!(all["entries"][0]["decision"], "allowed");
+
+   assert_eq!(newest["count"], 1, "the limit bounds the rows");
+   assert_eq!(
+      newest["matching"], 3,
+      "and not the count of what matches"
+   );
+   assert_eq!(newest["entries"][0]["tool"], "settings_set");
+
+   assert_eq!(
+      since["count"], 2,
+      "since keeps the entries at or after it"
+   );
+
+   let text = all.to_string();
+
+   assert!(
+      !text.contains("a second credential"),
+      "another credential's work is not this profile's answer: {text}"
    );
 }
 

@@ -1,4 +1,4 @@
-use super::super::app::{main_window, master_wallet, wallet_in_cache};
+use super::super::app::{main_window, master_wallet, settings_window, wallet_in_cache};
 use super::super::harness::{
    announced, clipboard_text, copy_said, focused_node, frame_nodes, frame_nodes_and_output,
    is_control, key_combo, key_release,
@@ -475,4 +475,64 @@ fn ctrl_enter_on_another_page_does_not_press_send() {
    );
 
    assert!(!gui.send_crypto.send_requested());
+}
+/// The agent switch is one chord from every page, and it says what it did: the control exists for a
+/// reader who cannot see a colour change, and a key that says nothing reads as a key that missed.
+#[test]
+fn the_stop_agents_shortcut_says_what_it_did() {
+   let (ctx, mut gui, zeus) = main_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   let nodes = frame_nodes(
+      &ctx,
+      vec![key_combo(Key::A, Modifiers::COMMAND | Modifiers::SHIFT)],
+      |ui| {
+         zeus.write(|zeus| {
+            crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx());
+            gui.show_announcer(ui);
+         });
+      },
+   );
+
+   assert!(
+      gui.agent_server.is_none(),
+      "nothing was listening"
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("The agent server was already stopped."),
+      "the switch must say what it did: {:?}",
+      announced(&nodes)
+   );
+}
+
+/// The same chord is answered over a dialog, which is the one time it matters most: a request in
+/// flight is exactly what the window in front of it is waiting on.
+#[test]
+fn the_stop_agents_shortcut_is_answered_over_a_dialog() {
+   let (ctx, mut gui, zeus) = settings_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   let nodes = frame_nodes(
+      &ctx,
+      vec![key_combo(Key::A, Modifiers::COMMAND | Modifiers::SHIFT)],
+      |ui| {
+         zeus.write(|zeus| {
+            crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx());
+            gui.show_announcer(ui);
+         });
+      },
+   );
+
+   assert!(
+      gui.settings.is_open(),
+      "the dialog is still up: the switch does not close it"
+   );
+
+   assert_eq!(
+      announced(&nodes).as_deref(),
+      Some("The agent server was already stopped."),
+      "a dialog must not swallow the one control a reader needs in a hurry"
+   );
 }

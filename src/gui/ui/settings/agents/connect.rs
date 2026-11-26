@@ -35,6 +35,11 @@ const HARNESSES: &[Harness] = &[
                  \"url\": \"http://127.0.0.1:{port}/mcp\",\n      \
                  \"headers\": { \"Authorization\": \"Bearer {token}\" }\n    }\n  }\n}",
    },
+   Harness {
+      name: "Any harness that asks for a URL and a header",
+      transport: "http",
+      template: "http://127.0.0.1:{port}/mcp\nAuthorization: Bearer {token}",
+   },
 ];
 
 /// The Connect panel's own state: a probe in flight, and what the last one said.

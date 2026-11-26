@@ -5,9 +5,11 @@
 
 use super::app::{render_settings, settings_window};
 use super::harness::{accesskit_action, button_named, spoken, spoken_text};
-use crate::core::agent::AgentProfile;
+use crate::core::agent::{AgentProfile, AuditDecision, AuditEntry};
+use crate::gui::Page;
 use crate::gui::ui::settings::SettingsPage;
 use egui::accesskit::{Action, Node, NodeId, Role};
+use zeus_eth::alloy_primitives::{Address, TxHash};
 
 /// The switch names the action it will take, the credential list names its profile, and both are
 /// controls in the tree rather than prose a reader has to find.
@@ -123,6 +125,88 @@ fn creating_an_agent_shows_its_token_once() {
          .any(|text| text.contains("Start the agent server to see the address")),
       "a snippet without a port must say so: {words:?}"
    );
+}
+
+/// The Activity view says what the credential did, and a row that made a transaction offers the step
+/// to the history page — which the window hands up to the app, because a page cannot move the pages.
+#[test]
+fn the_activity_view_says_what_the_credential_did() {
+   let (ctx, mut gui, zeus) = settings_window();
+
+   let profile = AgentProfile::new("Claude Code — laptop", [9u8; 32], 0);
+
+   zeus.write(|zeus| {
+      zeus.agent_profiles.insert(profile.clone());
+
+      let mut entry = AuditEntry::new(
+         &profile,
+         "tx_send",
+         "wallet.write.send",
+         1_700_000_000,
+      );
+      entry.decision = AuditDecision::Allowed;
+      entry.wallet = Some(Address::repeat_byte(0x11));
+      entry.chain = Some(1);
+      entry.tx_hash = Some(TxHash::repeat_byte(9));
+      entry.detail = Some("Agent sent 12 USDC to 0x1234...abcd".to_owned());
+
+      zeus.agent_audit.record(entry);
+   });
+
+   zeus.write(|zeus| {
+      gui.settings.open_page(
+         SettingsPage::Agents,
+         zeus,
+         &mut gui.appearance_settings,
+      );
+   });
+
+   // The activity is inside the section of the credential that is open, so one has to be opened.
+   let nodes = render_settings(&ctx, &mut gui, &zeus, Vec::new());
+   let open = button_named(&nodes, "Open");
+
+   let nodes = render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, open)],
+   );
+
+   let words = spoken_text(&nodes);
+   assert!(
+      words.iter().any(|text| text.contains("Agent sent 12 USDC to 0x1234...abcd")),
+      "what the agent did must be readable in the page: {words:?}"
+   );
+   assert!(
+      words.iter().any(|text| text.contains("Every granted action is here")),
+      "the section must say what it is: {words:?}"
+   );
+
+   let step = button_containing(&nodes, "in the history");
+
+   render_settings(
+      &ctx,
+      &mut gui,
+      &zeus,
+      vec![accesskit_action(Action::Click, step)],
+   );
+
+   assert_eq!(
+      gui.settings.take_page(),
+      Some(Page::Transactions),
+      "a row's link asks the app for the page the transaction is on"
+   );
+}
+
+/// The id of the one button whose name contains `text`: a row's link names its transaction, so the
+/// row a test wants is the one whose hash it recognises.
+fn button_containing(nodes: &[(NodeId, Node)], text: &str) -> NodeId {
+   nodes
+      .iter()
+      .filter(|(_, node)| node.role() == Role::Button)
+      .find(|(_, node)| node.label().is_some_and(|label| label.contains(text)))
+      .map(|(id, _)| *id)
+      .unwrap_or_else(|| panic!("no button naming {text:?}: {:?}", spoken(nodes)))
 }
 
 /// Every button's name, for the failure message of an assertion that names one.

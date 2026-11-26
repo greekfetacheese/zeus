@@ -24,6 +24,7 @@ use crate::gui::ui::common::address::copied_words;
 use crate::gui::ui::common::section_heading;
 use crate::gui::ui::panels::left_panel;
 use crate::gui::ui::settings::SettingsPage;
+use crate::gui::ui::settings::agents::server;
 use crate::gui::{FocusRegion, GUI, Page};
 use egui::{Context, Event, FocusDirection, Id, Key, RichText, ScrollArea, Ui};
 use egui_elements::{Modal, Theme};
@@ -114,9 +115,22 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
       return;
    }
 
-   // Behind the lock screen the card owns the keyboard; a dialog keeps it until it closes. The
-   // keys above were still consumed, so a typing field cannot receive their characters.
-   if ctx.locked || !ctx.vault_unlocked || overlay_open(gui) {
+   // Behind the lock screen the card owns the keyboard. The keys above were still consumed, so a
+   // typing field cannot receive their characters.
+   if ctx.locked || !ctx.vault_unlocked {
+      return;
+   }
+
+   // The agent switch is answered over a dialog as well: a request in flight is exactly the moment a
+   // reader needs to stop it, and the window it is waiting on is exactly what would swallow the key
+   // (D24). It is the one action here that is not a way into a page.
+   if pressed.contains(&Action::StopAgents) {
+      run_action(gui, ctx, egui_ctx, Action::StopAgents);
+      return;
+   }
+
+   // A dialog keeps the keyboard until it closes.
+   if overlay_open(gui) {
       return;
    }
 
@@ -237,6 +251,13 @@ fn run_action(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context, action: 
          }
          None => gui.announce("This wallet has no privacy address to copy."),
       },
+      // D24's switch: the listener stops, a request in flight ends, and the app says so. The grants
+      // survive, so Start resumes where it left off.
+      Action::StopAgents => {
+         let sentence = server::stop_agents(&mut gui.agent_server, ctx);
+
+         gui.announce(sentence);
+      }
       // Handled before the gate: the sheet is answered while it is up, by the key that opened it.
       Action::ShowShortcuts => {}
    }

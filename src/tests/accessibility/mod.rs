@@ -9,6 +9,7 @@
 
 mod account_panel;
 mod agents;
+mod announcements;
 mod app;
 mod common_widgets;
 mod contacts;

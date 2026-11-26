@@ -566,6 +566,14 @@ impl eframe::App for ZeusApp {
                gui.shortcut_sheet.open();
             }
 
+            // The Activity view's link asks for the history page. The window is drawn over the pages
+            // and cannot move them, so the frame closes it and opens what it linked to; the pass
+            // after this one draws it.
+            if let Some(page) = gui.settings.take_page() {
+               gui.settings.close();
+               crate::gui::ui::panels::left_panel::open_page(gui, ctx, page);
+            }
+
             // The app's single announcement channel, after every panel has had its
             // chance to change state this frame.
             gui.show_announcer(ui);
