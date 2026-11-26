@@ -1,9 +1,10 @@
 //! The Uniswap swap and its quote, as the agent pipeline calls them.
 //!
-//! Both price the same route — the pools the app has for the chain, filtered by the page's own knobs, and
-//! the local quoter — and a swap re-prices before it sends, so the route it signs is the one the pools hold
-//! at that moment. A quote is therefore advice and never a promise, which is also why nothing about a route
-//! crosses the port: a caller names what it wants to trade, not which pools to trade it in.
+//! Both price the same route — the pools the app tracks for the chain, read from the chain first and
+//! filtered by the page's own knobs, then the local quoter — and a swap re-prices before it sends, so the
+//! route it signs is the one the pools hold at that moment. A quote is therefore advice and never a
+//! promise, which is also why nothing about a route crosses the port: a caller names what it wants to
+//! trade, not which pools to trade it in.
 
 use crate::core::agent::exec::{ExecError, QuoteRequest, QuoteStep, SwapQuote, SwapRequest};
 use crate::core::{AgentEnv, TransactionRich, ZeusCtx};
@@ -236,6 +237,8 @@ async fn priced(
    amount_in: NumericValue,
    knobs: &Knobs,
 ) -> Result<Quote, ExecError> {
+   let chain = currency_in.chain_id();
+
    let pools = get_relevant_pools(
       ctx.clone(),
       knobs.v2,
@@ -244,6 +247,18 @@ async fn priced(
       currency_in,
       currency_out,
    );
+
+   // The page refreshes the pools it is about to quote, and so does this: a quote is a claim about the
+   // reserves as they are now, not as they were when the app last looked.
+   let pools = ctx
+      .pool_manager()
+      .update_state_for_pools(ctx.clone(), chain, pools)
+      .await
+      .map_err(|error| {
+         ExecError::Failed(format!(
+            "the pool state could not be read: {error}"
+         ))
+      })?;
 
    let mut liquid: Vec<AnyUniswapPool> = pools
       .into_iter()
@@ -260,7 +275,6 @@ async fn priced(
    )
    .await;
 
-   let chain = currency_in.chain_id();
    let base_fee = ctx.get_base_fee(chain).unwrap_or_default().next;
    let priority_fee = ctx.get_priority_fee(chain).unwrap_or_default();
    let eth_price = ctx.get_token_price(&ERC20Token::wrapped_native_token(chain));
