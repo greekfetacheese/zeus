@@ -550,7 +550,7 @@ fn nft_asset(chain: u64, token: Address, nft: Option<NftMovement>) -> Asset {
 }
 
 /// Why a fund-moving action did not happen.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum ExecError {
    /// Zeus is locked, or was never unlocked in this run.
    Locked,
@@ -579,6 +579,8 @@ impl ExecError {
          Self::Rejected => "USER_REJECTED",
          Self::NoUi => "USER_ACTION_REQUIRED",
          Self::Invalid(_) => "VALIDATION",
+         // A refusal the simulation earned keeps its own code: reported as NOT_GRANTED, a client could
+         // not tell a bargain that was refused from a capability that is switched off.
          Self::Denied(denial) => denial.code(),
          Self::Unavailable => "UNSUPPORTED",
          Self::Failed(_) => "INTERNAL",
@@ -934,7 +936,8 @@ pub async fn preview(
 
    price_analysis(&ctx, chain, &mut analysis).await;
 
-   match authorise(&ctx, profile, &analysis) {
+   // The preview builds no flow, so it has no promise to read: it decides on the envelope alone.
+   match authorise(&ctx, profile, &analysis, None) {
       Decision::Allowed { .. } => {}
       decision => return Err(decision.into()),
    }

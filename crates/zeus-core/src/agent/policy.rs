@@ -14,13 +14,19 @@ use super::profile::{
    AgentProfile, CapabilityVerb, NftScope, ProfileMode, TokenRef, TokenScope, WalletGrant,
    capability,
 };
-use crate::tx::TransactionAnalysis;
+use crate::tx::review::review;
+use crate::tx::{TransactionAnalysis, TxPromise};
 use crate::{ZeusContext, ZeusCtx};
 use std::fmt;
 use zeus_eth::alloy_primitives::{Address, U256};
+use zeus_eth::currency::Currency;
+use zeus_eth::utils::NumericValue;
 
 /// The answer to one request.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// `PartialEq` rather than `Eq`: a refusal made by the simulation carries the amounts it was made from,
+/// and an amount is a float. Nothing compares decisions as keys, and a test compares them as values.
+#[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
    /// Run it. The flag is true when the profile asked to see every state change before it happens.
    Allowed { prompt: bool },
@@ -35,7 +41,7 @@ pub enum Decision {
 ///
 /// Each variant is one row of the enforcement rules, and the code is the stable string a client branches
 /// on, so a harness never has to parse the sentence.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Denial {
    /// The vault is locked, or was never opened in this run.
    VaultLocked,
@@ -55,6 +61,73 @@ pub enum Denial {
       collection: Address,
       token_id: U256,
    },
+   /// The trade loses more to price impact than the grant allows.
+   PriceImpact(Box<Impact>),
+   /// Less arrived than the flow promised: a transfer tax, a fee-on-transfer token, a hook's cut.
+   OutputShortfall(Box<Shortfall>),
+   /// The grant wants the output priced and the app has no price for it, so nobody can say what the
+   /// transaction is worth.
+   PriceUnavailable { currencies: Vec<Currency> },
+}
+
+/// What a trade lost, and the ceiling it lost past.
+///
+/// Boxed because a refusal travels in every `Result` this crate's action path returns, and two amounts
+/// would make that variant the largest thing on the stack for every call that succeeds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Impact {
+   /// What the simulation showed, against the quote the caller was given.
+   pub bps: u16,
+   /// The grant's own ceiling.
+   pub allowed_bps: u16,
+   /// The input leg, when it was priced.
+   pub usd_in: Option<NumericValue>,
+   /// The output leg, when it was priced.
+   pub usd_out: Option<NumericValue>,
+}
+
+/// What arrived, what was promised, and the ceiling the difference crossed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shortfall {
+   /// How short the delivery was, in the currency's own units.
+   pub bps: u16,
+   /// The grant's own ceiling.
+   pub allowed_bps: u16,
+   /// What the flow promised.
+   pub expected: NumericValue,
+   /// What the simulation showed arriving.
+   pub measured: NumericValue,
+   /// What it arrived in.
+   pub currency: Currency,
+}
+
+/// Basis points as the percentage a person reads them as.
+///
+/// The ceilings are stored in basis points because that is what a grant holds and what a comparison wants;
+/// every sentence a reader sees states them as a percent, the same figure the swap page shows beside them.
+fn percent(bps: u16) -> String {
+   format!("{:.2}%", f64::from(bps) / 100.0)
+}
+
+/// The trade's loss against its quote, as one sentence.
+fn impact_sentence(impact: &Impact) -> String {
+   format!(
+      "the trade loses {} to price impact where this grant allows {}",
+      percent(impact.bps),
+      percent(impact.allowed_bps)
+   )
+}
+
+/// What arrived against what was promised, as one sentence.
+fn shortfall_sentence(shortfall: &Shortfall) -> String {
+   format!(
+      "the simulation receives {} {} where the flow promised {} ({} short; this grant allows {})",
+      shortfall.measured.formatted(),
+      shortfall.currency.symbol(),
+      shortfall.expected.formatted(),
+      percent(shortfall.bps),
+      percent(shortfall.allowed_bps)
+   )
 }
 
 impl Denial {
@@ -65,6 +138,9 @@ impl Denial {
          Self::NotGranted { .. } | Self::WalletNotGranted { .. } => "NOT_GRANTED",
          Self::TokenNotAllowed { .. } => "TOKEN_NOT_ALLOWED",
          Self::NftNotAllowed { .. } => "NFT_NOT_ALLOWED",
+         Self::PriceImpact { .. } => "PRICE_IMPACT",
+         Self::OutputShortfall { .. } => "OUTPUT_SHORTFALL",
+         Self::PriceUnavailable { .. } => "PRICE_UNAVAILABLE",
       }
    }
 }
@@ -105,6 +181,31 @@ impl fmt::Display for Denial {
             f,
             "{collection:#x} #{token_id} on chain {chain} is not in the NFT allowlist for {wallet:#x}"
          ),
+         Self::PriceImpact(impact) => {
+            f.write_str(&impact_sentence(impact))?;
+
+            // The legs are what the user was shown, so the sentence says them when the app priced them.
+            match (&impact.usd_in, &impact.usd_out) {
+               (Some(usd_in), Some(usd_out)) => write!(
+                  f,
+                  " (${} in, ${} out)",
+                  usd_in.formatted(),
+                  usd_out.formatted()
+               ),
+               (Some(usd_in), None) => write!(f, " (${} in)", usd_in.formatted()),
+               _ => Ok(()),
+            }
+         }
+         Self::OutputShortfall(shortfall) => f.write_str(&shortfall_sentence(shortfall)),
+         Self::PriceUnavailable { currencies } => {
+            let names: Vec<&str> = currencies.iter().map(Currency::symbol).collect();
+
+            write!(
+               f,
+               "this grant wants the amount that arrives priced, and the app has no price for {}",
+               names.join(", ")
+            )
+         }
       }
    }
 }
@@ -192,10 +293,17 @@ pub fn precheck(ctx: &ZeusCtx, profile: &AgentProfile, intent: &Intent) -> Decis
 ///
 /// The envelope belongs to the wallet rather than to the capability, which is why the analysis alone
 /// decides it — and why a swap routed through a token the caller never named is caught here.
+///
+/// The promise is the other half of the question. An envelope asks what may leave; a promise asks whether
+/// what comes back is what the caller was told to expect, which is the only way a transfer tax, a fee on
+/// transfer or a route that quietly keeps the difference is visible. A flow that states no promise — a dapp
+/// request, an approval, a dry run of either — passes `None` and is decided exactly as it was before the
+/// review existed.
 pub fn authorise(
    ctx: &ZeusCtx,
    profile: &AgentProfile,
    analysis: &TransactionAnalysis,
+   promise: Option<&TxPromise>,
 ) -> Decision {
    if !vault_open(ctx) {
       return Decision::Denied(Denial::VaultLocked);
@@ -249,9 +357,74 @@ pub fn authorise(
       }
    }
 
-   Decision::Allowed {
-      prompt: profile.mode == ProfileMode::ConfirmEach,
+   let prompt = profile.mode == ProfileMode::ConfirmEach;
+
+   // The second reading of the same simulation, and the only one that can say a transaction is safe to
+   // send and still a bad bargain. Skipped entirely in `ConfirmEach`: there the human reads the same
+   // numbers in the window and keeps the decision, so a ceiling here would take it from them.
+   if !prompt
+      && let Some(promise) = promise
+      && let Some(denial) = review_denial(ctx, profile, promise, analysis)
+   {
+      return Decision::Denied(denial);
    }
+
+   Decision::Allowed { prompt }
+}
+
+/// Read the simulation against the promise, and refuse what the grant's ceilings do not allow.
+///
+/// Three questions in the order a person asks them. Is what arrives worth enough to be worth pricing at
+/// all — a grant that sets a dollar ceiling cannot honour one for an amount the app cannot price, so an
+/// unpriced leg is refused rather than counted as free. Is the trade buying as much as its quote said it
+/// would, after the bridge's own cut. And does the amount that arrives match the amount promised.
+fn review_denial(
+   ctx: &ZeusCtx,
+   profile: &AgentProfile,
+   promise: &TxPromise,
+   analysis: &TransactionAnalysis,
+) -> Option<Denial> {
+   // The app's price, or nothing: a currency it does not quote reads as zero everywhere else in the
+   // pipeline, and a zero here would make every unpriced leg look like a free trade.
+   let price = |currency: &Currency| {
+      let usd = ctx.get_currency_price(currency);
+
+      (!usd.is_zero()).then_some(usd)
+   };
+
+   let review = review(promise, analysis, price);
+
+   if !review.unpriced.is_empty() {
+      return Some(Denial::PriceUnavailable {
+         currencies: review.unpriced,
+      });
+   }
+
+   if let Some(bps) = review.price_impact_bps
+      && bps > profile.max_price_impact_bps
+   {
+      return Some(Denial::PriceImpact(Box::new(Impact {
+         bps,
+         allowed_bps: profile.max_price_impact_bps,
+         usd_in: review.usd_in,
+         usd_out: review.usd_out,
+      })));
+   }
+
+   if let Some(bps) = review.shortfall_bps
+      && bps > profile.max_transfer_shortfall_bps
+      && let Some(measured) = analysis.measured_out.clone()
+   {
+      return Some(Denial::OutputShortfall(Box::new(Shortfall {
+         bps,
+         allowed_bps: profile.max_transfer_shortfall_bps,
+         expected: promise.expected_out().clone(),
+         measured,
+         currency: promise.output_currency().clone(),
+      })));
+   }
+
+   None
 }
 
 /// Whether the vault is open: unlocked in this run, and not auto-locked since.

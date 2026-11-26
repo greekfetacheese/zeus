@@ -559,7 +559,7 @@ pub async fn confirm_tx(
          anyhow!("The agent profile that asked for this transaction is no longer present")
       })?;
 
-      match authorise(&ctx, &profile, analysis) {
+      match authorise(&ctx, &profile, analysis, opts.promise.as_ref()) {
          Decision::Allowed { prompt: false } => {
             // The tier the grant asked for, when it asked for one. `None` keeps the tip and the ceiling
             // this path has always used, so a grant that names no tier sends exactly as it did before

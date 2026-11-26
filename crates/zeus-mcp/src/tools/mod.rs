@@ -572,6 +572,11 @@ fn denial_error(denial: &Denial, capability: &str) -> ToolError {
       Denial::NotGranted { .. } | Denial::WalletNotGranted { .. } => ErrorCode::NotGranted,
       Denial::TokenNotAllowed { .. } => ErrorCode::TokenNotAllowed,
       Denial::NftNotAllowed { .. } => ErrorCode::NftNotAllowed,
+      // A simulation that refused is the same family: the action was allowed by the grant and stopped by
+      // what it would have done. Each carries its own code so a model can say which one it was.
+      Denial::PriceImpact { .. }
+      | Denial::OutputShortfall { .. }
+      | Denial::PriceUnavailable { .. } => ErrorCode::SimulationRefused,
    };
 
    let error = ToolError::new(code, denial.to_string());

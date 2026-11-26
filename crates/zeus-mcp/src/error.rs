@@ -21,6 +21,9 @@ pub enum ErrorCode {
    TokenNotAllowed,
    /// The NFT is outside the wallet's NFT allowlist.
    NftNotAllowed,
+   /// The simulation refused what the grant allowed: the trade lost more than its ceiling, less arrived than
+   /// the flow promised, or the output could not be priced.
+   SimulationRefused,
    /// Zeus is locked, or was never unlocked in this run.
    VaultLocked,
    /// Another authorising prompt is already up.
@@ -49,6 +52,7 @@ impl ErrorCode {
          Self::NotGranted => "NOT_GRANTED",
          Self::TokenNotAllowed => "TOKEN_NOT_ALLOWED",
          Self::NftNotAllowed => "NFT_NOT_ALLOWED",
+         Self::SimulationRefused => "SIMULATION_REFUSED",
          Self::VaultLocked => "VAULT_LOCKED",
          Self::Busy => "BUSY",
          Self::UserRejected => "USER_REJECTED",
@@ -74,6 +78,9 @@ impl ErrorCode {
          Self::NftNotAllowed => {
             "Ask the app owner to add this collection to the wallet's NFT allowlist in Zeus."
          }
+         Self::SimulationRefused => {
+            "Do not retry the same amount. Wait for the price or the route to change, or ask the app              owner to widen the grant's ceiling."
+         }
          Self::VaultLocked => "Ask the app owner to unlock Zeus; an agent cannot unlock it.",
          Self::Busy => "Tell the user to finish what is open in Zeus, then try again.",
          Self::UserRejected => "The user said no. Stop, and do not ask again immediately.",
@@ -95,6 +102,7 @@ impl ErrorCode {
          Self::NotGranted => "The capability is off for this profile or wallet",
          Self::TokenNotAllowed => "The token is not in this wallet's allowlist",
          Self::NftNotAllowed => "The NFT is not in this wallet's allowlist",
+         Self::SimulationRefused => "The simulation did not match what the flow promised",
          Self::VaultLocked => "Zeus is locked",
          Self::Busy => "Another prompt is already up in Zeus",
          Self::UserRejected => "The user declined",
@@ -109,10 +117,11 @@ impl ErrorCode {
    }
 
    /// Every code, in the order a help screen reads them.
-   pub const ALL: [Self; 13] = [
+   pub const ALL: [Self; 14] = [
       Self::NotGranted,
       Self::TokenNotAllowed,
       Self::NftNotAllowed,
+      Self::SimulationRefused,
       Self::VaultLocked,
       Self::Busy,
       Self::UserRejected,

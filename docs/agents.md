@@ -68,9 +68,12 @@ tool was promised rather than against a price:
   measures what the recipient actually receives, not what the calldata asked for.
 
 A token Zeus has no dollar price for cannot have its impact measured, and an action whose output is
-unpriced is refused with `PRICE_UNAVAILABLE` rather than guessed at. Both ceilings live in the grant
-editor, and a profile set to ask before every action is reviewed by the person answering the prompt, so
-neither refusal fires there.
+unpriced is refused with `PRICE_UNAVAILABLE` rather than guessed at. A bridge's own fee is not part of
+the comparison: it is the bargain rather than a loss, so it comes off the quote before the two are
+measured. All three refusals travel as `SIMULATION_REFUSED` over MCP, and the message carries the
+numbers: "the trade loses 5.01% to price impact where this grant allows 5.00%". Both ceilings live in
+the grant editor, and a profile set to ask before every action is reviewed by the person answering the
+prompt, so none of the three fires there.
 
 Amounts are decimal strings with the token's own decimals (`"1.25"`, `decimals: 6`), never JSON
 numbers. Addresses are full and lowercased; a name never replaces one in a field an action consumes.

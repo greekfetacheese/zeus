@@ -23,7 +23,7 @@ use crate::WalletStateKey;
 use crate::ZeusCtx;
 use crate::persisted::{ExportPolicy, PersistedFile, is_allowed_rel_parts};
 use crate::sim::balance_diff::{BalanceChange, NftBalanceChange, native_change};
-use crate::tx::{PriorityTier, TransactionAnalysis, TransactionRich};
+use crate::tx::{Amount, PriorityTier, TransactionAnalysis, TransactionRich, TxPromise};
 use std::collections::BTreeSet;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -1102,7 +1102,7 @@ fn a_swap_routed_through_an_unlisted_token_is_refused_from_the_diff() {
    let mut analysis = simulated(alice(), 1);
    analysis.balance_diff.tokens.push(leaving(Currency::from(usdc())));
 
-   let Decision::Denied(denial) = authorise(&unlocked(), &profile, &analysis) else {
+   let Decision::Denied(denial) = authorise(&unlocked(), &profile, &analysis, None) else {
       panic!("an asset the intent never named must not leave the wallet")
    };
    assert_eq!(denial.code(), "TOKEN_NOT_ALLOWED");
@@ -1118,13 +1118,18 @@ fn authorise_refuses_a_wallet_with_no_grant_and_a_wallet_switched_off() {
    let unknown = Address::repeat_byte(0xc0);
 
    assert_eq!(
-      authorise(&unlocked(), &profile, &simulated(unknown, 1)),
+      authorise(
+         &unlocked(),
+         &profile,
+         &simulated(unknown, 1),
+         None
+      ),
       Decision::Denied(Denial::WalletNotGranted { wallet: unknown })
    );
 
    profile.wallets.get_mut(&bob()).expect("bob").enabled = false;
    assert_eq!(
-      authorise(&unlocked(), &profile, &simulated(bob(), 1)),
+      authorise(&unlocked(), &profile, &simulated(bob(), 1), None),
       Decision::Denied(Denial::WalletNotGranted { wallet: bob() })
    );
 }
@@ -1134,7 +1139,7 @@ fn authorise_is_refused_while_the_vault_is_locked() {
    let profile = sample_profile();
 
    assert_eq!(
-      authorise(&locked(), &profile, &simulated(alice(), 1)),
+      authorise(&locked(), &profile, &simulated(alice(), 1), None),
       Decision::Denied(Denial::VaultLocked)
    );
 }
@@ -1144,13 +1149,23 @@ fn authorise_prompts_only_in_confirm_each() {
    let mut profile = sample_profile();
 
    assert_eq!(
-      authorise(&unlocked(), &profile, &simulated(alice(), 1)),
+      authorise(
+         &unlocked(),
+         &profile,
+         &simulated(alice(), 1),
+         None
+      ),
       Decision::Allowed { prompt: true }
    );
 
    profile.mode = ProfileMode::Authorized;
    assert_eq!(
-      authorise(&unlocked(), &profile, &simulated(alice(), 1)),
+      authorise(
+         &unlocked(),
+         &profile,
+         &simulated(alice(), 1),
+         None
+      ),
       Decision::Allowed { prompt: false }
    );
 }
@@ -1163,7 +1178,7 @@ fn authorise_lets_an_inflow_through() {
 
    assert!(
       matches!(
-         authorise(&unlocked(), &profile, &analysis),
+         authorise(&unlocked(), &profile, &analysis, None),
          Decision::Allowed { .. }
       ),
       "a token arriving is not leaving, so no allowlist can refuse it"
@@ -1184,7 +1199,7 @@ fn authorise_reads_the_declared_native_value_and_ignores_the_fee() {
    let mut spending = simulated(alice(), 1);
    spending.value = U256::from(1_000_000_000_000_000_000u64);
    assert_eq!(
-      authorise(&unlocked(), &profile, &spending),
+      authorise(&unlocked(), &profile, &spending, None),
       Decision::Denied(Denial::TokenNotAllowed {
          wallet: alice(),
          token: TokenRef {
@@ -1204,7 +1219,7 @@ fn authorise_reads_the_declared_native_value_and_ignores_the_fee() {
    );
    assert!(
       matches!(
-         authorise(&unlocked(), &profile, &fee_only),
+         authorise(&unlocked(), &profile, &fee_only, None),
          Decision::Allowed { .. }
       ),
       "the gas fee must not demand the native token in every allowlist"
@@ -1218,7 +1233,7 @@ fn authorise_refuses_an_nft_the_allowlist_does_not_hold() {
 
    analysis.balance_diff.nfts.push(nft_row(bob(), 7, 1, 0));
    assert_eq!(
-      authorise(&unlocked(), &profile, &analysis),
+      authorise(&unlocked(), &profile, &analysis, None),
       Decision::Allowed { prompt: true },
       "the listed id may go"
    );
@@ -1226,10 +1241,209 @@ fn authorise_refuses_an_nft_the_allowlist_does_not_hold() {
    analysis.balance_diff.nfts.clear();
    analysis.balance_diff.nfts.push(nft_row(bob(), 8, 1, 0));
 
-   let Decision::Denied(denial) = authorise(&unlocked(), &profile, &analysis) else {
+   let Decision::Denied(denial) = authorise(&unlocked(), &profile, &analysis, None) else {
       panic!("an id the grant never named must not leave the wallet")
    };
    assert_eq!(denial.code(), "NFT_NOT_ALLOWED");
+}
+
+/// An unlocked context in which the app quotes two prices: ETH at $1 700 and the fixture token at $1.
+///
+/// The price table is what the pool pricing would have filled, and it is set here rather
+/// than mocked away because the gate reads it through the same accessor every flow does.
+fn priced() -> ZeusCtx {
+   let ctx = unlocked();
+   let token = usdc();
+   ctx.price_manager().write(|manager| {
+      manager.token_prices.insert(
+         (1, ERC20Token::wrapped_native_token(1).address),
+         NumericValue::currency_price(1700.0),
+      );
+      manager.token_prices.insert(
+         (1, token.address),
+         NumericValue::currency_price(1.0),
+      );
+   });
+   ctx
+}
+
+/// A swap of one ETH into a stablecoin, quoted at `expected_out` and measured at `arrived`.
+fn swap_of(promise: f64, arrived: f64) -> (TransactionAnalysis, TxPromise) {
+   let mut analysis = simulated(alice(), 1);
+   analysis.set_measured_out(NumericValue::from_f64(arrived));
+
+   let promise = TxPromise::Swap {
+      input: Amount::new(Currency::native(1), NumericValue::from_f64(1.0)),
+      output: Currency::from(usdc()),
+      expected_out: NumericValue::from_f64(promise),
+      floor: NumericValue::from_f64(promise * 0.995),
+   };
+
+   (analysis, promise)
+}
+
+#[test]
+fn an_autonomous_swap_at_the_impact_ceiling_is_allowed_and_one_basis_point_over_is_refused() {
+   let profile = sample_profile();
+   let ctx = priced();
+
+   // $1 700 in, $1 615 out: 5%, exactly the default ceiling, which is the last impact that passes.
+   let (at, promise) = swap_of(1_615.0, 1_615.0);
+   assert_eq!(
+      authorise(&ctx, &profile, &at, Some(&promise)),
+      Decision::Allowed { prompt: true },
+      "a ConfirmEach profile has the human as its reviewer, so no ceiling applies to it"
+   );
+
+   let mut autonomous = profile.clone();
+   autonomous.mode = ProfileMode::Authorized;
+   assert!(
+      matches!(
+         authorise(&ctx, &autonomous, &at, Some(&promise)),
+         Decision::Allowed { prompt: false }
+      ),
+      "exactly at the ceiling is allowed: the ceiling is what a grant permits, not what it doubts"
+   );
+
+   // One basis point further, $1 614.815 out.
+   let (over, promise) = swap_of(1_614.815, 1_614.815);
+   let Decision::Denied(denial) = authorise(&ctx, &autonomous, &over, Some(&promise)) else {
+      panic!("a trade past the ceiling must not run without a human")
+   };
+   assert_eq!(denial.code(), "PRICE_IMPACT");
+
+   let Denial::PriceImpact(impact) = &denial else {
+      panic!("the refusal carries the numbers it was made from")
+   };
+   assert_eq!(impact.bps, 501);
+   assert_eq!(impact.allowed_bps, DEFAULT_MAX_PRICE_IMPACT_BPS);
+   assert_eq!(
+      impact.usd_in.as_ref().map(NumericValue::f64),
+      Some(1700.0)
+   );
+   assert_eq!(
+      impact.usd_out.as_ref().map(NumericValue::f64),
+      Some(1_614.815)
+   );
+
+   let sentence = denial.to_string();
+   assert!(sentence.contains("5.01%"), "{sentence}");
+   assert!(sentence.contains("5.00%"), "{sentence}");
+}
+
+#[test]
+fn an_autonomous_send_that_arrives_short_is_refused_and_the_ceiling_is_the_last_one_allowed() {
+   let profile = sample_profile();
+   let ctx = priced();
+
+   let transfer = |arrived: f64| {
+      let mut analysis = simulated(alice(), 1);
+      analysis.set_measured_out(NumericValue::from_f64(arrived));
+
+      let promise = TxPromise::Transfer {
+         amount: Amount::new(
+            Currency::from(usdc()),
+            NumericValue::from_f64(100.0),
+         ),
+      };
+
+      (analysis, promise)
+   };
+
+   // 99 arrives where 100 was promised: 1%, the default ceiling.
+   let (at, promise) = transfer(99.0);
+   assert!(
+      matches!(
+         authorise(&ctx, &profile, &at, Some(&promise)),
+         Decision::Allowed { .. }
+      ),
+      "a ConfirmEach profile keeps the decision"
+   );
+
+   let mut autonomous = profile.clone();
+   autonomous.mode = ProfileMode::Authorized;
+   assert!(
+      matches!(
+         authorise(&ctx, &autonomous, &at, Some(&promise)),
+         Decision::Allowed { prompt: false }
+      ),
+      "exactly at the ceiling is allowed"
+   );
+
+   // A 3% transfer tax: 97 arrive where 100 were promised.
+   let (short, promise) = transfer(97.0);
+   let Decision::Denied(denial) = authorise(&ctx, &autonomous, &short, Some(&promise)) else {
+      panic!("a transfer tax has to be something the agent can see")
+   };
+   assert_eq!(denial.code(), "OUTPUT_SHORTFALL");
+
+   let Denial::OutputShortfall(shortfall) = &denial else {
+      panic!("the refusal carries both amounts")
+   };
+   assert_eq!(shortfall.bps, 300);
+   assert_eq!(
+      shortfall.allowed_bps,
+      DEFAULT_MAX_TRANSFER_SHORTFALL_BPS
+   );
+   assert_eq!(shortfall.expected.f64(), 100.0);
+   assert_eq!(shortfall.measured.f64(), 97.0);
+   assert_eq!(shortfall.currency.symbol(), "USDC");
+
+   let sentence = denial.to_string();
+   assert!(sentence.contains("97"), "{sentence}");
+   assert!(sentence.contains("100"), "{sentence}");
+   assert!(sentence.contains("3.00%"), "{sentence}");
+}
+
+#[test]
+fn an_output_no_one_can_price_is_refused_while_the_grant_asks_for_a_priced_trade() {
+   let profile = sample_profile();
+   let mut autonomous = profile.clone();
+   autonomous.mode = ProfileMode::Authorized;
+
+   // The app knows no price for this token at all, which is the state a fresh listing is in.
+   let (analysis, promise) = swap_of(1_615.0, 1_615.0);
+   let Decision::Denied(denial) = authorise(
+      &unlocked(),
+      &autonomous,
+      &analysis,
+      Some(&promise),
+   ) else {
+      panic!("an unpriced output cannot be measured against a dollar ceiling")
+   };
+   assert_eq!(denial.code(), "PRICE_UNAVAILABLE");
+
+   let Denial::PriceUnavailable { currencies } = &denial else {
+      panic!("the refusal names what it could not price")
+   };
+   assert_eq!(currencies.len(), 2, "both legs of the trade");
+   assert!(denial.to_string().contains("USDC"));
+
+   assert!(
+      matches!(
+         authorise(&unlocked(), &profile, &analysis, Some(&promise)),
+         Decision::Allowed { .. }
+      ),
+      "the human sees the same window and keeps the decision"
+   );
+}
+
+#[test]
+fn a_request_that_states_no_promise_is_decided_exactly_as_it_was_before() {
+   let profile = sample_profile();
+   let mut autonomous = profile.clone();
+   autonomous.mode = ProfileMode::Authorized;
+
+   // The analysis says a swap went badly wrong — far past every ceiling — but no flow stated what it
+   // promised, so there is nothing to hold it to: a dapp request, an approval and a preview all land here.
+   let (analysis, _) = swap_of(1_000.0, 500.0);
+   assert!(
+      matches!(
+         authorise(&unlocked(), &autonomous, &analysis, None),
+         Decision::Allowed { prompt: false }
+      ),
+      "a flow that has not been taught to state a promise must not be refused for lacking one"
+   );
 }
 
 #[test]
