@@ -9,7 +9,9 @@ use crate::sim::approval_diff::{
    ApprovalCandidate, ApprovalChange, ApprovalDiff, ApprovalKind, NftApprovalCandidate,
    NftApprovalChange, NftApprovalValue,
 };
-use crate::sim::balance_diff::{BalanceDiff, NftBalanceChange, native_change, token_change};
+use crate::sim::balance_diff::{
+   BalanceDiff, DiffWatch, NftBalanceChange, native_change, token_change,
+};
 use crate::sim::{
    AccountPrefetch, ForkPrefetch, ForkSim, ForkSimRequest, StoragePrefetch, eip7702_implementation,
    pinned_head, simulate_on_fork_with,
@@ -195,6 +197,7 @@ pub async fn simulate_and_diff(
    call_data: Bytes,
    value: U256,
    authorization_list: Vec<SignedAuthorization>,
+   watch: &DiffWatch,
 ) -> Result<SimulatedTx, anyhow::Error> {
    let client = ctx.get_client_manager();
 
@@ -207,6 +210,7 @@ pub async fn simulate_and_diff(
       from,
       interact_to,
       call_data.clone(),
+      watch,
    );
 
    let bytecode = client

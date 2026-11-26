@@ -35,10 +35,10 @@ use crate::{
    core::sim::diff::DiffProbe,
    core::types::EnsRecipientGuard,
    core::{
-      AgentEnv, ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy,
-      SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich, UnshieldParams, ZeusCtx,
-      build_tx_outcome, confirm_tx, ensure_recipient_is_not_contract, record_and_notify,
-      send_transaction, sim::diff::diffs_from_receipt,
+      AgentEnv, ApprovalDiff, BalanceDiff, DecodedEvent, DiffWatch, MainEvent, MinedTx,
+      RecordPolicy, SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich,
+      UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx, ensure_recipient_is_not_contract,
+      record_and_notify, send_transaction, sim::diff::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{
@@ -690,6 +690,7 @@ async fn unshield_via_paymaster(
       from,
       interact_to,
       handle_ops_data.clone(),
+      &DiffWatch::default(),
    );
 
    let eth_balance_after;

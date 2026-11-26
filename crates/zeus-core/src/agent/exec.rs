@@ -927,6 +927,7 @@ pub async fn preview(
       call_data,
       value,
       Vec::new(),
+      &crate::sim::balance_diff::DiffWatch::default(),
    )
    .await
    .map_err(|error| ExecError::Failed(error.to_string()))?;

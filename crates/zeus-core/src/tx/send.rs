@@ -13,6 +13,7 @@ use std::time::Duration;
 use super::fees::PriorityTier;
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::clear_signing::ClearDisplay;
+use crate::sim::balance_diff::DiffWatch;
 use crate::sim::diff::{diffs_from_receipt, simulate_and_diff};
 use crate::tx::notification::NotificationType;
 use crate::ui::{self, ConfirmRequest, PromptOpen, TxConfirmRequest};
@@ -172,6 +173,12 @@ pub struct SendTxRequest {
    /// An analysis the caller already built. `None` makes the send simulate the
    /// call on a fork and analyze the result before opening the confirm window.
    pub analysis: Option<TransactionAnalysis>,
+   /// Which contracts this send's simulation should diff.
+   ///
+   /// Only read when [`Self::analysis`] is `None` — a caller that simulated already measured what it
+   /// chose to measure. The default is [`DiffWatch::Discovered`], the portfolio sweep every path has
+   /// always done, so a request that does not set it changes nothing.
+   pub watch: DiffWatch,
 }
 
 impl SendTxRequest {
@@ -186,7 +193,19 @@ impl SendTxRequest {
          value: U256::ZERO,
          authorization_list: Vec::new(),
          analysis: None,
+         watch: DiffWatch::default(),
       }
+   }
+
+   /// Diff exactly these contracts instead of sweeping the portfolio.
+   ///
+   /// For a flow that builds its own calldata to a protocol it names: the contracts it can move are known
+   /// before the fork runs, so nothing else has to be read. A callee nobody vetted keeps the sweep.
+   #[must_use]
+   pub fn watch(mut self, watch: DiffWatch) -> Self {
+      self.watch = watch;
+
+      self
    }
 
    #[must_use]
@@ -642,6 +661,7 @@ pub async fn analyse(
    call_data: Bytes,
    value: U256,
    authorization_list: Vec<SignedAuthorization>,
+   watch: &DiffWatch,
 ) -> Result<TransactionAnalysis, anyhow::Error> {
    let simulated = simulate_and_diff(
       ctx.clone(),
@@ -651,6 +671,7 @@ pub async fn analyse(
       call_data.clone(),
       value,
       authorization_list.clone(),
+      watch,
    )
    .await?;
 
@@ -732,6 +753,7 @@ pub async fn send_transaction(
       value,
       authorization_list,
       analysis,
+      watch,
    } = req;
 
    ui::host().open_loading("Sending your transaction…");
@@ -755,6 +777,7 @@ pub async fn send_transaction(
             call_data.clone(),
             value,
             authorization_list.clone(),
+            &watch,
          )
          .await?
       }

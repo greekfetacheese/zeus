@@ -24,7 +24,7 @@ use zeus_eth::revm::context::ContextTr;
 
 use crate::core::sim::diff::DiffProbe;
 use crate::core::{
-   AgentEnv, ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams,
+   AgentEnv, ApproveSimulation, DecodedEvent, DiffWatch, SendTxOptions, SendTxRequest, SwapParams,
    TransactionAnalysis, TransactionRich, UnwrapWETHParams, WrapETHParams, ZeusCtx,
    send_token_approve, send_transaction, sign_message, signature::Permit2Info, types::Dapp,
 };
@@ -2235,6 +2235,14 @@ pub(crate) async fn swap_via_ur(
    // Permit2 signature and is encoded twice — so the probe starts without it: the pre-state is the
    // portfolio plus the router, and everything the swap touches is added from its logs after the
    // simulation. Without this the analysis reaches the confirmation with no diffs at all.
+   // The contracts a swap can move are the ones it names: the two currencies of the trade, and the two
+   // allowances `handle_approve` can write below — the token's to Permit2 and Permit2's to the router.
+   // Nothing else can reach the signer's balance through Zeus's own calldata.
+   let watch = DiffWatch::exact([currency_in.address(), currency_out.address()]).with_approvals([
+      (currency_in.address(), permit2_addr),
+      (currency_in.address(), router_addr),
+   ]);
+
    let probe = DiffProbe::start(
       ctx.clone(),
       chain,
@@ -2242,6 +2250,7 @@ pub(crate) async fn swap_via_ur(
       signer_address,
       router_addr,
       Bytes::default(),
+      &watch,
    );
 
    let accounts = swap_prefetch_accounts(
