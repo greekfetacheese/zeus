@@ -25,6 +25,24 @@ use zeus_eth::alloy_primitives::{Address, U256, hex};
 /// binary crate, which this one cannot name, so the swap UI's maximum and this one move together.
 pub const MAX_SLIPPAGE_BPS: u16 = 2_000;
 
+/// The most a simulated trade may lose to price impact before an autonomous call is refused.
+///
+/// Price impact is measured against the quote the caller was shown: 5% by default, and 20% is the widest a
+/// grant may set, because past that the "quote" is not a price anyone could trade on.
+pub const DEFAULT_MAX_PRICE_IMPACT_BPS: u16 = 500;
+
+/// The ceiling for [AgentProfile::max_price_impact_bps].
+pub const MAX_PRICE_IMPACT_BPS: u16 = 2_000;
+
+/// How far short of the promised amount an autonomous call may arrive before it is refused.
+///
+/// 1% by default — a transfer tax, a fee-on-transfer token and a hook's cut all land above it — and 10% is
+/// the widest a grant may set.
+pub const DEFAULT_MAX_TRANSFER_SHORTFALL_BPS: u16 = 100;
+
+/// The ceiling for [AgentProfile::max_transfer_shortfall_bps].
+pub const MAX_TRANSFER_SHORTFALL_BPS: u16 = 1_000;
+
 /// One client credential: a label, a bearer-token hash, a grant, an autonomy mode.
 ///
 /// Every field added after the first release carries `#[serde(default)]`, so a document written by an
@@ -55,6 +73,17 @@ pub struct AgentProfile {
    /// Caps a per-call slippage on this profile's swaps; `0` means no slippage at all.
    #[serde(default = "default_max_slippage_bps")]
    pub max_slippage_bps: u16,
+   /// Caps the price impact a simulated trade may show against its quote. See
+   /// [DEFAULT_MAX_PRICE_IMPACT_BPS].
+   ///
+   /// Carries a default rather than zero: a grant document written before this field existed must keep
+   /// trading, and a ceiling of zero would refuse every swap.
+   #[serde(default = "default_max_price_impact_bps")]
+   pub max_price_impact_bps: u16,
+   /// Caps how far short of the promised amount a simulated action may arrive. See
+   /// [DEFAULT_MAX_TRANSFER_SHORTFALL_BPS].
+   #[serde(default = "default_max_transfer_shortfall_bps")]
+   pub max_transfer_shortfall_bps: u16,
    /// Where `data_export` writes, chosen once when the grant is made. `None` means an export still asks
    /// the user for a folder — the one thing an export cannot choose for itself.
    #[serde(default)]
@@ -90,6 +119,8 @@ impl AgentProfile {
          enabled: true,
          mode: ProfileMode::Authorized,
          max_slippage_bps: MAX_SLIPPAGE_BPS,
+         max_price_impact_bps: DEFAULT_MAX_PRICE_IMPACT_BPS,
+         max_transfer_shortfall_bps: DEFAULT_MAX_TRANSFER_SHORTFALL_BPS,
          export_dir: None,
          expires_at: None,
          wallets: BTreeMap::new(),
@@ -140,6 +171,9 @@ impl AgentProfile {
    /// of one — is what the user asked for and is left alone.
    pub fn clamp(&mut self) {
       self.max_slippage_bps = self.max_slippage_bps.min(MAX_SLIPPAGE_BPS);
+      self.max_price_impact_bps = self.max_price_impact_bps.min(MAX_PRICE_IMPACT_BPS);
+      self.max_transfer_shortfall_bps =
+         self.max_transfer_shortfall_bps.min(MAX_TRANSFER_SHORTFALL_BPS);
    }
 
    /// Whether `address` holds `capability` under this profile.
@@ -182,6 +216,14 @@ impl AgentProfile {
 
 fn default_max_slippage_bps() -> u16 {
    MAX_SLIPPAGE_BPS
+}
+
+fn default_max_price_impact_bps() -> u16 {
+   DEFAULT_MAX_PRICE_IMPACT_BPS
+}
+
+fn default_max_transfer_shortfall_bps() -> u16 {
+   DEFAULT_MAX_TRANSFER_SHORTFALL_BPS
 }
 
 /// A profile's stable id: 16 random bytes, hex.

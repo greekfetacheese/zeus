@@ -58,6 +58,20 @@ the grant's allowlist, the recipient screen, the wallet lock, the app's confirma
 profile asks for every change, and the app's record. A granted write with no prompt is announced out
 loud and written to the activity ring.
 
+Two ceilings bound an autonomous action, both read from the grant and both measured against what the
+tool was promised rather than against a price:
+
+- **Max price impact** (5% by default) — a swap whose simulated output is worth this much less than its
+  quote is refused with `PRICE_IMPACT`.
+- **Max shortfall** (1% by default) — an action that delivers this much less than the amount it promised
+  is refused with `OUTPUT_SHORTFALL`. This is the one that catches a transfer tax: the simulation
+  measures what the recipient actually receives, not what the calldata asked for.
+
+A token Zeus has no dollar price for cannot have its impact measured, and an action whose output is
+unpriced is refused with `PRICE_UNAVAILABLE` rather than guessed at. Both ceilings live in the grant
+editor, and a profile set to ask before every action is reviewed by the person answering the prompt, so
+neither refusal fires there.
+
 Amounts are decimal strings with the token's own decimals (`"1.25"`, `decimals: 6`), never JSON
 numbers. Addresses are full and lowercased; a name never replaces one in a field an action consumes.
 `action_id` makes a call idempotent: the same id with the same arguments replays the first answer

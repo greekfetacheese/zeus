@@ -6,8 +6,9 @@
 
 use crate::core::WalletInfo;
 use crate::core::agent::{
-   AgentProfile, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb, NftRef, NftScope,
-   ProfileMode, RiskTier, TokenRef, TokenScope, capability,
+   AgentProfile, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb, MAX_PRICE_IMPACT_BPS,
+   MAX_TRANSFER_SHORTFALL_BPS, NftRef, NftScope, ProfileMode, RiskTier, TokenRef, TokenScope,
+   capability,
 };
 use egui::{RichText, Ui, vec2};
 use egui_elements::{Button, Checkbox, Theme};
@@ -85,6 +86,10 @@ impl ProfileEditor {
          edited.changed = true;
       }
 
+      if self.guards(profile, theme, ui) {
+         edited.changed = true;
+      }
+
       ui.add_space(theme.spacing.sm);
       ui.label(RichText::new("Wallets").size(theme.typography.large));
 
@@ -106,6 +111,88 @@ impl ProfileEditor {
       }
 
       edited
+   }
+
+   /// The two ceilings an autonomous action is held to, in percent.
+   ///
+   /// A swap's price impact is measured against the quote the agent was shown; everything else is measured
+   /// as how much of what it promised actually arrives. Both are ceilings on what an agent may do without a
+   /// prompt — a profile that asks before every action is reviewed by the person answering it — and both are
+   /// clamped by the type that carries them.
+   fn guards(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> bool {
+      let mut changed = false;
+
+      ui.add_space(theme.spacing.sm);
+      ui.label(RichText::new("Limits").size(theme.typography.large));
+      ui.label(
+         RichText::new(
+            "What an agent may do without asking. A price impact is measured against the quote it was \
+             shown; a shortfall is how much of the promised amount is missing when the transaction is \
+             simulated.",
+         )
+         .size(theme.typography.normal),
+      );
+
+      changed |= Self::percent_guard(
+         ui,
+         theme,
+         "Max price impact",
+         MAX_PRICE_IMPACT_BPS,
+         "A swap is refused when its simulated price impact is worse than this.",
+         &mut profile.max_price_impact_bps,
+      );
+
+      changed |= Self::percent_guard(
+         ui,
+         theme,
+         "Max shortfall",
+         MAX_TRANSFER_SHORTFALL_BPS,
+         "A swap, transfer or bridge is refused when the simulation delivers less than this share of what \
+          was promised.",
+         &mut profile.max_transfer_shortfall_bps,
+      );
+
+      if changed {
+         profile.clamp();
+      }
+
+      changed
+   }
+
+   /// One ceiling, in percent, over a stored basis-point value.
+   fn percent_guard(
+      ui: &mut Ui,
+      theme: &Theme,
+      label: &'static str,
+      ceiling_bps: u16,
+      sentence: &'static str,
+      stored: &mut u16,
+   ) -> bool {
+      // Whole tenths of a percent: the granularity the swap page offers, and the only one a ceiling needs.
+      let mut percent = f64::from(*stored) / 100.0;
+
+      ui.horizontal(|ui| {
+         ui.label(RichText::new(label).size(theme.typography.normal));
+
+         let drag = ui.add(
+            egui::DragValue::new(&mut percent)
+               .speed(0.01)
+               .range(0.0..=f64::from(ceiling_bps) / 100.0)
+               .suffix(" %")
+               .max_decimals(2),
+         );
+
+         ui.ctx().accesskit_node_builder(drag.id, |node| {
+            node.set_description(sentence);
+         });
+
+         if drag.changed() {
+            *stored = (percent * 100.0).round().clamp(0.0, f64::from(u16::MAX)) as u16;
+         }
+
+         drag.changed()
+      })
+      .inner
    }
 
    /// The tier-3 warning, and the two buttons that answer it.

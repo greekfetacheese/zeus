@@ -11,9 +11,10 @@ use super::intent::{Asset, Intent};
 use super::policy::{Decision, Denial, authorise, precheck};
 use super::profile::CAPABILITIES;
 use super::profile::{
-   AgentProfile, AgentProfileId, CapabilityScope, CapabilityVerb, MAX_SLIPPAGE_BPS, NftRef,
-   NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant, TokenRef, TokenScope, WalletGrant,
-   capability,
+   AgentProfile, AgentProfileId, CapabilityScope, CapabilityVerb, DEFAULT_MAX_PRICE_IMPACT_BPS,
+   DEFAULT_MAX_TRANSFER_SHORTFALL_BPS, MAX_PRICE_IMPACT_BPS, MAX_SLIPPAGE_BPS,
+   MAX_TRANSFER_SHORTFALL_BPS, NftRef, NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant,
+   TokenRef, TokenScope, WalletGrant, capability,
 };
 use super::read;
 use super::store::AgentProfileStore;
@@ -107,6 +108,14 @@ fn a_new_profile_grants_nothing_and_offers_the_swap_ui_maximum() {
       "the default is no prompts; a grant that prompts is the cautious opt-in"
    );
    assert_eq!(profile.max_slippage_bps, MAX_SLIPPAGE_BPS);
+   assert_eq!(
+      profile.max_price_impact_bps,
+      DEFAULT_MAX_PRICE_IMPACT_BPS
+   );
+   assert_eq!(
+      profile.max_transfer_shortfall_bps,
+      DEFAULT_MAX_TRANSFER_SHORTFALL_BPS
+   );
    assert!(profile.export_dir.is_none());
 }
 
@@ -201,6 +210,55 @@ fn the_slippage_bound_is_clamped_and_a_narrower_one_is_left_alone() {
    profile.max_slippage_bps = 25;
    profile.sanitize();
    assert_eq!(profile.max_slippage_bps, 25);
+}
+
+#[test]
+fn the_guard_ceilings_are_clamped_and_a_narrower_one_is_left_alone() {
+   let mut profile = sample_profile();
+   profile.max_price_impact_bps = 50_000;
+   profile.max_transfer_shortfall_bps = 50_000;
+
+   assert!(
+      profile.sanitize().is_empty(),
+      "a bound is clamped, not dropped"
+   );
+   assert_eq!(profile.max_price_impact_bps, MAX_PRICE_IMPACT_BPS);
+   assert_eq!(
+      profile.max_transfer_shortfall_bps,
+      MAX_TRANSFER_SHORTFALL_BPS
+   );
+
+   // A user who asked for less keeps less: zero is "no impact at all", not "no limit".
+   profile.max_price_impact_bps = 50;
+   profile.max_transfer_shortfall_bps = 0;
+   profile.sanitize();
+   assert_eq!(profile.max_price_impact_bps, 50);
+   assert_eq!(profile.max_transfer_shortfall_bps, 0);
+}
+
+/// A grant document written before the guards existed must load with the safe default, not zero — a zero
+/// ceiling would refuse every autonomous swap the moment this build read an older file.
+#[test]
+fn a_grant_written_before_the_guards_loads_with_the_defaults() {
+   let mut profile = sample_profile();
+   profile.max_price_impact_bps = DEFAULT_MAX_PRICE_IMPACT_BPS;
+   profile.max_transfer_shortfall_bps = DEFAULT_MAX_TRANSFER_SHORTFALL_BPS;
+
+   let mut value = serde_json::to_value(&profile).expect("serialize");
+   let object = value.as_object_mut().expect("an object");
+   object.remove("max_price_impact_bps");
+   object.remove("max_transfer_shortfall_bps");
+
+   let back: AgentProfile = serde_json::from_value(value).expect("deserialize");
+
+   assert_eq!(
+      back.max_price_impact_bps,
+      DEFAULT_MAX_PRICE_IMPACT_BPS
+   );
+   assert_eq!(
+      back.max_transfer_shortfall_bps,
+      DEFAULT_MAX_TRANSFER_SHORTFALL_BPS
+   );
 }
 
 #[test]

@@ -34,8 +34,9 @@ pub use intent::{Asset, Intent};
 pub use policy::{Decision, Denial, announce_denial, authorise, precheck, vault_open};
 pub use profile::{
    AgentProfile, AgentProfileId, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb,
-   MAX_SLIPPAGE_BPS, NftRef, NftScope, PrivacyBadge, ProfileMode, RiskTier, ScreenGrant, TokenRef,
-   TokenScope, WalletGrant, capability,
+   DEFAULT_MAX_PRICE_IMPACT_BPS, DEFAULT_MAX_TRANSFER_SHORTFALL_BPS, MAX_PRICE_IMPACT_BPS,
+   MAX_SLIPPAGE_BPS, MAX_TRANSFER_SHORTFALL_BPS, NftRef, NftScope, PrivacyBadge, ProfileMode,
+   RiskTier, ScreenGrant, TokenRef, TokenScope, WalletGrant, capability,
 };
 pub use store::AgentProfileStore;
 pub use token::{

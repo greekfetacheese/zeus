@@ -182,6 +182,8 @@ fn grant_summary(profile: &AgentProfile) -> Value {
          ProfileMode::ConfirmEach => "confirm_each",
       },
       "max_slippage_bps": profile.max_slippage_bps,
+      "max_price_impact_bps": profile.max_price_impact_bps,
+      "max_transfer_shortfall_bps": profile.max_transfer_shortfall_bps,
       "export_dir": profile.export_dir.as_ref().map(|dir| dir.display().to_string()),
    })
 }
