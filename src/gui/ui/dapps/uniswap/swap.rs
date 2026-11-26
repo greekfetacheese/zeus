@@ -22,6 +22,7 @@ use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 
+use crate::core::sim::diff::DiffProbe;
 use crate::core::{
    AgentEnv, ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams,
    TransactionAnalysis, TransactionRich, UnwrapWETHParams, WrapETHParams, ZeusCtx,
@@ -34,7 +35,7 @@ use crate::utils::{
 };
 
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::BlockId,
    amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV4Pool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
@@ -2230,6 +2231,19 @@ pub(crate) async fn swap_via_ur(
    let router_addr = address_book::universal_router_v2(chain.id())?;
    let permit2_addr = address_book::permit2_contract(chain.id())?;
 
+   // What the swap moves, read before the fork runs. The calldata does not exist yet — it needs the
+   // Permit2 signature and is encoded twice — so the probe starts without it: the pre-state is the
+   // portfolio plus the router, and everything the swap touches is added from its logs after the
+   // simulation. Without this the analysis reaches the confirmation with no diffs at all.
+   let probe = DiffProbe::start(
+      ctx.clone(),
+      chain,
+      block_id,
+      signer_address,
+      router_addr,
+      Bytes::default(),
+   );
+
    let accounts = swap_prefetch_accounts(
       chain,
       signer_address,
@@ -2322,7 +2336,7 @@ pub(crate) async fn swap_via_ur(
 
    // Simulate on the fork the approval was committed into, if there was one, so
    // the swap sees the allowance.
-   let (sim, token_out_balance_after) = simulate_on_fork_db(
+   let (sim, (token_out_balance_after, measured)) = simulate_on_fork_db(
       chain,
       &block,
       fork_db,
@@ -2336,11 +2350,16 @@ pub(crate) async fn swap_via_ur(
          authorization_list: vec![],
       },
       |evm, sim| {
-         if currency_out.is_native() {
+         let balance = if currency_out.is_native() {
             Ok(sim.balance_after)
          } else {
             simulate::erc20_balance(evm, currency_out.address(), signer_address)
-         }
+         };
+
+         // The probe reads the post-simulation EVM here: it cannot be handed across the await.
+         let measured = probe.measure(ctx.clone(), chain, block_id, &sim.logs, evm);
+
+         (balance, measured)
       },
    )?;
 
@@ -2432,6 +2451,15 @@ pub(crate) async fn swap_via_ur(
       recipient: Some(signer_address),
    };
 
+   let (sim_balance_diff, sim_approval_diff) = measured
+      .resolve(
+         ctx.clone(),
+         chain,
+         eth_balance_before,
+         eth_balance_after,
+      )
+      .await?;
+
    let contract_interact = Some(true);
    let gas_used = sim_res.tx_gas_used();
    let auth_list = Vec::new();
@@ -2451,6 +2479,8 @@ pub(crate) async fn swap_via_ur(
       auth_list,
    )
    .await?;
+
+   swap_tx_analysis.set_diffs(sim_balance_diff, sim_approval_diff);
 
    let main_event = DecodedEvent::SwapToken(swap_params.clone());
    swap_tx_analysis.set_block_number(block_number);
