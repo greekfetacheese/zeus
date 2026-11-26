@@ -5,6 +5,8 @@ pub mod fees;
 pub mod finalize;
 pub mod main_event;
 pub mod notification;
+pub mod promise;
+pub mod review;
 pub mod rich;
 pub mod send;
 pub mod send_calls;
@@ -19,6 +21,8 @@ pub use fees::{FeeTiers, PriorityTier};
 pub use finalize::{
    MainEvent, MinedTx, RecordPolicy, TxOutcome, build_tx_outcome, record_and_notify,
 };
+pub use promise::{Amount, TxPromise};
+pub use review::{SimReview, review};
 pub use rich::TransactionRich;
 pub use send::{
    ConfirmedTx, RecipientAccount, SendTxOptions, SendTxRequest, TxRefusal, analyse, confirm_tx,

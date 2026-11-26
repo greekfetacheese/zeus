@@ -92,6 +92,14 @@ pub struct TransactionAnalysis {
    /// "simulated at block" row when it is set.
    #[serde(default)]
    pub block_number: Option<u64>,
+
+   /// What the flow's own simulation measured arriving, when the flow measured it.
+   ///
+   /// The diffs are the signer's net change; this is the one number a flow can state more precisely than
+   /// the diff can — a swap's received amount, a transfer's delivery. It is what the review reads against
+   /// the promise, and it is `None` for anything the flow did not measure rather than zero.
+   #[serde(default)]
+   pub measured_out: Option<NumericValue>,
 }
 
 /// Output-token amount the sender actually received, from `balanceOf` at
@@ -457,6 +465,11 @@ impl TransactionAnalysis {
       self.approval_diff = approval;
    }
 
+   /// Record what the flow's own simulation measured arriving.
+   pub fn set_measured_out(&mut self, amount: NumericValue) {
+      self.measured_out = Some(amount);
+   }
+
    pub fn remove_main_event(&mut self) {
       self.main_event = None;
    }
@@ -621,6 +634,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -646,6 +660,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -671,6 +686,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -696,6 +712,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -722,6 +739,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -747,6 +765,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -773,6 +792,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -798,6 +818,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -823,6 +844,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -848,6 +870,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -873,6 +896,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -898,6 +922,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -926,6 +951,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
@@ -953,6 +979,7 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
       }
    }
 
