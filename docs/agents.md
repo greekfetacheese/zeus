@@ -19,8 +19,9 @@ Settings → Agents.
    - the **screens** it may read or write in Settings.
 3. **Start server**. The status bar says which port it is on, and whether an agent is talking to it.
 
-Nothing is granted by default: a fresh credential may call `zeus_status` and `zeus_help` and read
-its own activity, and nothing else.
+Nothing is granted by default. A fresh credential may ask `zeus_status`, `zeus_help` and
+`agent_activity`, and it can see the four `settings_*` tools — but those refuse every screen until the
+grant names it, and the refusal says which switch to turn on. No wallet is visible, and no write exists.
 
 ## 2. Connecting a harness
 
@@ -69,10 +70,12 @@ An autonomous action leaves two traces, because a user may not be watching the s
 - **The announcement.** One sentence through the accessibility channel — "Agent sent 12 USDC to
   0x1234…abcd" — and, when something is refused, "Agent was denied: …". Sentences from tools wait their
   turn, so two actions finishing together are two announcements rather than one.
-- **The activity ring.** Every attempt, allowed or refused, with the tool, the wallet, the decision,
-  the refusal's code, the transaction hash and the estimated value. The Agents page shows it under
-  **Activity**, newest first, and the `agent_activity` tool reads the same rows back to the agent
-  that made them — never another credential's.
+- **The activity ring.** Every write and every refusal, with the tool, the wallet, the decision, the
+  refusal's code, the transaction hash and the estimated value. A granted *read* is not recorded — a
+  portfolio poll every thirty seconds would bury the log — so the ring answers "what has this thing been
+  doing", not "what has it been looking at". The Agents page shows it under **Activity**, newest first,
+  and the `agent_activity` tool reads the same rows back to the agent that made them — never another
+  credential's.
 
 A row that produced a transaction links to the transaction history, where the outcome is.
 

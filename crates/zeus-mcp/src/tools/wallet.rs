@@ -303,7 +303,7 @@ fn import(call: &Call, arguments: Value) -> ToolFuture<'_> {
             })?;
 
             Err(ToolError::new(ErrorCode::UserActionRequired, reason).with_hint(
-               "Zeus is showing the import form: the key or phrase goes there, never here. Call                 wallet_list when the user is done.",
+               "Zeus is showing the import form: the key or phrase goes there, never here. Call wallet_list when the user is done.",
             ))
          }
          decision => {
