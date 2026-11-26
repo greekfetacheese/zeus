@@ -17,6 +17,7 @@ use crate::sim::balance_diff::DiffWatch;
 use crate::sim::diff::{diffs_from_receipt, simulate_and_diff};
 use crate::tx::notification::NotificationType;
 use crate::tx::promise::TxPromise;
+use crate::tx::review::{SimReview, review_with};
 use crate::ui::{self, ConfirmRequest, PromptOpen, TxConfirmRequest};
 use zeus_eth::{
    alloy_contract::private::Provider,
@@ -290,6 +291,12 @@ pub struct ConfirmedTx {
    /// The max-fee ceiling the chosen tier carries, in basis points.
    pub fee_ceiling_bps: u32,
    pub clear_display: Option<ClearDisplay>,
+   /// How the simulation read against the flow's promise.
+   ///
+   /// Computed where the promise and the analysis finally meet, and handed out so the record can carry it:
+   /// the flow's own options are gone by the time the transaction is mined, and an autonomous action has no
+   /// window anyone saw its numbers in.
+   pub review: Option<SimReview>,
 }
 
 /// The gas limit the confirmation window prefills for a simulated transaction: what it used, plus half
@@ -549,6 +556,10 @@ pub async fn confirm_tx(
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let tiers = ctx.get_fee_tiers(chain.id());
 
+   // The one reading of the simulation against the promise, made here because this is the only place both
+   // are in hand. The gate refuses on it; the caller records it.
+   let review = opts.promise.as_ref().map(|promise| review_with(&ctx, promise, analysis));
+
    // An agent's grant stands in for the click, here, where every broadcasting flow converges. The
    // decision reads the simulated analysis — the only honest measure of what the transaction takes out
    // of the wallet — and `None` leaves the path below exactly as it was. The profile is looked up now
@@ -579,6 +590,7 @@ pub async fn confirm_tx(
                gas_limit: default_gas_limit(analysis.gas_used),
                fee_ceiling_bps: ceiling,
                clear_display: None,
+               review,
             });
          }
          Decision::Allowed { prompt: true } => {}
@@ -663,6 +675,7 @@ pub async fn confirm_tx(
       gas_limit: answer.gas_limit,
       fee_ceiling_bps: answer.fee_ceiling_bps,
       clear_display: answer.clear_display,
+      review,
    })
 }
 
@@ -812,6 +825,9 @@ pub async fn send_transaction(
    )
    .await?;
 
+   // The record keeps the reading: an autonomous action has no window anyone saw its numbers in, so this is
+   // what its activity entry and its answer are made of. It is attached to the record's own analysis by
+   // `build_tx_outcome`, because that one is rebuilt from the receipt rather than handed in.
    let main_event = tx_analysis.infer_main_event(ctx.clone(), chain.id());
    let main_event_name = if main_event.is_known() {
       main_event.name()
@@ -986,6 +1002,7 @@ pub async fn send_transaction(
          onchain_swap_received: tx_analysis.main_event_opt().is_some_and(|e| e.is_swap()),
          priority_fee,
          authorised_by: opts.authority.as_ref().map(|authority| authority.profile().clone()),
+         review: confirmed.review.clone(),
       },
    )
    .await?;

@@ -19,13 +19,13 @@
 use super::audit::{AuditDecision, AuditEntry};
 use super::env::AgentEnv;
 use super::intent::{Asset, Intent};
-use super::policy::{Decision, Denial, announce_denial, authorise, precheck, vault_open};
+use super::policy::{Decision, Denial, announce_denial, authorise, percent, precheck, vault_open};
 use super::profile::{AgentProfile, ProfileMode, TokenRef};
 use super::read;
 use crate::sim::approval_diff::ApprovalKind;
 use crate::tx::{
-   PriorityTier, TransactionAnalysis, TransactionRich, analyse, ensure_recipient_is_not_contract,
-   price_analysis,
+   PriorityTier, SimReview, TransactionAnalysis, TransactionRich, analyse,
+   ensure_recipient_is_not_contract, price_analysis,
 };
 use crate::{ZeusCtx, ui};
 use serde_json::{Value, json};
@@ -37,6 +37,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use zeus_eth::abi::{erc20, erc721, erc1155};
 use zeus_eth::alloy_primitives::{Address, Bytes, U256};
+use zeus_eth::currency::Currency;
 use zeus_eth::nft::NftStandard;
 use zeus_eth::types::ChainId;
 use zeus_eth::utils::NumericValue;
@@ -1060,6 +1061,25 @@ fn simulation_row(chain: u64, analysis: &TransactionAnalysis) -> Value {
        "tokens": tokens,
        "nfts": nfts,
        "approvals": approvals,
+       "review": analysis.review.as_ref().map(review_row),
+   })
+}
+
+/// How the simulation read against what the flow promised.
+///
+/// A flow that states no promise reports `null` rather than a row of zeroes: "nothing was measured" and
+/// "nothing was lost" are different answers, and an agent that cannot tell them apart would read an
+/// unmeasured dapp request as a perfect trade.
+fn review_row(review: &SimReview) -> Value {
+   json!({
+       "price_impact_bps": review.price_impact_bps,
+       "shortfall_bps": review.shortfall_bps,
+       "fee_bps": review.fee_bps,
+       "usd_in": review.usd_in.as_ref().map(NumericValue::f64),
+       "usd_out": review.usd_out.as_ref().map(NumericValue::f64),
+       "unpriced": review.unpriced.iter().map(read::currency_row).collect::<Vec<Value>>(),
+       "measured": review.measured,
+       "complete": review.is_complete(),
    })
 }
 
@@ -1146,6 +1166,42 @@ fn sentence(call: &ExecCall, done: &TransactionRich) -> String {
    }
 }
 
+/// The reading, in the words an entry is written in.
+///
+/// The record is the only trace an autonomous action leaves, so it says what the trade cost in the same
+/// terms the refusal would have used — a ceiling is only as good as the memory of how close it came.
+fn review_sentence(review: &SimReview) -> String {
+   let mut parts: Vec<String> = Vec::new();
+
+   if let Some(bps) = review.price_impact_bps {
+      parts.push(format!("price impact {}", percent(bps)));
+   }
+
+   if let Some(bps) = review.shortfall_bps
+      && bps > 0
+   {
+      parts.push(format!("{} short of the promise", percent(bps)));
+   }
+
+   if let Some(bps) = review.fee_bps
+      && bps > 0
+   {
+      parts.push(format!("fee {}", percent(bps)));
+   }
+
+   if !review.unpriced.is_empty() {
+      let names: Vec<&str> = review.unpriced.iter().map(Currency::symbol).collect();
+
+      parts.push(format!("{} unpriced", names.join(", ")));
+   }
+
+   if parts.is_empty() {
+      return "nothing measured against a promise".to_string();
+   }
+
+   parts.join(", ")
+}
+
 /// Record a completed action, and say it out loud.
 ///
 /// This is the only trace an autonomous action leaves: nothing asked the user first, so there is no prompt
@@ -1175,7 +1231,10 @@ fn record_done(
    };
    entry.tx_hash = Some(done.hash);
    entry.usd_value = (!done.value_sent_usd.is_zero()).then(|| done.value_sent_usd.f64());
-   entry.detail = Some(sentence.clone());
+   entry.detail = Some(match done.analysis.review.as_ref() {
+      Some(review) => format!("{sentence} — {}", review_sentence(review)),
+      None => sentence.clone(),
+   });
    entry.latency_ms = started.elapsed().as_millis() as u64;
    entry.client_info = origin.client_info.map(str::to_owned);
 
@@ -1228,6 +1287,7 @@ fn now_secs() -> u64 {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use zeus_eth::currency::ERC20Token;
 
    fn wallet() -> Address {
       Address::repeat_byte(0xa1)
@@ -1251,6 +1311,107 @@ mod tests {
          decimals: 6,
          priority: PriorityTier::Normal,
       })
+   }
+
+   /// A review as the confirmation would have built it: 1 in, this much out, priced.
+   fn review(impact_bps: Option<u16>, shortfall_bps: Option<u16>) -> SimReview {
+      SimReview {
+         usd_in: Some(NumericValue::currency_price(1700.0)),
+         usd_out: Some(NumericValue::currency_price(1615.0)),
+         price_impact_bps: impact_bps,
+         shortfall_bps,
+         fee_bps: None,
+         unpriced: Vec::new(),
+         measured: true,
+      }
+   }
+
+   fn priced() -> Currency {
+      Currency::from(ERC20Token::from_components(
+         1,
+         token(),
+         "USDC",
+         "USD Coin",
+         6,
+         U256::from(1_000_000_000_000u64),
+      ))
+   }
+
+   #[test]
+   fn an_answer_reports_the_reading_a_flow_promised_and_nothing_for_one_that_did_not() {
+      let mut analysis = TransactionAnalysis::default();
+      analysis.chain = 1;
+
+      // A flow that stated no promise: the block is absent, not a row of zeroes. "Nothing was measured"
+      // and "nothing was lost" are different answers.
+      let row = simulation_row(1, &analysis);
+      assert!(row["review"].is_null(), "{row}");
+
+      // A flow that did: the numbers are what the gate refused on, in basis points.
+      analysis.set_review(review(Some(29), Some(0)));
+      let row = simulation_row(1, &analysis);
+      let review = &row["review"];
+
+      assert_eq!(review["price_impact_bps"], 29);
+      assert_eq!(review["shortfall_bps"], 0);
+      assert_eq!(review["usd_in"], 1700.0);
+      assert_eq!(review["usd_out"], 1615.0);
+      assert_eq!(review["measured"], true);
+      assert_eq!(review["complete"], true);
+      assert!(review["unpriced"].as_array().expect("an array").is_empty());
+   }
+
+   #[test]
+   fn a_reading_with_a_price_and_nothing_to_measure_apart_it() {
+      let mut analysis = TransactionAnalysis::default();
+      analysis.chain = 1;
+
+      // Neither measure could be computed: the row is present and says so, rather than reading as a
+      // perfect trade the gate approved.
+      analysis.set_review(SimReview {
+         unpriced: vec![priced()],
+         measured: false,
+         ..SimReview::default()
+      });
+
+      let row = simulation_row(1, &analysis);
+      let review = &row["review"];
+
+      assert_eq!(review["complete"], false);
+      assert_eq!(review["measured"], false);
+      assert_eq!(
+         review["unpriced"].as_array().expect("an array").len(),
+         1,
+         "the currency nobody could price is named, not dropped"
+      );
+   }
+
+   #[test]
+   fn an_entry_says_what_the_trade_cost_and_a_silent_one_says_so() {
+      assert_eq!(
+         review_sentence(&review(Some(29), Some(0))),
+         "price impact 0.29%",
+         "a zero shortfall is not a finding, so it is not reported"
+      );
+
+      assert_eq!(
+         review_sentence(&review(Some(3_020), Some(3_000))),
+         "price impact 30.20%, 30.00% short of the promise"
+      );
+
+      let mut bridged = review(None, None);
+      bridged.fee_bps = Some(25);
+      bridged.unpriced = vec![priced()];
+      assert_eq!(
+         review_sentence(&bridged),
+         "fee 0.25%, USDC unpriced",
+         "what could not be measured is named rather than reported as zero"
+      );
+
+      assert_eq!(
+         review_sentence(&SimReview::default()),
+         "nothing measured against a promise"
+      );
    }
 
    #[test]

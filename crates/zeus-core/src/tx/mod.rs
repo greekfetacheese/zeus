@@ -22,7 +22,7 @@ pub use finalize::{
    MainEvent, MinedTx, RecordPolicy, TxOutcome, build_tx_outcome, record_and_notify,
 };
 pub use promise::{Amount, TxPromise};
-pub use review::{SimReview, review};
+pub use review::{SimReview, review, review_with};
 pub use rich::TransactionRich;
 pub use send::{
    ConfirmedTx, RecipientAccount, SendTxOptions, SendTxRequest, TxRefusal, analyse, confirm_tx,

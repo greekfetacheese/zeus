@@ -75,6 +75,21 @@ numbers: "the trade loses 5.01% to price impact where this grant allows 5.00%". 
 the grant editor, and a profile set to ask before every action is reviewed by the person answering the
 prompt, so none of the three fires there.
 
+Every money answer carries the reading beside the diffs, whether it was allowed or refused:
+
+    "review": {
+      "price_impact_bps": 29,      // what the trade lost against its quote
+      "shortfall_bps": 0,          // what arrived short of what was promised
+      "fee_bps": null,             // a bridge's own cut, excluded from the comparison
+      "usd_in": 1700.0, "usd_out": 1695.0,
+      "unpriced": [],              // currencies nobody could price
+      "measured": true, "complete": true
+    }
+
+A flow that states no promise — a dapp request, an approval — reports `null` rather than a row of
+zeroes: "nothing was measured" and "nothing was lost" are different answers. The activity entry keeps
+the same reading in its `detail`, because an autonomous action has no window anyone saw it in.
+
 Amounts are decimal strings with the token's own decimals (`"1.25"`, `decimals: 6`), never JSON
 numbers. Addresses are full and lowercased; a name never replaces one in a field an action consumes.
 `action_id` makes a call idempotent: the same id with the same arguments replays the first answer

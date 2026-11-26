@@ -1575,6 +1575,8 @@ struct RecordingFlows {
    sends: std::sync::atomic::AtomicUsize,
    swaps: std::sync::atomic::AtomicUsize,
    unshields: std::sync::atomic::AtomicUsize,
+   /// How the fake flow's transaction reads against its promise, for the record that carries one.
+   review: Option<crate::tx::SimReview>,
    /// The URL the app "has stored", for the unshield override question.
    bundler: Option<&'static str>,
 }
@@ -1582,6 +1584,17 @@ struct RecordingFlows {
 impl RecordingFlows {
    fn sends(&self) -> usize {
       self.sends.load(std::sync::atomic::Ordering::SeqCst)
+   }
+
+   /// The transaction this flow answers with, carrying the reading when one was set.
+   fn done(&self) -> TransactionRich {
+      let mut rich = TransactionRich::dummy_clear_signed();
+
+      if let Some(review) = self.review.clone() {
+         rich.analysis.set_review(review);
+      }
+
+      rich
    }
 
    fn swaps(&self) -> usize {
@@ -1597,7 +1610,9 @@ impl TxFlows for RecordingFlows {
    ) -> TxFuture<'_, Result<TransactionRich, ExecError>> {
       self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
-      Box::pin(async { Ok(TransactionRich::dummy_clear_signed()) })
+      let done = self.done();
+
+      Box::pin(async move { Ok(done) })
    }
 
    fn swap(
@@ -1797,6 +1812,82 @@ async fn an_asset_outside_the_allowlist_never_reaches_the_flow() {
       0,
       "the allowlist stops the action before anything is simulated, signed or sent"
    );
+}
+
+/// An autonomous action leaves a record, and the record says what the reading was.
+#[tokio::test]
+async fn a_completed_action_records_what_its_simulation_read() {
+   crate::ui::install(CountingHost);
+
+   let flows = RecordingFlows {
+      review: Some(crate::tx::SimReview {
+         usd_in: Some(NumericValue::currency_price(1700.0)),
+         usd_out: Some(NumericValue::currency_price(1615.0)),
+         price_impact_bps: Some(29),
+         shortfall_bps: Some(0),
+         ..crate::tx::SimReview::default()
+      }),
+      ..RecordingFlows::default()
+   };
+
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+   let ctx = unlocked();
+
+   let answer = execute(
+      ctx.clone(),
+      &profile,
+      exec_send(),
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect("the flow answered");
+
+   // The answer carries it, so a caller reads the same numbers the gate decided on.
+   let review = &answer["simulation"]["review"];
+   assert_eq!(review["price_impact_bps"], 29, "{answer}");
+   assert_eq!(review["complete"], true);
+
+   // And the record keeps it: nothing asked the user first, so this entry is the only trace there is.
+   let detail = ctx.agent_audit().tail(1)[0]
+      .detail
+      .clone()
+      .expect("the record says what happened");
+   assert!(detail.starts_with("Agent sent "), "{detail}");
+   assert!(detail.ends_with("price impact 0.29%"), "{detail}");
+}
+
+/// A flow that states no promise records no reading, and its answer says so rather than reporting zeroes.
+#[tokio::test]
+async fn an_action_without_a_promise_reports_no_reading() {
+   crate::ui::install(CountingHost);
+
+   let flows = RecordingFlows::default();
+   let mut profile = sample_profile();
+   profile.mode = ProfileMode::Authorized;
+   let ctx = unlocked();
+
+   let answer = execute(
+      ctx.clone(),
+      &profile,
+      exec_send(),
+      &exec_origin(),
+      &flows,
+   )
+   .await
+   .expect("the flow answered");
+
+   assert!(
+      answer["simulation"]["review"].is_null(),
+      "an unmeasured action must not read as a perfect one: {answer}"
+   );
+
+   let detail = ctx.agent_audit().tail(1)[0]
+      .detail
+      .clone()
+      .expect("the record says what happened");
+   assert!(!detail.contains("price impact"), "{detail}");
 }
 
 #[tokio::test]

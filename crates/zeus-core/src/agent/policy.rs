@@ -105,7 +105,7 @@ pub struct Shortfall {
 ///
 /// The ceilings are stored in basis points because that is what a grant holds and what a comparison wants;
 /// every sentence a reader sees states them as a percent, the same figure the swap page shows beside them.
-fn percent(bps: u16) -> String {
+pub(crate) fn percent(bps: u16) -> String {
    format!("{:.2}%", f64::from(bps) / 100.0)
 }
 

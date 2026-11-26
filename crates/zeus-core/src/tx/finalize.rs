@@ -3,6 +3,7 @@
 use super::analysis::TransactionAnalysis;
 use super::events::{DecodedEvent, NftTransferParams};
 use super::notification::NotificationType;
+use super::review::SimReview;
 use super::rich::TransactionRich;
 use crate::ZeusCtx;
 use crate::agent::AgentProfileId;
@@ -88,6 +89,12 @@ pub struct RecordPolicy {
    pub priority_fee: NumericValue,
    /// The agent profile that asked for the transaction, when one did.
    pub authorised_by: Option<AgentProfileId>,
+   /// How the pre-send simulation read against the flow's promise.
+   ///
+   /// Resolved before the transaction was broadcast and carried here because the analysis this function
+   /// builds is a *new* one, decoded from the receipt: without this the reading would be lost at exactly the
+   /// moment the record needs it.
+   pub review: Option<SimReview>,
 }
 
 /// The recorded transaction plus what its notification needs.
@@ -153,6 +160,10 @@ pub async fn build_tx_outcome(
 
    if let Some((balance, approval)) = policy.diffs {
       analysis.set_diffs(balance, approval);
+   }
+
+   if let Some(review) = policy.review {
+      analysis.set_review(review);
    }
 
    if policy.onchain_swap_received

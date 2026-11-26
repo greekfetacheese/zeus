@@ -25,6 +25,7 @@ use super::events::{
    PermitParams, ShieldParams, SwapParams, TokenApproveParams, TransferParams,
    UniswapPositionParams, UnshieldParams, UnwrapWETHParams, WrapETHParams,
 };
+use super::review::SimReview;
 use crate::sim::approval_diff::ApprovalDiff;
 #[cfg(any(test, feature = "test-fixtures"))]
 use crate::sim::approval_diff::{
@@ -100,6 +101,14 @@ pub struct TransactionAnalysis {
    /// the promise, and it is `None` for anything the flow did not measure rather than zero.
    #[serde(default)]
    pub measured_out: Option<NumericValue>,
+
+   /// How the simulation read against what the flow promised, when one did.
+   ///
+   /// Written at the confirmation, which is the only place that holds the promise and the analysis together,
+   /// and then carried on the record: an autonomous action has no window anyone saw it in, so the record is
+   /// the only place its numbers survive.
+   #[serde(default)]
+   pub review: Option<SimReview>,
 }
 
 /// Output-token amount the sender actually received, from `balanceOf` at
@@ -470,6 +479,11 @@ impl TransactionAnalysis {
       self.measured_out = Some(amount);
    }
 
+   /// Record how the simulation read against the promise the flow made.
+   pub fn set_review(&mut self, review: SimReview) {
+      self.review = Some(review);
+   }
+
    pub fn remove_main_event(&mut self) {
       self.main_event = None;
    }
@@ -635,6 +649,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -661,6 +676,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -687,6 +703,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -713,6 +730,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -740,6 +758,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -766,6 +785,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -793,6 +813,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -819,6 +840,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -845,6 +867,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -871,6 +894,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -897,6 +921,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -923,6 +948,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -952,6 +978,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 
@@ -980,6 +1007,7 @@ impl TransactionAnalysis {
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
          measured_out: None,
+         review: None,
       }
    }
 

@@ -100,6 +100,23 @@ pub fn review(
    out
 }
 
+/// Read a simulation against its promise, priced from the app's own table.
+///
+/// The gate and the record ask the same question, so they ask it the same way. A currency the app does not
+/// quote is `None` rather than zero: a zero would make every unpriced leg look like a free trade, which is
+/// the opposite of what an unknown price means.
+pub fn review_with(
+   ctx: &crate::ZeusCtx,
+   promise: &TxPromise,
+   analysis: &TransactionAnalysis,
+) -> SimReview {
+   review(promise, analysis, |currency| {
+      let usd = ctx.get_currency_price(currency);
+
+      (!usd.is_zero()).then_some(usd)
+   })
+}
+
 /// `1 - measured/expected` in basis points, less any fee the promise already allows.
 ///
 /// A measurement at or above the promise is 0 rather than a negative: a trade that does better than its quote
