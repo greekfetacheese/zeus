@@ -428,10 +428,6 @@ impl GUI {
       ui::panels::top_panel::show(self, ctx, ui);
    }
 
-   pub fn show_bottom_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
-      ui::panels::bottom_panel::_show(self, ctx, ui);
-   }
-
    pub fn show_left_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui::panels::left_panel::show(self, ctx, ui);
    }

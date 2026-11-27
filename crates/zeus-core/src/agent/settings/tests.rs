@@ -58,7 +58,7 @@ fn a_runtime_field_is_refused_with_the_per_call_sentence() {
 #[test]
 fn a_closed_field_is_refused_with_its_own_reason() {
    let error =
-      general::check(&json!({"agent_server": true})).expect_err("the switch is the user's");
+      general::check(&json!({"agent_server": true})).expect_err("the endpoint has no switch");
 
    assert!(
       matches!(
@@ -70,7 +70,10 @@ fn a_closed_field_is_refused_with_its_own_reason() {
       ),
       "{error}"
    );
-   assert!(error.to_string().contains("both directions"));
+   assert!(
+      error.to_string().contains("it listens for as long as Zeus runs"),
+      "the refusal is the sentence that explains there is nothing to switch: {error}"
+   );
 }
 
 #[test]
@@ -97,11 +100,17 @@ fn a_patch_that_names_nothing_changes_nothing() {
 }
 
 #[test]
-fn the_general_schema_has_no_agent_server_switch() {
+fn the_general_schema_marks_the_agent_server_read_only() {
    let described = describe("general");
 
    assert_eq!(described["writable"], true);
-   assert!(described["schema"]["properties"]["agent_server"].is_null());
+
+   // The field is listed so a caller can see the refusal coming, and marked read-only so a model
+   // does not read it as one more switch it may try.
+   assert_eq!(
+      described["schema"]["properties"]["agent_server"]["readOnly"],
+      true
+   );
    assert!(
       described["closed"]
          .as_array()
@@ -534,7 +543,7 @@ fn a_general_patch_records_the_application_menu_choice() {
 
    // The one switch that stays out of reach is the endpoint's own.
    let error =
-      general::check(&json!({"agent_server": true})).expect_err("the switch is the user's");
+      general::check(&json!({"agent_server": true})).expect_err("the endpoint has no switch");
    assert!(
       matches!(
          error,

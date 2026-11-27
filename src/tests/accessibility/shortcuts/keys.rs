@@ -476,41 +476,11 @@ fn ctrl_enter_on_another_page_does_not_press_send() {
 
    assert!(!gui.send_crypto.send_requested());
 }
-/// The agent switch is one chord from every page, and it says what it did: the control exists for a
-/// reader who cannot see a colour change, and a key that says nothing reads as a key that missed.
+/// Nothing starts or stops the endpoint from the keyboard any more: it listens for as long as Zeus
+/// runs, so the brake is the credentials rather than a chord. A key that quietly did nothing used to
+/// be the one control a reader needed in a hurry, so the absence is asserted rather than assumed.
 #[test]
-fn the_stop_agents_shortcut_says_what_it_did() {
-   let (ctx, mut gui, zeus) = main_window();
-   zeus.write(|zeus| zeus.vault_unlocked = true);
-
-   let nodes = frame_nodes(
-      &ctx,
-      vec![key_combo(Key::A, Modifiers::COMMAND | Modifiers::SHIFT)],
-      |ui| {
-         zeus.write(|zeus| {
-            crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx());
-            gui.show_announcer(ui);
-         });
-      },
-   );
-
-   assert!(
-      gui.agent_server.is_none(),
-      "nothing was listening"
-   );
-
-   assert_eq!(
-      announced(&nodes).as_deref(),
-      Some("The agent server was already stopped."),
-      "the switch must say what it did: {:?}",
-      announced(&nodes)
-   );
-}
-
-/// The same chord is answered over a dialog, which is the one time it matters most: a request in
-/// flight is exactly what the window in front of it is waiting on.
-#[test]
-fn the_stop_agents_shortcut_is_answered_over_a_dialog() {
+fn no_chord_stops_the_agent_server() {
    let (ctx, mut gui, zeus) = settings_window();
    zeus.write(|zeus| zeus.vault_unlocked = true);
 
@@ -527,12 +497,12 @@ fn the_stop_agents_shortcut_is_answered_over_a_dialog() {
 
    assert!(
       gui.settings.is_open(),
-      "the dialog is still up: the switch does not close it"
+      "the chord belongs to no action, so the window stays up"
    );
 
-   assert_eq!(
-      announced(&nodes).as_deref(),
-      Some("The agent server was already stopped."),
-      "a dialog must not swallow the one control a reader needs in a hurry"
+   assert!(
+      announced(&nodes).is_none_or(|words| words.is_empty()),
+      "and nothing is said about a server that was never touched: {:?}",
+      announced(&nodes)
    );
 }

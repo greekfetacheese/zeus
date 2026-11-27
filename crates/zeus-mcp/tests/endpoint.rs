@@ -1802,8 +1802,11 @@ async fn a_settings_description_names_the_fields_an_agent_may_not_write() {
       described["schema"]["properties"]["fetch_asset_images"]["type"],
       "boolean"
    );
-   assert!(
-      described["schema"]["properties"]["agent_server"].is_null(),
+   // The endpoint has no switch to write, and the field is marked read-only so a model does not
+   // read it as one more flag it may try.
+   assert_eq!(
+      described["schema"]["properties"]["agent_server"]["readOnly"],
+      true,
       "the server's own switch is not a field of the patch"
    );
    assert!(

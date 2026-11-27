@@ -3,6 +3,12 @@
 //! The catalog is the list of switches, not a copy of it: a capability that exists is drawn here,
 //! with the tier it carries and the sentence it needs, and one that does not is absent from both.
 //! Every switch is the grant, so the page writes the grant and nothing else.
+//!
+//! Two screens share this editor because they are the same kind of thing -- a list of switches --
+//! and differ only in what they apply to: one wallet's row, or the app as a whole. The tiers that
+//! only read, or change state without moving value, sit under the switch that owns the wallet. The
+//! tiers that move value are hard to undo, so they sit behind their own disclosure, under the one
+//! sentence that says what turning them on means.
 
 use crate::core::WalletInfo;
 use crate::core::agent::{
@@ -11,11 +17,23 @@ use crate::core::agent::{
    capability,
 };
 use egui::{RichText, Ui, vec2};
-use egui_elements::{Button, Checkbox, Theme};
+use egui_elements::{Checkbox, SecureTextEdit, Theme};
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
 use zeus_eth::types::ChainId;
+
+/// What the price-impact ceiling is for, in one sentence a reader can act on.
+const PRICE_IMPACT_TIP: &str = "How much worse a trade may get than the price it was quoted at. \
+A swap that would cost you more than this is refused.";
+
+/// What the shortfall ceiling is for.
+const SHORTFALL_TIP: &str = "How much of what the agent promised may fail to arrive. A swap, send or \
+bridge that delivers less than this is refused.";
+
+/// What the two moving sections hold, in words rather than tier numbers.
+const MOVE_TIP: &str = "Sending and trading move money out of this wallet. Delegating lets the agent \
+hand control of this wallet to someone else, and cannot be undone by Zeus.";
 
 /// A capability the user asked for once, waiting for the second press.
 ///
@@ -53,36 +71,19 @@ impl ProfileEditor {
       self.nft_input.clear();
    }
 
-   /// Draw one profile's grants: whether they changed, and the sentence to announce.
-   pub fn show(
+   /// The order the agent acts in, which belongs to no one wallet and so sits above the table.
+   ///
+   /// Ask-before-every-action and the two ceilings are properties of the agent, not of a wallet, so
+   /// they are drawn on the Wallets screen; the per-wallet switches are one wallet's dialog.
+   pub fn mode_and_limits(
       &mut self,
       profile: &mut AgentProfile,
-      wallets: &[WalletInfo],
       theme: &Theme,
       ui: &mut Ui,
    ) -> Edited {
       let mut edited = Edited::default();
 
-      let mut confirm_each = profile.mode == ProfileMode::ConfirmEach;
-      let label = RichText::new("Ask before every action").size(theme.typography.normal);
-      let row = ui.add(Checkbox::new(&mut confirm_each, label));
-      ui.ctx().accesskit_node_builder(row.id, |node| {
-         node.set_description(
-            "When on, a granted action opens Zeus's own confirmation window instead of running on \
-             its own.",
-         );
-      });
-
-      if row.changed() {
-         profile.mode = match confirm_each {
-            true => ProfileMode::ConfirmEach,
-            false => ProfileMode::Authorized,
-         };
-         edited.changed = true;
-      }
-
-      if let Some(sentence) = self.pending_block(profile, theme, ui) {
-         edited.notice = Some(sentence);
+      if self.mode(profile, theme, ui) {
          edited.changed = true;
       }
 
@@ -90,109 +91,177 @@ impl ProfileEditor {
          edited.changed = true;
       }
 
-      ui.add_space(theme.spacing.sm);
-      ui.label(RichText::new("Wallets").size(theme.typography.large));
+      edited
+   }
 
-      if wallets.is_empty() {
-         ui.label(
-            RichText::new("There is no wallet to grant anything on yet.")
-               .size(theme.typography.normal),
-         );
+   /// One wallet's whole grant, which is what its dialog holds.
+   pub fn wallet(
+      &mut self,
+      profile: &mut AgentProfile,
+      wallet: &WalletInfo,
+      theme: &Theme,
+      ui: &mut Ui,
+   ) -> Edited {
+      let mut edited = Edited::default();
+
+      if let Some(sentence) = self.pending_block(profile, theme, ui) {
+         edited.notice = Some(sentence);
+         edited.changed = true;
       }
 
-      for wallet in wallets {
-         if self.wallet_block(profile, wallet, theme, ui) {
-            edited.changed = true;
-         }
-      }
-
-      if self.screens(profile, theme, ui) {
+      if self.wallet_block(profile, wallet, theme, ui) {
          edited.changed = true;
       }
 
       edited
    }
 
+   /// The Settings screen: one switch per screen and verb, grouped by screen, with the reason a
+   /// consequential one reads the way it does printed under it.
+   pub fn screens(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> Edited {
+      let mut edited = Edited::default();
+
+      crate::gui::ui::settings::agents::paragraph(
+         ui,
+         theme,
+         "What this agent may read and change in the app itself. These are not tied to a wallet, \
+          so a write here is a write for every wallet.",
+      );
+
+      if let Some(sentence) = self.pending_block(profile, theme, ui) {
+         edited.notice = Some(sentence);
+         edited.changed = true;
+      }
+
+      let mut family = "";
+
+      for cap in CAPABILITIES.iter().filter(|entry| entry.scope == CapabilityScope::Global) {
+         let next = cap.name.split('.').nth(1).unwrap_or(cap.name);
+
+         if next != family {
+            family = next;
+
+            ui.add_space(theme.spacing.md);
+            ui.label(RichText::new(words(family)).size(theme.typography.large));
+         }
+
+         let granted =
+            profile.screens.get(cap.name).is_some_and(|grant| grant.is_granted(cap.verb()));
+
+         let mut on = granted;
+
+         let text = format!("{} · {}", words(family), verb(cap.verb()));
+
+         let response = ui.add(Checkbox::new(
+            &mut on,
+            RichText::new(&text).size(theme.typography.normal),
+         ));
+
+         // The verb says what a switch does; the tier says how far it reaches, which is the part a
+         // reader needs and a sighted user gets from the sentence under a consequential one.
+         crate::gui::ui::settings::agents::describe(
+            ui,
+            &response,
+            format!("{text} · tier {}", cap.tier.level()),
+         );
+
+         if let Some(sentence) = badge_sentence(cap.name) {
+            ui.ctx()
+               .accesskit_node_builder(response.id, |node| node.set_description(sentence));
+
+            crate::gui::ui::settings::agents::note(ui, theme, sentence);
+         }
+
+         if response.changed() && self.toggle(profile, cap.name, None, on) {
+            edited.changed = true;
+         }
+      }
+
+      edited
+   }
+
+   /// How the agent acts: on its grant, or asking Zeus's own confirmation window every time.
+   fn mode(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> bool {
+      let mut confirm_each = profile.mode == ProfileMode::ConfirmEach;
+
+      let sentence = "When on, a granted action opens Zeus's own confirmation window instead of running on its own.";
+
+      let row = ui.add(Checkbox::new(
+         &mut confirm_each,
+         RichText::new("Ask before every action").size(theme.typography.normal),
+      ));
+
+      ui.ctx().accesskit_node_builder(row.id, |node| {
+         node.set_description(sentence);
+      });
+
+      crate::gui::ui::settings::agents::note(ui, theme, sentence);
+
+      if !row.changed() {
+         return false;
+      }
+
+      profile.mode = match confirm_each {
+         true => ProfileMode::ConfirmEach,
+         false => ProfileMode::Authorized,
+      };
+
+      true
+   }
+
    /// The two ceilings an autonomous action is held to, in percent.
    ///
-   /// A swap's price impact is measured against the quote the agent was shown; everything else is measured
-   /// as how much of what it promised actually arrives. Both are ceilings on what an agent may do without a
-   /// prompt — a profile that asks before every action is reviewed by the person answering it — and both are
-   /// clamped by the type that carries them.
+   /// A swap's price impact is measured against the quote the agent was shown; everything else is
+   /// measured as how much of what it promised actually arrives. Both only bound an agent that acts on
+   /// its grant -- one that asks before every action is reviewed by the person answering it -- so they
+   /// sit behind their own disclosure rather than at the top of the screen.
    fn guards(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> bool {
+      use crate::gui::ui::settings::agents::{paragraph, percent_slider};
+
       let mut changed = false;
 
       ui.add_space(theme.spacing.sm);
-      ui.label(RichText::new("Limits").size(theme.typography.large));
-      ui.label(
-         RichText::new(
-            "What an agent may do without asking. A price impact is measured against the quote it was \
-             shown; a shortfall is how much of the promised amount is missing when the transaction is \
-             simulated.",
-         )
-         .size(theme.typography.normal),
-      );
 
-      changed |= Self::percent_guard(
-         ui,
-         theme,
-         "Max price impact",
-         MAX_PRICE_IMPACT_BPS,
-         "A swap is refused when its simulated price impact is worse than this.",
-         &mut profile.max_price_impact_bps,
-      );
+      egui::CollapsingHeader::new(
+         RichText::new("How far it may go on its own").size(theme.typography.large),
+      )
+      .id_salt("agent_limits")
+      .show(ui, |ui| {
+         paragraph(
+            ui,
+            theme,
+            "These apply when the agent acts without asking you first. Turn on Ask before every \
+             action above to see each one before it happens instead.",
+         );
 
-      changed |= Self::percent_guard(
-         ui,
-         theme,
-         "Max shortfall",
-         MAX_TRANSFER_SHORTFALL_BPS,
-         "A swap, transfer or bridge is refused when the simulation delivers less than this share of what \
-          was promised.",
-         &mut profile.max_transfer_shortfall_bps,
-      );
+         ui.add_space(theme.spacing.sm);
+
+         changed |= percent_slider(
+            ui,
+            theme,
+            "Max price impact",
+            PRICE_IMPACT_TIP,
+            &mut profile.max_price_impact_bps,
+            MAX_PRICE_IMPACT_BPS,
+         );
+
+         ui.add_space(theme.spacing.xs);
+
+         changed |= percent_slider(
+            ui,
+            theme,
+            "Max shortfall",
+            SHORTFALL_TIP,
+            &mut profile.max_transfer_shortfall_bps,
+            MAX_TRANSFER_SHORTFALL_BPS,
+         );
+      });
 
       if changed {
          profile.clamp();
       }
 
       changed
-   }
-
-   /// One ceiling, in percent, over a stored basis-point value.
-   fn percent_guard(
-      ui: &mut Ui,
-      theme: &Theme,
-      label: &'static str,
-      ceiling_bps: u16,
-      sentence: &'static str,
-      stored: &mut u16,
-   ) -> bool {
-      // Whole tenths of a percent: the granularity the swap page offers, and the only one a ceiling needs.
-      let mut percent = f64::from(*stored) / 100.0;
-
-      ui.horizontal(|ui| {
-         ui.label(RichText::new(label).size(theme.typography.normal));
-
-         let drag = ui.add(
-            egui::DragValue::new(&mut percent)
-               .speed(0.01)
-               .range(0.0..=f64::from(ceiling_bps) / 100.0)
-               .suffix(" %")
-               .max_decimals(2),
-         );
-
-         ui.ctx().accesskit_node_builder(drag.id, |node| {
-            node.set_description(sentence);
-         });
-
-         if drag.changed() {
-            *stored = (percent * 100.0).round().clamp(0.0, f64::from(u16::MAX)) as u16;
-         }
-
-         drag.changed()
-      })
-      .inner
    }
 
    /// The tier-3 warning, and the two buttons that answer it.
@@ -214,24 +283,19 @@ impl ProfileEditor {
          words(&name)
       );
 
-      ui.label(RichText::new(sentence).size(theme.typography.normal));
+      crate::gui::ui::settings::agents::paragraph(ui, theme, sentence);
 
       let mut notice = None;
-      let size = vec2(140.0, 28.0);
 
       ui.horizontal(|ui| {
-         let grant = Button::new(RichText::new("Grant it").size(theme.typography.normal))
-            .visuals(theme.button_visuals())
-            .min_size(size);
+         let grant = crate::gui::ui::settings::agents::button(theme, "Grant it", 140.0);
 
          if ui.add(grant).clicked() {
             apply(profile, &name, address, true);
             notice = Some(format!("Granted {}.", words(&name)));
          }
 
-         let cancel = Button::new(RichText::new("Cancel").size(theme.typography.normal))
-            .visuals(theme.button_visuals())
-            .min_size(size);
+         let cancel = crate::gui::ui::settings::agents::button(theme, "Cancel", 140.0);
 
          if ui.add(cancel).clicked() {
             notice = Some("Left ungranted.".to_owned());
@@ -245,7 +309,7 @@ impl ProfileEditor {
       notice
    }
 
-   /// One wallet's slice: its kill switch, its capabilities, and what it may move.
+   /// One wallet's slice: its kill switch, what it may read, what it may do, and what may leave it.
    fn wallet_block(
       &mut self,
       profile: &mut AgentProfile,
@@ -259,56 +323,185 @@ impl ProfileEditor {
       let enabled = profile.wallets.get(&address).is_some_and(|grant| grant.enabled);
 
       ui.add_space(theme.spacing.md);
-      ui.label(
-         RichText::new(format!("{} — {}", wallet.name(), short(address)))
-            .size(theme.typography.normal),
-      );
 
-      let mut allow = enabled;
-      let label = RichText::new("Allow this wallet").size(theme.typography.normal);
-      let row = ui.add(Checkbox::new(&mut allow, label));
+      {
+         ui.spacing_mut().item_spacing = vec2(theme.spacing.sm, theme.spacing.xs);
 
-      if row.changed() {
-         let grant = profile.wallets.entry(address).or_default();
-         grant.enabled = allow;
-         changed = true;
-      }
+         let mut allow = enabled;
+         let row = ui.add(Checkbox::new(
+            &mut allow,
+            RichText::new("Allow this wallet").size(theme.typography.normal),
+         ));
 
-      ui.add_enabled_ui(enabled, |ui| {
-         let caps: Vec<&Capability> = CAPABILITIES
-            .iter()
-            .filter(|entry| entry.scope == CapabilityScope::Wallet)
-            .collect();
+         let sentence = "Off means every switch below is ignored for this wallet.";
+         ui.ctx().accesskit_node_builder(row.id, |node| {
+            node.set_description(sentence);
+         });
 
-         for chunk in caps.chunks(3) {
-            ui.horizontal(|ui| {
-               for cap in chunk {
-                  let granted = profile
-                     .wallets
-                     .get(&address)
-                     .is_some_and(|grant| grant.caps.contains(cap.name));
+         crate::gui::ui::settings::agents::note(ui, theme, sentence);
 
-                  let mut on = granted;
-                  let text = RichText::new(format!(
-                     "{} · tier {}",
-                     words(cap.name),
-                     cap.tier.level()
-                  ))
-                  .size(theme.typography.normal);
-
-                  let response = ui.add(Checkbox::new(&mut on, text));
-
-                  if response.changed() && self.toggle(profile, cap.name, Some(address), on) {
-                     changed = true;
-                  }
-               }
-            });
-         }
-
-         if self.movable(profile, address, theme, ui) {
+         if row.changed() {
+            let grant = profile.wallets.entry(address).or_default();
+            grant.enabled = allow;
             changed = true;
          }
-      });
+
+         ui.add_enabled_ui(enabled, |ui| {
+            if self.capabilities(
+               profile,
+               address,
+               RiskTier::Read,
+               "What it may read",
+               theme,
+               ui,
+            ) {
+               changed = true;
+            }
+
+            if self.capabilities(
+               profile,
+               address,
+               RiskTier::Low,
+               "What it may do",
+               theme,
+               ui,
+            ) {
+               changed = true;
+            }
+
+            // The tiers that move value are behind their own disclosure, under the one sentence
+            // that says what turning one on means.
+            let mut risky = false;
+
+            egui::CollapsingHeader::new(RichText::new("Moving money").size(theme.typography.large))
+               .id_salt(("agent_wallet_risky", address))
+               .show(ui, |ui| {
+                  // The chip sits on the section's own line, right after the sentence it explains:
+                  // what the two groups mean is the part a user cannot guess from their names.
+                  ui.horizontal(|ui| {
+                     ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+
+                     let heading = RichText::new("These move funds out of this wallet.")
+                        .size(theme.typography.normal);
+                     let sentence = ui.add(egui::Label::new(heading).extend());
+
+                     ui.ctx().accesskit_node_builder(sentence.id, |node| {
+                        node.set_description(MOVE_TIP);
+                     });
+
+                     crate::gui::ui::settings::agents::q_mark(ui, theme, MOVE_TIP);
+                  });
+
+                  crate::gui::ui::settings::agents::note(
+                     ui,
+                     theme,
+                     "Each one runs as soon as the agent asks, unless Ask before every action is on.",
+                  );
+
+                  if self.capabilities(
+                     profile,
+                     address,
+                     RiskTier::Money,
+                     "Out of this wallet",
+                     theme,
+                     ui,
+                  ) {
+                     risky = true;
+                  }
+
+                  if self.capabilities(
+                     profile,
+                     address,
+                     RiskTier::Critical,
+                     "Hands over control",
+                     theme,
+                     ui,
+                  ) {
+                     risky = true;
+                  }
+
+                  if self.movable(profile, address, theme, ui) {
+                     risky = true;
+                  }
+               });
+
+            changed |= risky;
+         });
+      }
+
+      changed
+   }
+
+   /// Every switch of one tier on one wallet, as a vertical list.
+   ///
+   /// A checkbox per row rather than three to a line: the name and the badge sentence are each too
+   /// long to share a line, and a grid of them is what made the old page unreadable.
+   fn capabilities(
+      &mut self,
+      profile: &mut AgentProfile,
+      address: Address,
+      tier: RiskTier,
+      heading: &'static str,
+      theme: &Theme,
+      ui: &mut Ui,
+   ) -> bool {
+      let caps: Vec<&Capability> = CAPABILITIES
+         .iter()
+         .filter(|entry| entry.scope == CapabilityScope::Wallet && entry.tier == tier)
+         .collect();
+
+      if caps.is_empty() {
+         return false;
+      }
+
+      let mut changed = false;
+
+      ui.add_space(theme.spacing.sm);
+      ui.label(RichText::new(heading).size(theme.typography.large));
+
+      for cap in caps {
+         let granted =
+            profile.wallets.get(&address).is_some_and(|grant| grant.caps.contains(cap.name));
+
+         let mut on = granted;
+
+         let text = words(cap.name);
+
+         // The sentence a capability carries is what it exposes, and a line under every switch is how
+         // the page became a wall of prose: it rides on the question mark beside the switch. The two
+         // are one row, because every direct child of a vertical `Ui` gets a row of its own — the
+         // chip alone on a line under the switch was that rule, not a spacing problem.
+         let response = ui
+            .horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.xs;
+
+               let response = ui.add(Checkbox::new(
+                  &mut on,
+                  RichText::new(&text).size(theme.typography.normal),
+               ));
+
+               match badge_sentence(cap.name) {
+                  Some(sentence) => {
+                     ui.ctx()
+                        .accesskit_node_builder(response.id, |node| node.set_description(sentence));
+
+                     crate::gui::ui::settings::agents::q_mark(ui, theme, sentence);
+                  }
+                  None => crate::gui::ui::settings::agents::describe(
+                     ui,
+                     &response,
+                     format!("{text} · tier {}", cap.tier.level()),
+                  ),
+               }
+
+               response
+            })
+            .inner;
+
+         if response.changed() && self.toggle(profile, cap.name, Some(address), on) {
+            changed = true;
+         }
+      }
 
       changed
    }
@@ -323,7 +516,7 @@ impl ProfileEditor {
    ) -> bool {
       let mut changed = false;
 
-      ui.add_space(theme.spacing.sm);
+      ui.add_space(theme.spacing.md);
 
       let tokens = profile
          .wallets
@@ -331,24 +524,26 @@ impl ProfileEditor {
          .map(|grant| grant.tokens.clone())
          .unwrap_or_default();
 
-      let mut choice = token_choice(&tokens);
+      let choice = token_choice(&tokens);
       let mut picked = choice;
 
       ui.horizontal(|ui| {
-         ui.label(RichText::new("Tokens").size(theme.typography.normal));
-         ui.radio_value(&mut picked, 0, "Nothing");
-         ui.radio_value(&mut picked, 1, "Everything");
-         ui.radio_value(&mut picked, 2, "Only these");
+         ui.add(egui::Label::new(RichText::new("Tokens").size(theme.typography.normal)).wrap());
+
+         // Every scope says what it belongs to, because three radios named Nothing, Everything and
+         // Only these are the same words for tokens and for NFTs.
+         ui.radio_value(&mut picked, 0, "No token");
+         ui.radio_value(&mut picked, 1, "Every token");
+         ui.radio_value(&mut picked, 2, "Only these tokens");
       });
 
       if picked != choice {
          let grant = profile.wallets.entry(address).or_default();
          grant.tokens = from_token_choice(picked, &grant.tokens);
-         choice = picked;
          changed = true;
       }
 
-      if choice == 2 && self.token_allowlist(profile, address, theme, ui) {
+      if picked == 2 && self.token_allowlist(profile, address, theme, ui) {
          changed = true;
       }
 
@@ -356,8 +551,11 @@ impl ProfileEditor {
          profile.wallets.get(&address).map(|grant| grant.tokens.clone()),
          Some(TokenScope::All)
       ) {
-         let warning = "Every asset in this wallet may leave it.";
-         ui.label(RichText::new(warning).size(theme.typography.normal));
+         crate::gui::ui::settings::agents::note(
+            ui,
+            theme,
+            "Every token in this wallet may leave it.",
+         );
       }
 
       let nfts = profile
@@ -366,24 +564,26 @@ impl ProfileEditor {
          .map(|grant| grant.nfts.clone())
          .unwrap_or_default();
 
-      let mut nft_choice = nft_choice(&nfts);
-      let mut picked = nft_choice;
+      let choice = nft_choice(&nfts);
+      let mut picked = choice;
+
+      ui.add_space(theme.spacing.sm);
 
       ui.horizontal(|ui| {
-         ui.label(RichText::new("NFTs").size(theme.typography.normal));
-         ui.radio_value(&mut picked, 0, "Nothing");
-         ui.radio_value(&mut picked, 1, "Everything");
-         ui.radio_value(&mut picked, 2, "Only these");
+         ui.add(egui::Label::new(RichText::new("NFTs").size(theme.typography.normal)).wrap());
+
+         ui.radio_value(&mut picked, 0, "No NFT");
+         ui.radio_value(&mut picked, 1, "Every NFT");
+         ui.radio_value(&mut picked, 2, "Only these collections");
       });
 
-      if picked != nft_choice {
+      if picked != choice {
          let grant = profile.wallets.entry(address).or_default();
          grant.nfts = from_nft_choice(picked, &grant.nfts);
-         nft_choice = picked;
          changed = true;
       }
 
-      if nft_choice == 2 && self.nft_allowlist(profile, address, theme, ui) {
+      if picked == 2 && self.nft_allowlist(profile, address, theme, ui) {
          changed = true;
       }
 
@@ -407,8 +607,8 @@ impl ProfileEditor {
 
       if tokens.is_empty() {
          ui.label(
-            RichText::new("No asset is allowed yet, so nothing may leave this wallet.")
-               .size(theme.typography.normal),
+            RichText::new("No token is allowed yet, so nothing may leave this wallet.")
+               .size(theme.typography.small),
          );
       }
 
@@ -425,9 +625,7 @@ impl ProfileEditor {
                .size(theme.typography.normal),
             );
 
-            let button = Button::new(RichText::new("Remove").size(theme.typography.normal))
-               .visuals(theme.button_visuals())
-               .min_size(vec2(100.0, 26.0));
+            let button = crate::gui::ui::settings::agents::button(theme, "Remove", 100.0);
 
             remove = ui.add(button).clicked();
          });
@@ -466,18 +664,16 @@ impl ProfileEditor {
       let typed = self.token_input.entry(address).or_default();
 
       ui.horizontal(|ui| {
-         let field = ui.add(
-            egui::TextEdit::singleline(typed)
-               .hint_text("Token address")
+         ui.add(
+            SecureTextEdit::singleline(typed)
+               .accessible_name("Token address")
+               .font(egui::FontId::proportional(
+                  theme.typography.normal,
+               ))
                .desired_width(320.0),
          );
 
-         ui.ctx()
-            .accesskit_node_builder(field.id, |node| node.set_label("Token address"));
-
-         let button = Button::new(RichText::new("Add token").size(theme.typography.normal))
-            .visuals(theme.button_visuals())
-            .min_size(vec2(120.0, 26.0));
+         let button = crate::gui::ui::settings::agents::button(theme, "Add token", 120.0);
 
          add = ui.add(button).clicked();
       });
@@ -528,7 +724,7 @@ impl ProfileEditor {
       if nfts.is_empty() {
          ui.label(
             RichText::new("No collection is allowed yet, so no NFT may leave this wallet.")
-               .size(theme.typography.normal),
+               .size(theme.typography.small),
          );
       }
 
@@ -545,9 +741,7 @@ impl ProfileEditor {
                .size(theme.typography.normal),
             );
 
-            let button = Button::new(RichText::new("Remove").size(theme.typography.normal))
-               .visuals(theme.button_visuals())
-               .min_size(vec2(100.0, 26.0));
+            let button = crate::gui::ui::settings::agents::button(theme, "Remove", 100.0);
 
             remove = ui.add(button).clicked();
          });
@@ -576,6 +770,7 @@ impl ProfileEditor {
       let mut chain = *self.nft_chain.entry(address).or_insert_with(|| ChainId::Ethereum.id());
 
       ui.horizontal(|ui| {
+         ui.label(RichText::new("Chain").size(theme.typography.normal));
          chain_picker(ui, ("nft_chain", address), &mut chain);
       });
 
@@ -585,19 +780,16 @@ impl ProfileEditor {
       let mut add = false;
 
       ui.horizontal(|ui| {
-         let field = ui.add(
-            egui::TextEdit::singleline(typed)
-               .hint_text("Collection address")
+         ui.add(
+            SecureTextEdit::singleline(typed)
+               .accessible_name("Collection address")
+               .font(egui::FontId::proportional(
+                  theme.typography.normal,
+               ))
                .desired_width(320.0),
          );
 
-         ui.ctx().accesskit_node_builder(field.id, |node| {
-            node.set_label("Collection address")
-         });
-
-         let button = Button::new(RichText::new("Add collection").size(theme.typography.normal))
-            .visuals(theme.button_visuals())
-            .min_size(vec2(140.0, 26.0));
+         let button = crate::gui::ui::settings::agents::button(theme, "Add collection", 140.0);
 
          add = ui.add(button).clicked();
       });
@@ -629,57 +821,6 @@ impl ProfileEditor {
          }
          Err(_) => false,
       }
-   }
-
-   /// The global screens: one switch per capability, with the tier read out and the badge stated.
-   fn screens(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> bool {
-      let mut changed = false;
-      let mut family = "";
-
-      ui.add_space(theme.spacing.md);
-      ui.label(RichText::new("Settings screens").size(theme.typography.large));
-
-      for cap in CAPABILITIES.iter().filter(|entry| entry.scope == CapabilityScope::Global) {
-         let next = cap.name.split('.').nth(1).unwrap_or(cap.name);
-
-         if next != family {
-            family = next;
-            ui.add_space(theme.spacing.xs);
-            ui.label(RichText::new(words(family)).size(theme.typography.normal));
-         }
-
-         let granted =
-            profile.screens.get(cap.name).is_some_and(|grant| grant.is_granted(cap.verb()));
-
-         let mut on = granted;
-         let verb = match cap.verb() {
-            CapabilityVerb::Read => "read",
-            CapabilityVerb::Write => "write",
-         };
-
-         let text = format!(
-            "{} · {} · tier {}",
-            words(family),
-            verb,
-            cap.tier.level()
-         );
-         let response = ui.add(Checkbox::new(
-            &mut on,
-            RichText::new(text).size(theme.typography.normal),
-         ));
-
-         if let Some(sentence) = badge_sentence(cap.name) {
-            ui.ctx()
-               .accesskit_node_builder(response.id, |node| node.set_description(sentence));
-            ui.label(RichText::new(sentence).size(theme.typography.normal));
-         }
-
-         if response.changed() && self.toggle(profile, cap.name, None, on) {
-            changed = true;
-         }
-      }
-
-      changed
    }
 
    /// Switch one capability, honouring the second press a tier 3 grant needs.
@@ -743,6 +884,13 @@ fn apply(profile: &mut AgentProfile, name: &str, address: Option<Address>, on: b
    }
 }
 
+fn verb(verb: CapabilityVerb) -> &'static str {
+   match verb {
+      CapabilityVerb::Read => "read",
+      CapabilityVerb::Write => "write",
+   }
+}
+
 fn token_choice(scope: &TokenScope) -> u8 {
    match scope {
       TokenScope::None => 0,
@@ -783,7 +931,7 @@ fn from_nft_choice(choice: u8, stored: &NftScope) -> NftScope {
    }
 }
 
-/// A chain picker: the seven chains Zeus supports, by name.
+/// A chain picker: the chains Zeus supports, by name.
 fn chain_picker(ui: &mut Ui, salt: (&'static str, Address), chain: &mut u64) {
    egui::ComboBox::from_id_salt(salt)
       .selected_text(chain_name(*chain))
@@ -801,7 +949,7 @@ fn chain_name(chain: u64) -> String {
    }
 }
 
-/// The badge sentence a capability states, when it carries one (D22).
+/// The badge sentence a capability states, when it carries one.
 fn badge_sentence(name: &str) -> Option<&'static str> {
    match name {
       "wallet.read.private" => {

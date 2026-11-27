@@ -194,22 +194,17 @@ impl ZeusApp {
       }
    }
 
-   /// Start or stop the endpoint so it matches the switch the user set.
+   /// Run the endpoint whenever the app runs and there is an agent for it to authenticate.
    ///
-   /// The page and the status bar both write the switch and act at once, so this is the path that
-   /// makes it survive a restart — and the one that stops the listener when the switch came back
-   /// off from a restored `misc_config.json` while no handle was in reach.
+   /// The listener is not a switch and has no control: it opens as soon as one profile exists — an
+   /// endpoint with nothing to authenticate accepts no one — and closes when the last one is
+   /// deleted. A request that carries no valid token is refused either way.
    fn reconcile_agent_server(&mut self) {
-      let (wanted, has_profile) = self.ctx.read(|ctx| {
-         (
-            ctx.misc_config.agent_server(),
-            !ctx.agent_profiles.profiles().is_empty(),
-         )
-      });
+      let has_profile = self.ctx.read(|ctx| !ctx.agent_profiles.profiles().is_empty());
 
       let running = SHARED_GUI.read(|gui| gui.agent_server.is_some());
 
-      if wanted && has_profile && !running {
+      if has_profile && !running {
          SHARED_GUI.write(|gui| {
             let handle = gui.ctx.clone();
 
@@ -224,7 +219,7 @@ impl ZeusApp {
 
             gui.request_repaint();
          });
-      } else if (!wanted || !has_profile) && running {
+      } else if !has_profile && running {
          SHARED_GUI.write(|gui| {
             gui.agent_server = None;
             gui.announce("Agent server stopped.".to_owned());
@@ -519,19 +514,6 @@ impl eframe::App for ZeusApp {
                   }
                });
 
-            // The status bar carries the agent switch and the indicator beside it (D24). It is
-            // drawn while the wallet is open and nowhere else: a locked window has no endpoint to
-            // talk about.
-            if ctx.vault_unlocked && !ctx.locked {
-               egui::Panel::bottom("status_bar")
-                  .resizable(false)
-                  .show_separator_line(false)
-                  .frame(main_frame)
-                  .show(ui, |ui| {
-                     gui.show_bottom_panel(ctx, ui);
-                  });
-            }
-
             // Paint the Ui that belongs to the central panel
             egui::CentralPanel::default().frame(main_frame).show(ui, |ui| {
                gui.show_central_panel(ctx, ui);
@@ -570,7 +552,7 @@ impl eframe::App for ZeusApp {
             // and cannot move them, so the frame closes it and opens what it linked to; the pass
             // after this one draws it.
             if let Some(page) = gui.settings.take_page() {
-               gui.settings.close();
+               gui.settings.close(ctx);
                crate::gui::ui::panels::left_panel::open_page(gui, ctx, page);
             }
 

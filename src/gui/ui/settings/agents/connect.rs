@@ -1,12 +1,12 @@
 //! The Connect panel: what to paste into a harness, and a handshake performed for real.
 //!
 //! Two snippets, each a complete command or file the user can paste without assembling JSON by
-//! hand — that is the difference between a feature a blind user can turn on and one that needs
+//! hand -- that is the difference between a feature a blind user can turn on and one that needs
 //! sighted help. Adding a harness is one row here, not a new screen.
 
 use crate::gui::ui::common::section_heading;
-use egui::{RichText, Ui, vec2};
-use egui_elements::{Button, Theme};
+use egui::{RichText, Ui};
+use egui_elements::Theme;
 use std::sync::{Arc, Mutex};
 
 /// One harness's snippet, with the two placeholders the panel fills in.
@@ -59,14 +59,15 @@ impl ConnectPanel {
 
    /// Draw the panel for a credential in hand.
    ///
-   /// `port` is `None` while the server is stopped: the snippets still name the harness, but the
-   /// address they would carry is not known, and a snippet with a guessed port is worse than none.
+   /// `port` is `None` while the listener has not come up: the snippets still name the harness, but
+   /// the address they would carry is not known, and a snippet with a guessed port is worse than none.
    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, port: Option<u16>, token: &str) {
-      section_heading(ui, theme.typography.very_large, "Connect");
+      section_heading(ui, theme.typography.large, "Connect");
 
       let intro = "Paste one of these into the harness. The token above is the whole credential, \
                    and Zeus does not keep a copy of it.";
-      ui.label(RichText::new(intro).size(theme.typography.normal));
+
+      ui.add(egui::Label::new(RichText::new(intro).size(theme.typography.normal)).wrap());
 
       for harness in HARNESSES {
          ui.add_space(theme.spacing.md);
@@ -75,23 +76,28 @@ impl ConnectPanel {
          ui.label(RichText::new(heading).size(theme.typography.large));
 
          let Some(port) = port else {
-            ui.label(
-               RichText::new("Start the agent server to see the address.")
-                  .size(theme.typography.normal),
+            ui.add(
+               egui::Label::new(
+                  RichText::new("The server has not come up yet, so the address is not known.")
+                     .size(theme.typography.normal),
+               )
+               .wrap(),
             );
             continue;
          };
 
          let snippet = fill(harness.template, port, token);
 
-         ui.label(RichText::new(&snippet).monospace().size(theme.typography.normal));
+         ui.add(
+            egui::Label::new(RichText::new(&snippet).monospace().size(theme.typography.normal))
+               .wrap(),
+         );
 
-         let button = Button::new(RichText::new(format!(
-            "Copy {} snippet",
-            harness.name
-         )))
-         .visuals(theme.button_visuals())
-         .min_size(vec2(220.0, 28.0));
+         let button = crate::gui::ui::settings::agents::button(
+            theme,
+            format!("Copy {} snippet", harness.name),
+            220.0,
+         );
 
          if ui.add(button).clicked() {
             ui.ctx().copy_text(snippet);
@@ -109,9 +115,7 @@ impl ConnectPanel {
 
       ui.add_space(theme.spacing.md);
 
-      let button = Button::new(RichText::new("Test connection"))
-         .visuals(theme.button_visuals())
-         .min_size(vec2(220.0, 28.0));
+      let button = crate::gui::ui::settings::agents::button(theme, "Test connection", 220.0);
 
       if ui.add(button).clicked() {
          let slot = Arc::new(Mutex::new(None));

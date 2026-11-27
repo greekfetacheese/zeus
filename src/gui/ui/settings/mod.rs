@@ -181,7 +181,11 @@ impl SettingsUi {
       }
    }
 
-   pub fn close(&mut self) {
+   /// Close the window.
+   ///
+   /// The Agents page keeps its edits in a draft while the window is open, so closing is when they
+   /// reach the store — once, and only if something changed.
+   pub fn close(&mut self, ctx: &mut ZeusContext) {
       if self.open {
          self.promote_network_notice();
          self.promote_contacts_notice();
@@ -195,7 +199,8 @@ impl SettingsUi {
       // again the next time Settings opens — e.g. after an auto-lock/unlock.
       self.import.erase();
       self.contacts_ui.reset_page();
-      self.agents.reset();
+      // The Agents page holds its edits until the window closes, so this is its one write.
+      self.agents.close(ctx, &self.ctx);
       self.keyboard.reset();
       self.network.reset_view();
       // Reopening lands on the open page's heading again, even though the page itself did not change.
@@ -327,7 +332,7 @@ impl SettingsUi {
       if ctx.locked {
          // A locked wallet must not leave Settings usable.
          if self.open {
-            self.close();
+            self.close(ctx);
          }
          return;
       }
@@ -353,7 +358,7 @@ impl SettingsUi {
          });
 
       if !open || escaped {
-         self.close();
+         self.close(ctx);
          self.focus_return = true;
       }
    }

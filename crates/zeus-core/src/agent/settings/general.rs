@@ -1,10 +1,9 @@
 //! The `general` screen: the flags that change what Zeus fetches and how it behaves, all of them
 //! persisted in `misc_config.json`.
 //!
-//! One switch on the page is deliberately not writable here: the agent endpoint's own switch is the
-//! user's in both directions — a tool that could turn the server on would bypass the master switch, and
-//! one that could turn it off would be a denial of service. It is named in `CLOSED` with the reason, so
-//! the refusal is the same sentence the documentation would give.
+//! The agent endpoint is deliberately not writable here, because it has no switch: it listens for as
+//! long as Zeus runs and there is an agent to authenticate. It is named in `CLOSED` with the reason, so
+//! a caller is told why rather than left to infer it from a field the schema marks read-only.
 //!
 //! `desktop_integration` is the other shape: a flag here, and an entry installed outside Zeus's data
 //! folder. This patch writes the flag, and the entry is the binary's — `settings_set` reaches the
@@ -29,10 +28,13 @@ pub(super) struct Patch {
 }
 
 /// What this screen never lets an agent write.
+///
+/// The agent endpoint has no switch at all: it listens for as long as Zeus runs, so there is nothing
+/// here to start or stop — and nothing an agent could use to take the endpoint away from its owner.
 const CLOSED: &[Closed] = &[Closed {
    field: "agent_server",
    runtime: false,
-   why: "starting or stopping the agent endpoint is the app owner's decision in both directions, so no agent can reach it",
+   why: "the agent endpoint has no switch: it listens for as long as Zeus runs, so there is nothing to start or stop",
 }];
 
 pub const SCREEN: SettingsScreen = SettingsScreen {
@@ -73,6 +75,12 @@ fn schema() -> Value {
                "persisted": true,
                "description": "Add Zeus to the application menu. The entry is installed when this is \
                   written, so turning it on with no application menu (anything but Linux) is refused.",
+           },
+           "agent_server": {
+               "type": "boolean",
+               "readOnly": true,
+               "description": "The agent endpoint is not a setting: it listens for as long as Zeus \
+                  runs and there is an agent to authenticate. Listed so a caller can see it refused.",
            },
        },
    })
