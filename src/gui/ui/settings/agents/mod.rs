@@ -19,12 +19,13 @@ mod wallet_grants;
 use crate::core::agent::{AgentProfile, AgentProfileId, generate_token};
 use crate::core::{ZeusContext, ZeusCtx};
 use crate::gui::Page;
-use crate::gui::ui::common::section_heading;
+use crate::gui::ui::common::{q_mark, section_heading};
+use crate::utils::TimeStamp;
 use activity::Activity;
 use connect::ConnectPanel;
 use egui::{RichText, Ui, vec2};
 use egui_elements::{
-   Button, Checkbox, Chip, ChipRole, Indicator, IndicatorState, SecureTextEdit, Slider, Tabs, Theme,
+   Button, Checkbox, Indicator, IndicatorState, Label, SecureTextEdit, Slider, Tabs, Theme,
 };
 use profile_editor::ProfileEditor;
 use wallet_grants::WalletGrants;
@@ -242,9 +243,12 @@ impl AgentsUi {
             ui.with_layout(
                egui::Layout::right_to_left(egui::Align::Center),
                |ui| {
-                  let button = button(theme, "Stop all agents", 160.0);
+                  let stop =
+                     Button::new(RichText::new("Stop all agents").size(theme.typography.normal))
+                        .min_size(vec2(160.0, CONTROL))
+                        .label_align(egui::Align::Center);
 
-                  if ui.add(button).clicked() {
+                  if ui.add(stop).clicked() {
                      self.notice = Some(server::disconnect_all(ctx, handle));
                   }
                },
@@ -260,12 +264,10 @@ impl AgentsUi {
       let profiles = ctx.agent_profiles.profiles();
 
       if profiles.is_empty() {
-         paragraph(
-            ui,
-            theme,
-            "No agent may connect yet. Create one, grant it something, then paste its token into \
-             the harness that will use it.",
-         );
+         let text = "No agent may connect yet. Create one, grant it something, then paste its token \
+            into the harness that will use it.";
+         let label = Label::text(RichText::new(text).size(theme.typography.normal)).wrap();
+         ui.add(label);
       }
 
       for profile in &profiles {
@@ -286,12 +288,12 @@ impl AgentsUi {
                RichText::new(format!("{label} may connect")).size(theme.typography.normal),
             ));
 
-            etiquetted(
-               &toggle,
-               ui,
-               &format!("{label} may connect"),
-               "Off means every request that carries this agent's token is refused.",
-            );
+            let off = "Off means every request that carries this agent's token is refused.";
+
+            ui.ctx().accesskit_node_builder(toggle.id, |node| {
+               node.set_label(format!("{label} may connect"));
+               node.set_description(off);
+            });
 
             if toggle.changed() {
                // The kill switch is not a grant: it takes effect now, so the server refuses the next
@@ -314,9 +316,11 @@ impl AgentsUi {
                   let selected = self.selected == Some(profile.id.clone());
                   let label = if selected { "Close" } else { "Open" };
 
-                  let button = button(theme, label, 90.0);
+                  let open = Button::new(RichText::new(label).size(theme.typography.normal))
+                     .min_size(vec2(90.0, CONTROL))
+                     .label_align(egui::Align::Center);
 
-                  if ui.add(button).clicked() {
+                  if ui.add(open).clicked() {
                      self.select(ctx, handle, profile, selected);
                   }
                },
@@ -330,7 +334,9 @@ impl AgentsUi {
 
       ui.add_space(theme.spacing.xs);
 
-      let create = button(theme, "New agent", 160.0);
+      let create = Button::new(RichText::new("New agent").size(theme.typography.normal))
+         .min_size(vec2(160.0, CONTROL))
+         .label_align(egui::Align::Center);
 
       if ui.add(create).clicked() {
          self.create(ctx, handle);
@@ -382,12 +388,10 @@ impl AgentsUi {
             ui.add_space(theme.spacing.md);
             self.token_actions(ctx, handle, profile, theme, ui);
             ui.add_space(theme.spacing.sm);
-            paragraph(
-               ui,
-               theme,
-               "The token is shown once, when the agent is created or its token is rotated, so the \
-                Connect panel appears only while one is on screen.",
-            );
+            let text = "The token is shown once, when the agent is created or its token is rotated, \
+                        so the Connect panel appears only while one is on screen.";
+            let label = Label::text(RichText::new(text).size(theme.typography.normal)).wrap();
+            ui.add(label);
          }
       }
 
@@ -504,7 +508,9 @@ impl AgentsUi {
                )),
          );
 
-         let rename = button(theme, "Rename", 100.0);
+         let rename = Button::new(RichText::new("Rename").size(theme.typography.normal))
+            .min_size(vec2(100.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(rename).clicked() {
             let name = self.rename.trim().to_owned();
@@ -536,13 +542,17 @@ impl AgentsUi {
       ui.horizontal(|ui| {
          ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-         let rotate = button(theme, "Rotate token", 130.0);
+         let rotate = Button::new(RichText::new("Rotate token").size(theme.typography.normal))
+            .min_size(vec2(130.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(rotate).clicked() {
             self.rotate(ctx, handle, profile);
          }
 
-         let delete = button(theme, "Delete", 90.0);
+         let delete = Button::new(RichText::new("Delete").size(theme.typography.normal))
+            .min_size(vec2(90.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(delete).clicked() {
             self.confirm_delete = Some(profile.id.clone());
@@ -564,12 +574,16 @@ impl AgentsUi {
          profile.label
       );
 
-      paragraph(ui, theme, sentence);
+      let text = RichText::new(sentence).size(theme.typography.normal);
+      let label = Label::text(text).wrap();
+      ui.add(label);
 
       ui.horizontal(|ui| {
          ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-         let yes = button(theme, "Delete for good", 150.0);
+         let yes = Button::new(RichText::new("Delete for good").size(theme.typography.normal))
+            .min_size(vec2(150.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(yes).clicked() {
             ctx.agent_profiles.remove(&profile.id);
@@ -589,7 +603,9 @@ impl AgentsUi {
             self.notice = Some(format!("{} was deleted.", profile.label));
          }
 
-         let keep = button(theme, "Keep", 90.0);
+         let keep = Button::new(RichText::new("Keep").size(theme.typography.normal))
+            .min_size(vec2(90.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(keep).clicked() {
             self.confirm_delete = None;
@@ -603,11 +619,9 @@ impl AgentsUi {
 
       section_heading(ui, theme.typography.large, "Token");
 
-      paragraph(
-         ui,
-         theme,
-         "Copy this now: it is shown once, and Zeus keeps only its hash.",
-      );
+      let text = "Copy this now: it is shown once, and Zeus keeps only its hash.";
+      let label = Label::text(RichText::new(text).size(theme.typography.normal)).wrap();
+      ui.add(label);
 
       let shown = ui.add(
          egui::Label::new(RichText::new(token).monospace().size(theme.typography.normal)).wrap(),
@@ -620,14 +634,18 @@ impl AgentsUi {
       ui.horizontal(|ui| {
          ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-         let copy = button(theme, "Copy token", 130.0);
+         let copy = Button::new(RichText::new("Copy token").size(theme.typography.normal))
+            .min_size(vec2(130.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(copy).clicked() {
             ui.ctx().copy_text(token.to_owned());
             self.notice = Some("Token copied.".to_owned());
          }
 
-         let done = button(theme, "Done", 90.0);
+         let done = Button::new(RichText::new("Done").size(theme.typography.normal))
+            .min_size(vec2(90.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(done).clicked() {
             self.token = None;
@@ -641,7 +659,8 @@ impl AgentsUi {
       self.flush(ctx, handle);
 
       let (token, hash) = generate_token();
-      let profile = AgentProfile::new("New agent", hash, now_secs());
+      let created_at = TimeStamp::now_as_secs().unwrap_or_default().timestamp();
+      let profile = AgentProfile::new("New agent", hash, created_at);
 
       self.store(ctx, handle, profile.clone());
 
@@ -697,77 +716,6 @@ impl AgentsUi {
    }
 }
 
-/// One wrapped paragraph at the page's own width.
-///
-/// A settings page is narrow and a sentence about a grant is not, so every one of these is drawn
-/// unwrapped rather than left to egui's default, which keeps the source indentation of a continued
-/// string literal and opens the line with a stretch of blank space both to the eye and to a reader.
-fn paragraph(ui: &mut Ui, theme: &Theme, text: impl Into<String>) -> egui::Response {
-   ui.add(egui::Label::new(RichText::new(text.into()).size(theme.typography.normal)).wrap())
-}
-
-/// One long sentence beside a control, which is the same paragraph in a smaller size.
-fn note(ui: &mut Ui, theme: &Theme, text: impl Into<String>) -> egui::Response {
-   ui.add(egui::Label::new(RichText::new(text.into()).size(theme.typography.small)).wrap())
-}
-
-/// A button the page draws.
-///
-/// One height and one alignment for every button on the page: a user reads these as a control set, and a
-/// row whose buttons disagree about where their words sit reads as a layout accident. `width` is the
-/// column the button keeps so a stack of them lines up.
-pub(super) fn button(theme: &Theme, text: impl Into<String>, width: f32) -> Button<'static> {
-   Button::new(RichText::new(text.into()).size(theme.typography.normal))
-      .min_size(vec2(width, CONTROL))
-      .label_align(egui::Align::Center)
-}
-
-/// The `?` that explains what a setting does, beside the setting.
-///
-/// The same pattern the Appearance page uses: the chip keeps its drawn question mark, and its node
-/// carries the name and the sentence, because a hover is not reachable without a pointer. Draw it as the
-/// last thing in a row, so two rows' tooltips cannot stack.
-pub(super) fn q_mark(ui: &mut Ui, theme: &Theme, says: &'static str) -> egui::Response {
-   let q_mark = RichText::new("?").size(theme.typography.normal);
-   let chip = ui.add(Chip::new(q_mark).role(ChipRole::Info)).on_hover_text(says);
-
-   ui.ctx().accesskit_node_builder(chip.id, |node| {
-      node.set_label("What this means");
-      node.set_description(says);
-   });
-
-   chip
-}
-
-/// A row's label, drawn for the eye and hidden from the tree, with the question mark that replaces it.
-///
-/// The chip is what a reader reaches, so the word beside it is not left in the tree as a second orphan
-/// to Tab through.
-pub(super) fn labelled(ui: &mut Ui, theme: &Theme, label: &str) -> egui::Response {
-   // Not `.extend()`: a label that extends claims the whole row, which leaves the rail beside it with
-   // nothing to be drawn in — the setting then only moves when the row is re-laid out, and a pointer
-   // over the collapsed rail is a pointer over nothing.
-   // The column is allocated first and exactly, then the word is placed inside it: a label that
-   // reports its own width makes the rail beside it start somewhere else on every row.
-   let (rect, _) = ui.allocate_exact_size(vec2(LABEL_WIDTH, CONTROL), egui::Sense::hover());
-
-   let mut cell = ui.new_child(
-      egui::UiBuilder::new()
-         .max_rect(rect)
-         .layout(egui::Layout::left_to_right(egui::Align::Center)),
-   );
-
-   let text = cell.add(
-      egui::Label::new(RichText::new(label).size(theme.typography.normal))
-         .extend()
-         .truncate(),
-   );
-
-   ui.ctx().accesskit_node_builder(text.id, |node| node.set_hidden());
-
-   text
-}
-
 /// A percentage setting on the crate's own rail, with the number beside it.
 ///
 /// One rail and one number, so the two ceilings read as the same kind of thing — a bound a user moves —
@@ -786,7 +734,24 @@ pub(super) fn percent_slider(
    ui.horizontal(|ui| {
       ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-      labelled(ui, theme, label);
+      // Not `.extend()` on the whole row: a label that extends claims the row, which leaves the
+      // rail beside it with nothing to be drawn in. The column is allocated first and exactly,
+      // then the word is placed inside it.
+      let (rect, _) = ui.allocate_exact_size(vec2(LABEL_WIDTH, CONTROL), egui::Sense::hover());
+
+      let mut cell = ui.new_child(
+         egui::UiBuilder::new()
+            .max_rect(rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+      );
+
+      let text = cell.add(
+         egui::Label::new(RichText::new(label).size(theme.typography.normal))
+            .extend()
+            .truncate(),
+      );
+
+      ui.ctx().accesskit_node_builder(text.id, |node| node.set_hidden());
 
       // Fixed decimals rather than a maximum, so the number beside the rail keeps one width for the
       // whole drag. A cell that widens when the number does makes the crate's own row re-measure
@@ -817,23 +782,6 @@ pub(super) fn percent_slider(
    changed
 }
 
-/// Name what a control holds for a reader, without changing the words drawn beside it.
-pub(super) fn describe(ui: &Ui, response: &egui::Response, description: impl Into<String>) {
-   let description = description.into();
-
-   ui.ctx().accesskit_node_builder(response.id, |node| {
-      node.set_description(description)
-   });
-}
-
-/// Save a control's meaning for a reader who lands on it without the sentence under it.
-fn etiquetted(response: &egui::Response, ui: &Ui, label: &str, description: &str) {
-   ui.ctx().accesskit_node_builder(response.id, |node| {
-      node.set_label(label);
-      node.set_description(description);
-   });
-}
-
 /// Save the profile store off the frame path.
 ///
 /// The save waits for the frame's own write guard, so it must not run on this thread: a blocking
@@ -846,24 +794,4 @@ pub(super) fn persist_profiles(handle: &ZeusCtx) {
          tracing::error!("Could not save the agent profiles: {e:?}");
       }
    });
-}
-
-/// A timestamp as a sentence a reader can use.
-pub(super) fn ago(at: u64) -> String {
-   let seconds = now_secs().saturating_sub(at);
-
-   match seconds {
-      0..=59 => "just now".to_owned(),
-      60..=3_599 => format!("{} minutes ago", seconds / 60),
-      3_600..=86_399 => format!("{} hours ago", seconds / 3_600),
-      _ => format!("{} days ago", seconds / 86_400),
-   }
-}
-
-/// Unix seconds, the unit a stored timestamp uses.
-fn now_secs() -> u64 {
-   std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .map(|elapsed| elapsed.as_secs())
-      .unwrap_or(0)
 }

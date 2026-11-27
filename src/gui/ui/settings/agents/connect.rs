@@ -4,9 +4,10 @@
 //! hand -- that is the difference between a feature a blind user can turn on and one that needs
 //! sighted help. Adding a harness is one row here, not a new screen.
 
+use super::CONTROL;
 use crate::gui::ui::common::section_heading;
-use egui::{RichText, Ui};
-use egui_elements::Theme;
+use egui::{RichText, Ui, vec2};
+use egui_elements::{Button, Theme};
 use std::sync::{Arc, Mutex};
 
 /// One harness's snippet, with the two placeholders the panel fills in.
@@ -93,13 +94,12 @@ impl ConnectPanel {
                .wrap(),
          );
 
-         let button = crate::gui::ui::settings::agents::button(
-            theme,
-            format!("Copy {} snippet", harness.name),
-            220.0,
-         );
+         let text = format!("Copy {} snippet", harness.name);
+         let copy = Button::new(RichText::new(text).size(theme.typography.normal))
+            .min_size(vec2(220.0, CONTROL))
+            .label_align(egui::Align::Center);
 
-         if ui.add(button).clicked() {
+         if ui.add(copy).clicked() {
             ui.ctx().copy_text(snippet);
          }
       }
@@ -115,9 +115,11 @@ impl ConnectPanel {
 
       ui.add_space(theme.spacing.md);
 
-      let button = crate::gui::ui::settings::agents::button(theme, "Test connection", 220.0);
+      let test = Button::new(RichText::new("Test connection").size(theme.typography.normal))
+         .min_size(vec2(220.0, CONTROL))
+         .label_align(egui::Align::Center);
 
-      if ui.add(button).clicked() {
+      if ui.add(test).clicked() {
          let slot = Arc::new(Mutex::new(None));
          self.probe = Some(slot.clone());
          self.result = None;

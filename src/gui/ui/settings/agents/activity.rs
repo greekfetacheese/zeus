@@ -4,14 +4,15 @@
 //! watch the screen can read afterwards. A row that produced a transaction offers the step to the
 //! history page, because the audit says what was asked and the history says what happened.
 
-use super::ago;
+use super::CONTROL;
 use crate::core::ZeusContext;
 use crate::core::agent::{AgentProfile, AuditDecision, AuditEntry};
 use crate::gui::Page;
 use crate::gui::ui::common::section_heading;
+use crate::utils::TimeStamp;
 use crate::utils::truncate_address;
-use egui::{RichText, Ui};
-use egui_elements::Theme;
+use egui::{RichText, Ui, vec2};
+use egui_elements::{Button, Theme};
 
 /// How many rows the view lists: the ring holds thousands, and a page shows the recent ones.
 const ROWS: usize = 20;
@@ -68,9 +69,11 @@ impl Activity {
             truncate_address(format!("{hash:#x}"))
          );
 
-         let button = crate::gui::ui::settings::agents::button(theme, label, 260.0);
+         let show = Button::new(RichText::new(label).size(theme.typography.normal))
+            .min_size(vec2(260.0, CONTROL))
+            .label_align(egui::Align::Center);
 
-         if ui.add(button).clicked() {
+         if ui.add(show).clicked() {
             page = Some(Page::Transactions);
          }
       }
@@ -106,5 +109,7 @@ fn sentence(entry: &AuditEntry) -> String {
       AuditDecision::NeedsUser => format!("Waiting for you: {words}"),
    };
 
-   format!("{}, {what}", ago(entry.ts))
+   let age = TimeStamp::Seconds(entry.ts).to_relative();
+
+   format!("{}, {what}", age)
 }

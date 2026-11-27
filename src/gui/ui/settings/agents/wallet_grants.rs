@@ -7,13 +7,13 @@
 //! Nothing here decides anything: the switch that flips a capability is the same one the dialog always
 //! had, so what a row says and what the dialog does cannot drift apart.
 
+use super::CONTROL;
 use super::profile_editor::{Edited, ProfileEditor};
-use super::{CONTROL, paragraph};
 use crate::core::WalletInfo;
 use crate::core::agent::AgentProfile;
 use crate::gui::ui::common::section_heading;
 use egui::{Id, RichText, Ui, vec2};
-use egui_elements::{Column, Table, TableScroll, Theme};
+use egui_elements::{Button, Column, Label, Table, TableScroll, Theme};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use zeus_eth::alloy_primitives::Address;
@@ -66,21 +66,18 @@ impl WalletGrants {
       section_heading(ui, theme.typography.large, "Wallets");
 
       if wallets.is_empty() {
-         paragraph(
-            ui,
-            theme,
-            "There is no wallet to grant anything on yet.",
-         );
+         let text = RichText::new("There is no wallet to grant anything on yet.")
+            .size(theme.typography.normal);
+         let label = Label::text(text).wrap();
+         ui.add(label);
 
          return edited;
       }
 
-      paragraph(
-         ui,
-         theme,
-         "What this agent may do on each wallet. Nothing is granted until you open a wallet and turn \
-          a switch on.",
-      );
+      let text = "What this agent may do on each wallet. Nothing is granted until you open a wallet \
+          and turn a switch on.";
+      let label = Label::text(RichText::new(text).size(theme.typography.normal)).wrap();
+      ui.add(label);
 
       ui.add_space(theme.spacing.sm);
 
@@ -157,7 +154,9 @@ impl WalletGrants {
                });
 
                row.cell_named("Edit", |ui| {
-                  let button = crate::gui::ui::settings::agents::button(theme, "Edit", 80.0);
+                  let button = Button::new(RichText::new("Edit").size(theme.typography.normal))
+                     .min_size(vec2(80.0, CONTROL))
+                     .label_align(egui::Align::Center);
 
                   let response = ui.add(button);
 

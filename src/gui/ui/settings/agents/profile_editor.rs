@@ -10,14 +10,16 @@
 //! tiers that move value are hard to undo, so they sit behind their own disclosure, under the one
 //! sentence that says what turning them on means.
 
+use super::CONTROL;
 use crate::core::WalletInfo;
 use crate::core::agent::{
    AgentProfile, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb, MAX_PRICE_IMPACT_BPS,
    MAX_TRANSFER_SHORTFALL_BPS, NftRef, NftScope, ProfileMode, RiskTier, TokenRef, TokenScope,
    capability,
 };
+use crate::gui::ui::common::{describe, q_mark};
 use egui::{RichText, Ui, vec2};
-use egui_elements::{Checkbox, SecureTextEdit, Theme};
+use egui_elements::{Button, Checkbox, Label, SecureTextEdit, Theme};
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeus_eth::alloy_primitives::Address;
@@ -121,12 +123,14 @@ impl ProfileEditor {
    pub fn screens(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> Edited {
       let mut edited = Edited::default();
 
-      crate::gui::ui::settings::agents::paragraph(
-         ui,
-         theme,
-         "What this agent may read and change in the app itself. These are not tied to a wallet, \
-          so a write here is a write for every wallet.",
-      );
+      let normal = theme.typography.normal;
+      let small = theme.typography.small;
+
+      let intro = "What this agent may read and change in the app itself. These are not tied to a wallet, \
+          so a write here is a write for every wallet.";
+      let text = RichText::new(intro).size(normal);
+      let label = Label::text(text).wrap();
+      ui.add(label);
 
       if let Some(sentence) = self.pending_block(profile, theme, ui) {
          edited.notice = Some(sentence);
@@ -159,7 +163,7 @@ impl ProfileEditor {
 
          // The verb says what a switch does; the tier says how far it reaches, which is the part a
          // reader needs and a sighted user gets from the sentence under a consequential one.
-         crate::gui::ui::settings::agents::describe(
+         describe(
             ui,
             &response,
             format!("{text} · tier {}", cap.tier.level()),
@@ -169,7 +173,9 @@ impl ProfileEditor {
             ui.ctx()
                .accesskit_node_builder(response.id, |node| node.set_description(sentence));
 
-            crate::gui::ui::settings::agents::note(ui, theme, sentence);
+            let text = RichText::new(sentence).size(small);
+            let label = Label::text(text).wrap();
+            ui.add(label);
          }
 
          if response.changed() && self.toggle(profile, cap.name, None, on) {
@@ -195,7 +201,9 @@ impl ProfileEditor {
          node.set_description(sentence);
       });
 
-      crate::gui::ui::settings::agents::note(ui, theme, sentence);
+      let text = RichText::new(sentence).size(theme.typography.small);
+      let label = Label::text(text).wrap();
+      ui.add(label);
 
       if !row.changed() {
          return false;
@@ -216,7 +224,7 @@ impl ProfileEditor {
    /// its grant -- one that asks before every action is reviewed by the person answering it -- so they
    /// sit behind their own disclosure rather than at the top of the screen.
    fn guards(&mut self, profile: &mut AgentProfile, theme: &Theme, ui: &mut Ui) -> bool {
-      use crate::gui::ui::settings::agents::{paragraph, percent_slider};
+      use super::percent_slider;
 
       let mut changed = false;
 
@@ -227,12 +235,10 @@ impl ProfileEditor {
       )
       .id_salt("agent_limits")
       .show(ui, |ui| {
-         paragraph(
-            ui,
-            theme,
-            "These apply when the agent acts without asking you first. Turn on Ask before every \
-             action above to see each one before it happens instead.",
-         );
+         let text = "These apply when the agent acts without asking you first. Turn on Ask before every \
+            action above to see each one before it happens instead.";
+         let label = Label::text(RichText::new(text).size(theme.typography.normal)).wrap();
+         ui.add(label);
 
          ui.add_space(theme.spacing.sm);
 
@@ -283,19 +289,25 @@ impl ProfileEditor {
          words(&name)
       );
 
-      crate::gui::ui::settings::agents::paragraph(ui, theme, sentence);
+      let text = RichText::new(sentence).size(theme.typography.normal);
+      let label = Label::text(text).wrap();
+      ui.add(label);
 
       let mut notice = None;
 
       ui.horizontal(|ui| {
-         let grant = crate::gui::ui::settings::agents::button(theme, "Grant it", 140.0);
+         let grant = Button::new(RichText::new("Grant it").size(theme.typography.normal))
+            .min_size(vec2(140.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(grant).clicked() {
             apply(profile, &name, address, true);
             notice = Some(format!("Granted {}.", words(&name)));
          }
 
-         let cancel = crate::gui::ui::settings::agents::button(theme, "Cancel", 140.0);
+         let cancel = Button::new(RichText::new("Cancel").size(theme.typography.normal))
+            .min_size(vec2(140.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          if ui.add(cancel).clicked() {
             notice = Some("Left ungranted.".to_owned());
@@ -338,7 +350,9 @@ impl ProfileEditor {
             node.set_description(sentence);
          });
 
-         crate::gui::ui::settings::agents::note(ui, theme, sentence);
+         let text = RichText::new(sentence).size(theme.typography.small);
+         let label = Label::text(text).wrap();
+         ui.add(label);
 
          if row.changed() {
             let grant = profile.wallets.entry(address).or_default();
@@ -389,14 +403,14 @@ impl ProfileEditor {
                         node.set_description(MOVE_TIP);
                      });
 
-                     crate::gui::ui::settings::agents::q_mark(ui, theme, MOVE_TIP);
+                     q_mark(ui, theme, MOVE_TIP);
                   });
 
-                  crate::gui::ui::settings::agents::note(
-                     ui,
-                     theme,
-                     "Each one runs as soon as the agent asks, unless Ask before every action is on.",
-                  );
+                  let hint =
+                     "Each one runs as soon as the agent asks, unless Ask before every action is on.";
+                  let text = RichText::new(hint).size(theme.typography.small);
+                  let label = Label::text(text).wrap();
+                  ui.add(label);
 
                   if self.capabilities(
                      profile,
@@ -485,9 +499,9 @@ impl ProfileEditor {
                      ui.ctx()
                         .accesskit_node_builder(response.id, |node| node.set_description(sentence));
 
-                     crate::gui::ui::settings::agents::q_mark(ui, theme, sentence);
+                     q_mark(ui, theme, sentence);
                   }
-                  None => crate::gui::ui::settings::agents::describe(
+                  None => describe(
                      ui,
                      &response,
                      format!("{text} · tier {}", cap.tier.level()),
@@ -551,11 +565,10 @@ impl ProfileEditor {
          profile.wallets.get(&address).map(|grant| grant.tokens.clone()),
          Some(TokenScope::All)
       ) {
-         crate::gui::ui::settings::agents::note(
-            ui,
-            theme,
-            "Every token in this wallet may leave it.",
-         );
+         let text =
+            RichText::new("Every token in this wallet may leave it.").size(theme.typography.small);
+         let label = Label::text(text).wrap();
+         ui.add(label);
       }
 
       let nfts = profile
@@ -625,7 +638,9 @@ impl ProfileEditor {
                .size(theme.typography.normal),
             );
 
-            let button = crate::gui::ui::settings::agents::button(theme, "Remove", 100.0);
+            let button = Button::new(RichText::new("Remove").size(theme.typography.normal))
+               .min_size(vec2(100.0, CONTROL))
+               .label_align(egui::Align::Center);
 
             remove = ui.add(button).clicked();
          });
@@ -673,7 +688,9 @@ impl ProfileEditor {
                .desired_width(320.0),
          );
 
-         let button = crate::gui::ui::settings::agents::button(theme, "Add token", 120.0);
+         let button = Button::new(RichText::new("Add token").size(theme.typography.normal))
+            .min_size(vec2(120.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          add = ui.add(button).clicked();
       });
@@ -741,7 +758,9 @@ impl ProfileEditor {
                .size(theme.typography.normal),
             );
 
-            let button = crate::gui::ui::settings::agents::button(theme, "Remove", 100.0);
+            let button = Button::new(RichText::new("Remove").size(theme.typography.normal))
+               .min_size(vec2(100.0, CONTROL))
+               .label_align(egui::Align::Center);
 
             remove = ui.add(button).clicked();
          });
@@ -789,7 +808,9 @@ impl ProfileEditor {
                .desired_width(320.0),
          );
 
-         let button = crate::gui::ui::settings::agents::button(theme, "Add collection", 140.0);
+         let button = Button::new(RichText::new("Add collection").size(theme.typography.normal))
+            .min_size(vec2(140.0, CONTROL))
+            .label_align(egui::Align::Center);
 
          add = ui.add(button).clicked();
       });
