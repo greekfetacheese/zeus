@@ -6,8 +6,8 @@
 
 use super::CONTROL;
 use crate::gui::ui::common::section_heading;
-use egui::{RichText, Ui, vec2};
-use egui_elements::{Button, Theme};
+use egui::{Align, RichText, Ui, vec2};
+use egui_elements::{Button, Label, Theme};
 use std::sync::{Arc, Mutex};
 
 /// One harness's snippet, with the two placeholders the panel fills in.
@@ -68,7 +68,7 @@ impl ConnectPanel {
       let intro = "Paste one of these into the harness. The token above is the whole credential, \
                    and Zeus does not keep a copy of it.";
 
-      ui.add(egui::Label::new(RichText::new(intro).size(theme.typography.normal)).wrap());
+      ui.add(Label::text(RichText::new(intro).size(theme.typography.normal)).wrap());
 
       for harness in HARNESSES {
          ui.add_space(theme.spacing.md);
@@ -78,7 +78,7 @@ impl ConnectPanel {
 
          let Some(port) = port else {
             ui.add(
-               egui::Label::new(
+               Label::text(
                   RichText::new("The server has not come up yet, so the address is not known.")
                      .size(theme.typography.normal),
                )
@@ -90,14 +90,13 @@ impl ConnectPanel {
          let snippet = fill(harness.template, port, token);
 
          ui.add(
-            egui::Label::new(RichText::new(&snippet).monospace().size(theme.typography.normal))
-               .wrap(),
+            Label::text(RichText::new(&snippet).monospace().size(theme.typography.normal)).wrap(),
          );
 
          let text = format!("Copy {} snippet", harness.name);
          let copy = Button::new(RichText::new(text).size(theme.typography.normal))
             .min_size(vec2(220.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(copy).clicked() {
             ui.ctx().copy_text(snippet);
@@ -117,7 +116,7 @@ impl ConnectPanel {
 
       let test = Button::new(RichText::new("Test connection").size(theme.typography.normal))
          .min_size(vec2(220.0, CONTROL))
-         .label_align(egui::Align::Center);
+         .label_align(Align::Center);
 
       if ui.add(test).clicked() {
          let slot = Arc::new(Mutex::new(None));

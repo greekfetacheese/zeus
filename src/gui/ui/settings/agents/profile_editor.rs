@@ -18,7 +18,7 @@ use crate::core::agent::{
    capability,
 };
 use crate::gui::ui::common::{describe, q_mark};
-use egui::{RichText, Ui, vec2};
+use egui::{Align, CollapsingHeader, FontId, RichText, Ui, vec2};
 use egui_elements::{Button, Checkbox, Label, SecureTextEdit, Theme};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -230,7 +230,7 @@ impl ProfileEditor {
 
       ui.add_space(theme.spacing.sm);
 
-      egui::CollapsingHeader::new(
+      CollapsingHeader::new(
          RichText::new("How far it may go on its own").size(theme.typography.large),
       )
       .id_salt("agent_limits")
@@ -298,7 +298,7 @@ impl ProfileEditor {
       ui.horizontal(|ui| {
          let grant = Button::new(RichText::new("Grant it").size(theme.typography.normal))
             .min_size(vec2(140.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(grant).clicked() {
             apply(profile, &name, address, true);
@@ -307,7 +307,7 @@ impl ProfileEditor {
 
          let cancel = Button::new(RichText::new("Cancel").size(theme.typography.normal))
             .min_size(vec2(140.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(cancel).clicked() {
             notice = Some("Left ungranted.".to_owned());
@@ -387,7 +387,7 @@ impl ProfileEditor {
             // that says what turning one on means.
             let mut risky = false;
 
-            egui::CollapsingHeader::new(RichText::new("Moving money").size(theme.typography.large))
+            CollapsingHeader::new(RichText::new("Moving money").size(theme.typography.large))
                .id_salt(("agent_wallet_risky", address))
                .show(ui, |ui| {
                   // The chip sits on the section's own line, right after the sentence it explains:
@@ -397,7 +397,7 @@ impl ProfileEditor {
 
                      let heading = RichText::new("These move funds out of this wallet.")
                         .size(theme.typography.normal);
-                     let sentence = ui.add(egui::Label::new(heading).extend());
+                     let sentence = ui.add(Label::text(heading));
 
                      ui.ctx().accesskit_node_builder(sentence.id, |node| {
                         node.set_description(MOVE_TIP);
@@ -542,7 +542,7 @@ impl ProfileEditor {
       let mut picked = choice;
 
       ui.horizontal(|ui| {
-         ui.add(egui::Label::new(RichText::new("Tokens").size(theme.typography.normal)).wrap());
+         ui.add(Label::text(RichText::new("Tokens").size(theme.typography.normal)).wrap());
 
          // Every scope says what it belongs to, because three radios named Nothing, Everything and
          // Only these are the same words for tokens and for NFTs.
@@ -583,7 +583,7 @@ impl ProfileEditor {
       ui.add_space(theme.spacing.sm);
 
       ui.horizontal(|ui| {
-         ui.add(egui::Label::new(RichText::new("NFTs").size(theme.typography.normal)).wrap());
+         ui.add(Label::text(RichText::new("NFTs").size(theme.typography.normal)).wrap());
 
          ui.radio_value(&mut picked, 0, "No NFT");
          ui.radio_value(&mut picked, 1, "Every NFT");
@@ -640,7 +640,7 @@ impl ProfileEditor {
 
             let button = Button::new(RichText::new("Remove").size(theme.typography.normal))
                .min_size(vec2(100.0, CONTROL))
-               .label_align(egui::Align::Center);
+               .label_align(Align::Center);
 
             remove = ui.add(button).clicked();
          });
@@ -682,15 +682,13 @@ impl ProfileEditor {
          ui.add(
             SecureTextEdit::singleline(typed)
                .accessible_name("Token address")
-               .font(egui::FontId::proportional(
-                  theme.typography.normal,
-               ))
+               .font(FontId::proportional(theme.typography.normal))
                .desired_width(320.0),
          );
 
          let button = Button::new(RichText::new("Add token").size(theme.typography.normal))
             .min_size(vec2(120.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          add = ui.add(button).clicked();
       });
@@ -760,7 +758,7 @@ impl ProfileEditor {
 
             let button = Button::new(RichText::new("Remove").size(theme.typography.normal))
                .min_size(vec2(100.0, CONTROL))
-               .label_align(egui::Align::Center);
+               .label_align(Align::Center);
 
             remove = ui.add(button).clicked();
          });
@@ -802,15 +800,13 @@ impl ProfileEditor {
          ui.add(
             SecureTextEdit::singleline(typed)
                .accessible_name("Collection address")
-               .font(egui::FontId::proportional(
-                  theme.typography.normal,
-               ))
+               .font(FontId::proportional(theme.typography.normal))
                .desired_width(320.0),
          );
 
          let button = Button::new(RichText::new("Add collection").size(theme.typography.normal))
             .min_size(vec2(140.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          add = ui.add(button).clicked();
       });

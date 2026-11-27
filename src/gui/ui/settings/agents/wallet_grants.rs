@@ -12,8 +12,8 @@ use super::profile_editor::{Edited, ProfileEditor};
 use crate::core::WalletInfo;
 use crate::core::agent::AgentProfile;
 use crate::gui::ui::common::section_heading;
-use egui::{Id, RichText, Ui, vec2};
-use egui_elements::{Button, Column, Label, Table, TableScroll, Theme};
+use egui::{Align, Id, Order, RichText, Role, ScrollArea, Ui, WidgetInfo, vec2};
+use egui_elements::{Button, Column, Label, Modal, Table, TableScroll, Theme};
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use zeus_eth::alloy_primitives::Address;
@@ -131,14 +131,13 @@ impl WalletGrants {
             table.rows(|row, wallet| {
                row.cell_named(wallet.name.clone(), |ui| {
                   ui.add(
-                     egui::Label::new(RichText::new(&wallet.name).size(theme.typography.normal))
-                        .wrap(),
+                     Label::text(RichText::new(&wallet.name).size(theme.typography.normal)).wrap(),
                   );
                });
 
                row.cell_named(wallet.short.clone(), |ui| {
                   ui.add(
-                     egui::Label::new(
+                     Label::text(
                         RichText::new(&wallet.short).monospace().size(theme.typography.small),
                      )
                      .wrap(),
@@ -148,22 +147,20 @@ impl WalletGrants {
                let grant = wallet.grant.clone();
 
                row.cell_named(grant.clone(), |ui| {
-                  ui.add(
-                     egui::Label::new(RichText::new(grant).size(theme.typography.small)).wrap(),
-                  );
+                  ui.add(Label::text(RichText::new(grant).size(theme.typography.small)).wrap());
                });
 
                row.cell_named("Edit", |ui| {
                   let button = Button::new(RichText::new("Edit").size(theme.typography.normal))
                      .min_size(vec2(80.0, CONTROL))
-                     .label_align(egui::Align::Center);
+                     .label_align(Align::Center);
 
                   let response = ui.add(button);
 
                   // Every row draws the same word, so the button is named after the wallet it opens.
                   response.widget_info(|| {
-                     egui::WidgetInfo::labeled(
-                        egui::Role::Button,
+                     WidgetInfo::labeled(
+                        Role::Button,
                         ui.is_enabled(),
                         format!("Edit the grant for {}", wallet.name),
                      )
@@ -218,9 +215,9 @@ impl WalletGrants {
       let subtitle = RichText::new(short(address)).size(theme.typography.small);
       let frame = theme.window_frame.fill(theme.frame1.fill);
 
-      egui_elements::Modal::new(id, &mut open)
-         .backdrop_order(egui::Order::Middle)
-         .content_order(egui::Order::Foreground)
+      Modal::new(id, &mut open)
+         .backdrop_order(Order::Middle)
+         .content_order(Order::Foreground)
          .heading(heading)
          .subtitle(subtitle)
          .accessible_name(format!("Grant for {}", wallet.name()))
@@ -229,14 +226,14 @@ impl WalletGrants {
          .closable(true)
          .close_on_backdrop(true)
          .close_on_escape(true)
-         .width(MODAL_WIDTH)
+         .max_width(MODAL_WIDTH)
          .frame(frame)
          .show(egui_ctx, |ui| {
-            ui.set_width(MODAL_WIDTH);
+            ui.set_max_height(MODAL_BODY_HEIGHT);
 
             // One wallet's switches are taller than a laptop screen once both allowlists have
             // entries, so the body scrolls inside a ceiling rather than growing past the window.
-            egui::ScrollArea::vertical()
+            ScrollArea::vertical()
                .id_salt("agent_wallet_grant_body")
                .max_height(MODAL_BODY_HEIGHT)
                .auto_shrink([false, true])

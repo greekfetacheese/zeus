@@ -23,7 +23,7 @@ use crate::gui::ui::common::{q_mark, section_heading};
 use crate::utils::TimeStamp;
 use activity::Activity;
 use connect::ConnectPanel;
-use egui::{RichText, Ui, vec2};
+use egui::{Align, FontId, Layout, RichText, Ui, vec2};
 use egui_elements::{
    Button, Checkbox, Indicator, IndicatorState, Label, SecureTextEdit, Slider, Tabs, Theme,
 };
@@ -38,11 +38,10 @@ use zeus_mcp::ServerHandle;
 /// accident rather than as a set.
 const CONTROL: f32 = 30.0;
 
-/// The column a setting's name keeps, so the two ceilings' rails start at the same x.
-const LABEL_WIDTH: f32 = 170.0;
-
 /// The rail's own width: wide enough that a percentage can be aimed at, and the same on both rows.
 const RAIL_WIDTH: f32 = 220.0;
+
+const AGENT_FRAME_WIDTH: f32 = 600.0;
 
 /// Which of an agent's four screens is in front.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -157,7 +156,7 @@ impl AgentsUi {
       ui.spacing_mut().item_spacing = vec2(theme.spacing.xs, theme.spacing.sm);
       ui.add_space(10.0);
 
-      self.status(ctx, handle, server, theme, ui);
+      self.status(ctx, server, theme, ui);
 
       ui.add_space(theme.spacing.md);
 
@@ -214,7 +213,6 @@ impl AgentsUi {
    fn status(
       &mut self,
       ctx: &mut ZeusContext,
-      handle: &ZeusCtx,
       server: &Option<ServerHandle>,
       theme: &Theme,
       ui: &mut Ui,
@@ -237,22 +235,19 @@ impl AgentsUi {
          // a colour alone is nothing to a reader and not much to anyone else either.
          ui.add(Indicator::new(state).size(12.0).label(format!("Agent server: {sentence}")));
 
-         ui.add(egui::Label::new(RichText::new(sentence).size(theme.typography.normal)).wrap());
+         ui.add(Label::text(RichText::new(sentence).size(theme.typography.normal)).wrap());
 
          if !ctx.agent_profiles.enabled_profiles().is_empty() {
-            ui.with_layout(
-               egui::Layout::right_to_left(egui::Align::Center),
-               |ui| {
-                  let stop =
-                     Button::new(RichText::new("Stop all agents").size(theme.typography.normal))
-                        .min_size(vec2(160.0, CONTROL))
-                        .label_align(egui::Align::Center);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+               let stop =
+                  Button::new(RichText::new("Stop all agents").size(theme.typography.normal))
+                     .min_size(vec2(160.0, CONTROL))
+                     .label_align(Align::Center);
 
-                  if ui.add(stop).clicked() {
-                     self.notice = Some(server::disconnect_all(ctx, handle));
-                  }
-               },
-            );
+               if ui.add(stop).clicked() {
+                  self.notice = Some(server::disconnect_all(ctx));
+               }
+            });
          }
       });
    }
@@ -277,54 +272,56 @@ impl AgentsUi {
             _ => (profile.label.clone(), grants::summary(profile)),
          };
 
-         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = theme.spacing.sm;
+         let frame = theme.frame1;
 
-            let mut enabled = profile.enabled;
+         frame.show(ui, |ui| {
+            ui.set_width(AGENT_FRAME_WIDTH);
 
-            // The name rides on the switch, so the row's first control says which agent it is for.
-            let toggle = ui.add(Checkbox::new(
-               &mut enabled,
-               RichText::new(format!("{label} may connect")).size(theme.typography.normal),
-            ));
+            ui.horizontal(|ui| {
+               ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-            let off = "Off means every request that carries this agent's token is refused.";
+               let mut enabled = profile.enabled;
 
-            ui.ctx().accesskit_node_builder(toggle.id, |node| {
-               node.set_label(format!("{label} may connect"));
-               node.set_description(off);
-            });
+               // The name rides on the switch, so the row's first control says which agent it is for.
+               let toggle = ui.add(Checkbox::new(
+                  &mut enabled,
+                  RichText::new(&label).size(theme.typography.normal),
+               ));
 
-            if toggle.changed() {
-               // The kill switch is not a grant: it takes effect now, so the server refuses the next
-               // request. Whatever the page still holds is written first, so the two cannot disagree.
-               self.flush(ctx, handle);
-               ctx.agent_profiles.set_enabled(&profile.id, enabled);
-               persist_profiles(handle);
+               let off = "Off means every request that carries this agent's token is refused.";
 
-               self.notice = Some(match enabled {
-                  true => format!("{label} may connect again."),
-                  false => format!("{label} may no longer connect."),
+               ui.ctx().accesskit_node_builder(toggle.id, |node| {
+                  node.set_label(format!("{label} may connect"));
+                  node.set_description(off);
                });
-            }
 
-            ui.add(egui::Label::new(RichText::new(summary).size(theme.typography.small)).wrap());
+               if toggle.changed() {
+                  // The kill switch is not a grant: it takes effect now, so the server refuses the next
+                  // request. Whatever the page still holds is written first, so the two cannot disagree.
+                  self.flush(ctx, handle);
+                  ctx.agent_profiles.set_enabled(&profile.id, enabled);
 
-            ui.with_layout(
-               egui::Layout::right_to_left(egui::Align::Center),
-               |ui| {
+                  self.notice = Some(match enabled {
+                     true => format!("{label} may connect again."),
+                     false => format!("{label} may no longer connect."),
+                  });
+               }
+
+               ui.add(Label::text(RichText::new(summary).size(theme.typography.small)).wrap());
+
+               ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                   let selected = self.selected == Some(profile.id.clone());
                   let label = if selected { "Close" } else { "Open" };
 
                   let open = Button::new(RichText::new(label).size(theme.typography.normal))
                      .min_size(vec2(90.0, CONTROL))
-                     .label_align(egui::Align::Center);
+                     .label_align(Align::Center);
 
                   if ui.add(open).clicked() {
                      self.select(ctx, handle, profile, selected);
                   }
-               },
-            );
+               });
+            });
          });
 
          if self.confirm_delete == Some(profile.id.clone()) {
@@ -336,7 +333,7 @@ impl AgentsUi {
 
       let create = Button::new(RichText::new("New agent").size(theme.typography.normal))
          .min_size(vec2(160.0, CONTROL))
-         .label_align(egui::Align::Center);
+         .label_align(Align::Center);
 
       if ui.add(create).clicked() {
          self.create(ctx, handle);
@@ -503,14 +500,12 @@ impl AgentsUi {
                .hint_text("Profile name")
                .desired_width(260.0)
                .min_size(vec2(260.0, CONTROL))
-               .font(egui::FontId::proportional(
-                  theme.typography.normal,
-               )),
+               .font(FontId::proportional(theme.typography.normal)),
          );
 
          let rename = Button::new(RichText::new("Rename").size(theme.typography.normal))
             .min_size(vec2(100.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(rename).clicked() {
             let name = self.rename.trim().to_owned();
@@ -544,7 +539,7 @@ impl AgentsUi {
 
          let rotate = Button::new(RichText::new("Rotate token").size(theme.typography.normal))
             .min_size(vec2(130.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(rotate).clicked() {
             self.rotate(ctx, handle, profile);
@@ -552,7 +547,7 @@ impl AgentsUi {
 
          let delete = Button::new(RichText::new("Delete").size(theme.typography.normal))
             .min_size(vec2(90.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(delete).clicked() {
             self.confirm_delete = Some(profile.id.clone());
@@ -564,7 +559,7 @@ impl AgentsUi {
    fn delete_block(
       &mut self,
       ctx: &mut ZeusContext,
-      handle: &ZeusCtx,
+      _handle: &ZeusCtx,
       profile: &AgentProfile,
       theme: &Theme,
       ui: &mut Ui,
@@ -583,11 +578,10 @@ impl AgentsUi {
 
          let yes = Button::new(RichText::new("Delete for good").size(theme.typography.normal))
             .min_size(vec2(150.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(yes).clicked() {
             ctx.agent_profiles.remove(&profile.id);
-            persist_profiles(handle);
 
             // The profile is gone, so its draft has nothing left to write.
             if self.draft.as_ref().is_some_and(|draft| draft.id == profile.id) {
@@ -605,7 +599,7 @@ impl AgentsUi {
 
          let keep = Button::new(RichText::new("Keep").size(theme.typography.normal))
             .min_size(vec2(90.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(keep).clicked() {
             self.confirm_delete = None;
@@ -623,9 +617,8 @@ impl AgentsUi {
       let label = Label::text(RichText::new(text).size(theme.typography.normal)).wrap();
       ui.add(label);
 
-      let shown = ui.add(
-         egui::Label::new(RichText::new(token).monospace().size(theme.typography.normal)).wrap(),
-      );
+      let shown =
+         ui.add(Label::text(RichText::new(token).monospace().size(theme.typography.normal)).wrap());
 
       ui.ctx().accesskit_node_builder(shown.id, |node| {
          node.set_label("Token, shown once");
@@ -636,7 +629,7 @@ impl AgentsUi {
 
          let copy = Button::new(RichText::new("Copy token").size(theme.typography.normal))
             .min_size(vec2(130.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(copy).clicked() {
             ui.ctx().copy_text(token.to_owned());
@@ -645,7 +638,7 @@ impl AgentsUi {
 
          let done = Button::new(RichText::new("Done").size(theme.typography.normal))
             .min_size(vec2(90.0, CONTROL))
-            .label_align(egui::Align::Center);
+            .label_align(Align::Center);
 
          if ui.add(done).clicked() {
             self.token = None;
@@ -734,22 +727,9 @@ pub(super) fn percent_slider(
    ui.horizontal(|ui| {
       ui.spacing_mut().item_spacing.x = theme.spacing.sm;
 
-      // Not `.extend()` on the whole row: a label that extends claims the row, which leaves the
-      // rail beside it with nothing to be drawn in. The column is allocated first and exactly,
-      // then the word is placed inside it.
-      let (rect, _) = ui.allocate_exact_size(vec2(LABEL_WIDTH, CONTROL), egui::Sense::hover());
-
-      let mut cell = ui.new_child(
-         egui::UiBuilder::new()
-            .max_rect(rect)
-            .layout(egui::Layout::left_to_right(egui::Align::Center)),
-      );
-
-      let text = cell.add(
-         egui::Label::new(RichText::new(label).size(theme.typography.normal))
-            .extend()
-            .truncate(),
-      );
+      let text = ui.add(Label::text(
+         RichText::new(label).size(theme.typography.normal),
+      ));
 
       ui.ctx().accesskit_node_builder(text.id, |node| node.set_hidden());
 

@@ -33,7 +33,7 @@ pub fn running(server: &Option<ServerHandle>) -> Option<u16> {
 /// The server is always listening, so the brake is the credentials rather than the socket: every
 /// profile is turned off, so the next request authenticates against nothing. Nothing is revoked —
 /// the grants and the profiles are still there to switch back on.
-pub fn disconnect_all(ctx: &mut ZeusContext, handle: &ZeusCtx) -> String {
+pub fn disconnect_all(ctx: &mut ZeusContext) -> String {
    let mut turned_off = 0;
 
    for profile in ctx.agent_profiles.profiles() {
@@ -41,10 +41,6 @@ pub fn disconnect_all(ctx: &mut ZeusContext, handle: &ZeusCtx) -> String {
          ctx.agent_profiles.set_enabled(&profile.id, false);
          turned_off += 1;
       }
-   }
-
-   if turned_off > 0 {
-      super::persist_profiles(handle);
    }
 
    match turned_off {
