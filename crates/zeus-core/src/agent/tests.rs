@@ -1564,7 +1564,9 @@ fn the_audit_ring_drops_the_oldest_entry() {
 }
 
 #[test]
-fn the_audit_log_roundtrips_through_the_sealed_codec() {
+fn the_audit_log_roundtrips_through_its_database() {
+   let dir = tempfile::tempdir().expect("a temp dir");
+   let path = dir.path().join("agent_audit.data");
    let key = WalletStateKey::generate().expect("key");
    let profile = sample_profile();
    let log = AgentAuditLog::default();
@@ -1585,18 +1587,117 @@ fn the_audit_log_roundtrips_through_the_sealed_codec() {
       .decided(&Decision::Allowed { prompt: false }),
    );
 
-   let sealed = log.encode(&key).expect("seal");
+   log.save_to(&path, &key).expect("save");
+
+   let stored = std::fs::read(&path).expect("read the database");
    assert!(
-      !sealed
+      !stored
          .windows(profile.label.len())
          .any(|window| window == profile.label.as_bytes()),
       "the label, and the tool names beside it, are not on disk in the clear"
    );
 
-   let back = AgentAuditLog::decode(&key, &sealed).expect("open");
+   let back = AgentAuditLog::load_from(&path, &key).expect("open");
    assert_eq!(back.len(), 2);
    assert_eq!(back.tail(10), log.tail(10));
    assert_eq!(back.unreadable(), None);
+}
+
+#[test]
+fn a_save_appends_the_entries_the_file_lacks() {
+   let dir = tempfile::tempdir().expect("a temp dir");
+   let path = dir.path().join("agent_audit.data");
+   let key = WalletStateKey::generate().expect("key");
+   let profile = sample_profile();
+   let first = AgentAuditLog::default();
+
+   for ts in 0..2 {
+      first.record(AuditEntry::new(
+         &profile,
+         "tx_send",
+         "wallet.write.send",
+         ts,
+      ));
+   }
+
+   first.save_to(&path, &key).expect("the first save");
+
+   // A later run loads what the first one wrote, records one more action, and saves again.
+   let second = AgentAuditLog::load_from(&path, &key).expect("load");
+   assert_eq!(
+      second.len(),
+      2,
+      "the first run's entries came back"
+   );
+
+   second.record(AuditEntry::new(
+      &profile,
+      "tx_send",
+      "wallet.write.send",
+      2,
+   ));
+   second.save_to(&path, &key).expect("the second save");
+
+   let back = AgentAuditLog::load_from(&path, &key).expect("reload");
+   assert_eq!(back.len(), 3, "the appended entry is in the file");
+   assert_eq!(back.tail(10), second.tail(10));
+}
+
+#[test]
+fn the_audit_ring_keeps_its_ceiling_across_a_save() {
+   let dir = tempfile::tempdir().expect("a temp dir");
+   let path = dir.path().join("agent_audit.data");
+   let key = WalletStateKey::generate().expect("key");
+   let profile = sample_profile();
+   let log = AgentAuditLog::default();
+   let ceiling = AUDIT_RING_CAPACITY as u64;
+
+   for ts in 0..=ceiling {
+      log.record(AuditEntry::new(
+         &profile,
+         "tx_send",
+         "wallet.write.send",
+         ts,
+      ));
+   }
+
+   log.save_to(&path, &key).expect("save");
+
+   // A later run loads the ring, records past the ceiling, and saves again: the rows the load brought
+   // back and the ring then dropped have to leave the file as well, so it never grows past the ring.
+   let later = AgentAuditLog::load_from(&path, &key).expect("load");
+   assert_eq!(
+      later.len(),
+      AUDIT_RING_CAPACITY,
+      "the load kept the ring"
+   );
+
+   for ts in ceiling + 1..=ceiling + 2 {
+      later.record(AuditEntry::new(
+         &profile,
+         "tx_send",
+         "wallet.write.send",
+         ts,
+      ));
+   }
+
+   later.save_to(&path, &key).expect("the second save");
+
+   let back = AgentAuditLog::load_from(&path, &key).expect("reload");
+   assert_eq!(
+      back.len(),
+      AUDIT_RING_CAPACITY,
+      "the file keeps the ring, not everything the ring ever held"
+   );
+   assert_eq!(back.tail(10), later.tail(10));
+
+   let tail = back.tail(AUDIT_RING_CAPACITY);
+   assert_eq!(
+      tail.first().expect("an entry").ts,
+      3,
+      "the two the ring dropped across the save are gone as well"
+   );
+   assert_eq!(tail.last().expect("an entry").ts, ceiling + 2);
 }
 
 #[test]

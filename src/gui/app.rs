@@ -342,6 +342,10 @@ fn begin_shutdown(
                ctx.save_currency_db();
                ctx.save_address_book();
                ctx.save_price_manager();
+
+               if let Err(e) = ctx.save_agent_audit() {
+                  tracing::error!("Failed to save the agent audit log: {:?}", e);
+               }
             })
             .await;
 

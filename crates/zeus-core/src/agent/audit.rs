@@ -1,9 +1,13 @@
-//! What an agent asked for and what came of it: the ring the Agents page reads, sealed on disk.
+//! What an agent asked for and what came of it: the ring the Agents page reads, in its own redb
+//! database.
 //!
-//! Shaped like the profile store beside it -- a private lock, its own AAD, write_private_atomic on the way
-//! out, and a load failure that blocks the next save -- with one difference that matters: this is an
-//! append-only ring, not a document that gets edited. A refusal is an entry too, because "the agent tried
-//! to send outside its allowlist" is the most important line a user can be shown.
+//! One row per entry, keyed by the sequence the entry was recorded under and sealed with the vault-held
+//! key, so the store grows by what an agent did rather than by the size of the log: a save writes the
+//! rows the file does not have yet and drops the ones the ring has forgotten.
+//!
+//! The ring is the live copy and the database is its persistence. An action records in memory and
+//! touches no file, and the app writes the ring once, when it shuts down -- a log that also rewrote
+//! itself on every attempt is a log that writes megabytes as it grows.
 //!
 //! It is deliberately not the app's log. tracing is redacted for user-identifying data in release builds,
 //! and what an agent asked for is exactly that data, so the two never share a channel.
@@ -13,14 +17,13 @@ use super::profile::{AgentProfile, AgentProfileId};
 use crate::WalletStateKey;
 use crate::context::RwLockHandle;
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
-use crate::platform::fs::write_private_atomic;
-use anyhow::anyhow;
+use crate::platform::fs::restrict_file_to_owner;
+use anyhow::{anyhow, bail};
+use redb::{Database as RedbInner, Durability, ReadableDatabase, ReadableTable, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::path::Path;
 use zeus_eth::alloy_primitives::{Address, B256};
-
-/// Its own AAD: a shared one is a silent mismatched read across stores.
-const AGENT_AUDIT_AAD: &[u8] = b"zeus-agent-audit-v1";
 
 /// How many entries the ring keeps before the oldest falls off.
 ///
@@ -28,6 +31,22 @@ const AGENT_AUDIT_AAD: &[u8] = b"zeus-agent-audit-v1";
 /// fixed ceiling cannot grow without bound on a wallet left running for a year, and an entry older than
 /// the ceiling is already in the transaction history the audit points at.
 pub const AUDIT_RING_CAPACITY: usize = 5_000;
+
+/// One row per entry: `e` + a big-endian sequence number, so the ring sorts as a range.
+const AUDIT_TABLE: TableDefinition<&[u8], &[u8]> = TableDefinition::new("audit");
+
+/// The row that says which range of entries the table is the continuation of.
+const META_KEY: &[u8] = b"m";
+
+/// redb's default page cache is 1 GiB; the audit store reads and writes a handful of rows at a time.
+const PAGE_CACHE_BYTES: usize = 1024 * 1024;
+
+/// On-disk format. Bump when a key or value envelope changes; a newer file is refused.
+const AUDIT_DB_FORMAT: u32 = 1;
+
+/// Its own AADs: a shared one is a silent mismatched read across stores.
+const AAD_ENTRY: &[u8] = b"zeus-agent-audit-db/entry";
+const AAD_META: &[u8] = b"zeus-agent-audit-db/meta";
 
 /// How a shielded withdrawal was broadcast, recorded on the entry it belongs to.
 ///
@@ -147,15 +166,27 @@ impl AuditEntry {
    }
 }
 
-/// What the file holds.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+/// What the file holds apart from its rows: the sequence range the rows are the continuation of.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AuditMeta {
+   /// [`AUDIT_DB_FORMAT`] when written; a newer file is refused.
+   format: u32,
+   /// The sequence of the oldest row in the table.
+   first: u64,
+   /// One past the newest row: where the next entry goes.
+   next: u64,
+}
+
+/// What the log holds in memory.
+#[derive(Clone, Debug, Default)]
 struct AgentAudit {
    /// Oldest first, so the newest end is the tail a reader asks for.
-   #[serde(default)]
    entries: VecDeque<AuditEntry>,
+   /// The sequence the oldest held entry carries: `entries[i]` is `first_seq + i`, which is how a save
+   /// tells the rows the file already has from the ones this run added.
+   first_seq: u64,
    /// Why a save would replace bytes that did not read. Never persisted: it describes this process's read
    /// of the file, and the next successful load clears it.
-   #[serde(skip)]
    unreadable: Option<String>,
 }
 
@@ -164,6 +195,7 @@ impl AgentAudit {
    fn trim(&mut self) {
       while self.entries.len() > AUDIT_RING_CAPACITY {
          self.entries.pop_front();
+         self.first_seq += 1;
       }
    }
 }
@@ -176,7 +208,7 @@ pub struct Recent {
    pub matching: usize,
 }
 
-/// Every agent action this machine recorded, held behind a lock and sealed on disk.
+/// Every agent action this machine recorded, held behind a lock and written to `data/agent_audit.data`.
 #[derive(Clone)]
 pub struct AgentAuditLog(RwLockHandle<AgentAudit>);
 
@@ -207,27 +239,75 @@ impl AgentAuditLog {
       Ok(Self::dir()?.exists())
    }
 
-   /// Seal the log without writing it. Pair with decode.
-   pub fn encode(&self, key: &WalletStateKey) -> Result<Vec<u8>, anyhow::Error> {
-      self.read(|audit| key.seal_json(audit, AGENT_AUDIT_AAD))
-   }
-
-   /// Open sealed bytes, keeping at most the ring's capacity of entries.
-   pub fn decode(key: &WalletStateKey, sealed: &[u8]) -> Result<Self, anyhow::Error> {
-      let mut audit: AgentAudit = key.open_json(sealed, AGENT_AUDIT_AAD)?;
-      audit.trim();
-      Ok(Self::new(audit))
-   }
-
+   /// Load `data/agent_audit.data`, keeping at most the ring's capacity of entries.
+   ///
+   /// A missing file is a first run, not a failure: it is an empty log, and the next save writes it.
    pub fn load_from_file(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
-      let sealed = std::fs::read(Self::dir()?)?;
-      Self::decode(key, &sealed)
+      Self::load_from(&Self::dir()?, key)
    }
 
-   /// Seal and write the log.
+   /// Test surface: the same load against a path the caller owns.
+   pub(crate) fn load_from(path: &Path, key: &WalletStateKey) -> Result<Self, anyhow::Error> {
+      let db = match RedbInner::open(path) {
+         Ok(db) => db,
+         // No file yet: nothing was recorded, so nothing is missing either.
+         Err(_) if !path.exists() => return Ok(Self::default()),
+         Err(e) => return Err(anyhow!("open the agent audit db: {e}")),
+      };
+
+      let read = db.begin_read().map_err(|e| anyhow!("agent audit read txn: {e}"))?;
+
+      let table = match read.open_table(AUDIT_TABLE) {
+         Ok(table) => table,
+         // A database this build never wrote has no table, and reads as an empty log.
+         Err(_) => return Ok(Self::default()),
+      };
+
+      let Some(sealed) = table.get(META_KEY).map_err(|e| anyhow!("agent audit get meta: {e}"))?
+      else {
+         return Ok(Self::default());
+      };
+
+      let meta: AuditMeta = key.open_json(sealed.value(), AAD_META)?;
+
+      if meta.format > AUDIT_DB_FORMAT {
+         bail!(
+            "agent audit db format {} is newer than this build ({AUDIT_DB_FORMAT})",
+            meta.format
+         );
+      }
+
+      let (start, end) = (entry_key(meta.first), entry_key(meta.next));
+      let mut entries: VecDeque<AuditEntry> = VecDeque::new();
+
+      for row in table
+         .range(start.as_slice()..end.as_slice())
+         .map_err(|e| anyhow!("agent audit range: {e}"))?
+      {
+         let (_, value) = row.map_err(|e| anyhow!("agent audit row: {e}"))?;
+         entries.push_back(key.open_json(value.value(), AAD_ENTRY)?);
+      }
+
+      // A file written under a larger ceiling still loads here: keep the newest entries it holds.
+      let dropped = entries.len().saturating_sub(AUDIT_RING_CAPACITY);
+      entries.drain(..dropped);
+
+      Ok(Self::new(AgentAudit {
+         entries,
+         first_seq: meta.first + dropped as u64,
+         unreadable: None,
+      }))
+   }
+
+   /// Write the ring into `data/agent_audit.data`, adding what the file lacks and dropping what the ring
+   /// has forgotten.
+   ///
+   /// This is the only write: the app calls it once, on shutdown, so a log of every attempt costs one
+   /// database write per session rather than one per attempt. An empty ring writes nothing, so an install
+   /// that never ran an agent has no file at all.
    ///
    /// Refuses while the file could not be read, for the same reason the profile store does: what is in
-   /// memory would then be an empty log, and sealing it over the real one would erase the history.
+   /// memory would then be an empty log, and writing it over the real one would erase the history.
    pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
       if let Some(reason) = self.unreadable() {
          let path = Self::dir()?;
@@ -237,11 +317,125 @@ impl AgentAuditLog {
          ));
       }
 
+      if self.is_empty() {
+         return Ok(());
+      }
+
       ensure_data_dir()?;
       self.write(|audit| audit.trim());
 
-      let sealed = self.encode(key)?;
-      write_private_atomic(&Self::dir()?, &sealed)
+      self.save_to(&Self::dir()?, key)
+   }
+
+   /// Test surface: the same save against a path the caller owns.
+   pub(crate) fn save_to(&self, path: &Path, key: &WalletStateKey) -> Result<(), anyhow::Error> {
+      if let Some(parent) = path.parent() {
+         std::fs::create_dir_all(parent)?;
+      }
+
+      let db = RedbInner::builder()
+         .set_cache_size(PAGE_CACHE_BYTES)
+         .create(path)
+         .map_err(|e| anyhow!("open the agent audit db: {e}"))?;
+
+      if let Err(e) = restrict_file_to_owner(path) {
+         tracing::warn!("Failed to restrict {}: {e}", path.display());
+      }
+
+      let (first, entries) = self.read(|audit| {
+         let entries = audit.entries.iter().cloned().collect::<Vec<_>>();
+         (audit.first_seq, entries)
+      });
+      let next = first + entries.len() as u64;
+
+      let mut txn = db.begin_write().map_err(|e| anyhow!("agent audit write txn: {e}"))?;
+      txn.set_durability(Durability::Immediate)
+         .map_err(|e| anyhow!("agent audit durability: {e}"))?;
+
+      {
+         let mut table = txn
+            .open_table(AUDIT_TABLE)
+            .map_err(|e| anyhow!("agent audit open table: {e}"))?;
+
+         let stored = match table.get(META_KEY).map_err(|e| anyhow!("agent audit get meta: {e}"))? {
+            Some(sealed) => Some(key.open_json::<AuditMeta>(sealed.value(), AAD_META)?),
+            None => None,
+         };
+
+         if let Some(meta) = &stored
+            && meta.format > AUDIT_DB_FORMAT
+         {
+            bail!(
+               "agent audit db format {} is newer than this build ({AUDIT_DB_FORMAT})",
+               meta.format
+            );
+         }
+
+         // A file is this ring's continuation while every row it carries is still held at or above the
+         // ring's front: its rows are then the ring's unchanged, and only the tail is missing. A first
+         // save, or a log this process never loaded, replaces the table instead, so the file can never
+         // hold two histories.
+         let continuation = stored.as_ref().filter(|meta| meta.first <= first && meta.next <= next);
+
+         match continuation {
+            Some(meta) => {
+               // The rows the ring dropped fall out of the file; the rows it added are appended.
+               for seq in meta.first..meta.next.min(first) {
+                  table
+                     .remove(entry_key(seq).as_slice())
+                     .map_err(|e| anyhow!("agent audit remove: {e}"))?;
+               }
+
+               for (offset, entry) in entries.iter().enumerate() {
+                  let seq = first + offset as u64;
+
+                  if seq < meta.next {
+                     continue;
+                  }
+
+                  let sealed = key.seal_json(entry, AAD_ENTRY)?;
+                  table
+                     .insert(entry_key(seq).as_slice(), sealed.as_slice())
+                     .map_err(|e| anyhow!("agent audit insert: {e}"))?;
+               }
+            }
+            None => {
+               let stale = table
+                  .iter()
+                  .map_err(|e| anyhow!("agent audit iter: {e}"))?
+                  .map(|row| row.map(|(key, _)| key.value().to_vec()))
+                  .collect::<Result<Vec<_>, _>>()
+                  .map_err(|e| anyhow!("agent audit row: {e}"))?;
+
+               for row in stale {
+                  table.remove(row.as_slice()).map_err(|e| anyhow!("agent audit remove: {e}"))?;
+               }
+
+               for (offset, entry) in entries.iter().enumerate() {
+                  let sealed = key.seal_json(entry, AAD_ENTRY)?;
+                  table
+                     .insert(
+                        entry_key(first + offset as u64).as_slice(),
+                        sealed.as_slice(),
+                     )
+                     .map_err(|e| anyhow!("agent audit insert: {e}"))?;
+               }
+            }
+         }
+
+         let meta = AuditMeta {
+            format: AUDIT_DB_FORMAT,
+            first,
+            next,
+         };
+
+         let sealed = key.seal_json(&meta, AAD_META)?;
+         table
+            .insert(META_KEY, sealed.as_slice())
+            .map_err(|e| anyhow!("agent audit insert meta: {e}"))?;
+      }
+
+      txn.commit().map_err(|e| anyhow!("agent audit commit: {e}"))
    }
 
    /// Record that the file on disk did not read, so no save may replace it.
@@ -263,8 +457,7 @@ impl AgentAuditLog {
 
    /// Append one entry, dropping the oldest when the ring is full.
    ///
-   /// Nothing is written to disk here: a caller that wants the entry persisted calls save with the
-   /// vault's key, which is the same division the profile store has.
+   /// Nothing is written to disk here: the app persists the ring once, on shutdown, through [`Self::save`].
    pub fn record(&self, entry: AuditEntry) {
       self.write(|audit| {
          audit.entries.push_back(entry);
@@ -312,4 +505,12 @@ impl AgentAuditLog {
    pub fn is_empty(&self) -> bool {
       self.len() == 0
    }
+}
+
+/// `e` + a big-endian sequence: the rows sort oldest first, which is the order the ring reads them.
+fn entry_key(seq: u64) -> [u8; 9] {
+   let mut key = [0u8; 9];
+   key[0] = b'e';
+   key[1..].copy_from_slice(&seq.to_be_bytes());
+   key
 }

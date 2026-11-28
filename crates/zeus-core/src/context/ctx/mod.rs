@@ -99,9 +99,9 @@ pub struct ZeusContext {
    /// `wallet_state_key`. The domain is [`crate::agent`]; this is only where the live copy hangs.
    pub agent_profiles: AgentProfileStore,
 
-   /// What agents asked for and what came of it (`agent_audit.data`), sealed with the vault's
-   /// `wallet_state_key`. The ring is [`crate::agent::AgentAuditLog`]'s; this is where the live copy
-   /// hangs.
+   /// What agents asked for and what came of it (`agent_audit.data`), a redb database sealed with the
+   /// vault's `wallet_state_key` and written once, when the app shuts down. The ring is
+   /// [`crate::agent::AgentAuditLog`]'s; this is where the live copy hangs.
    pub agent_audit: AgentAuditLog,
 
    /// ENS names resolved this session. In memory only — see [`EnsCache`].

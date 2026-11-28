@@ -367,14 +367,12 @@ impl ZeusCtx {
       };
 
       let log = self.agent_audit();
-      let present = AgentAuditLog::dir().is_ok_and(|path| path.exists());
 
       match AgentAuditLog::load_from_file(&key) {
          Ok(loaded) => log.replace_from(&loaded),
-         Err(_) if !present => log.replace_from(&AgentAuditLog::default()),
          Err(e) => {
-            // A file that is there and did not read holds what agents have done; the log in memory is
-            // empty, so a later save must refuse rather than seal the empty one over it.
+            // A file that did not read holds what agents have done; the log in memory is empty, so a
+            // later save must refuse rather than write the empty one over it.
             tracing::error!(
                "Failed to load the agent audit log, leaving the file untouched: {e:?}"
             );
@@ -383,9 +381,11 @@ impl ZeusCtx {
       }
    }
 
-   /// Seal and write `data/agent_audit.data` with the vault-held key.
+   /// Write `data/agent_audit.data` with the vault-held key.
    ///
-   /// Refuses while the log's saves are blocked, so a failed load never becomes a silent wipe.
+   /// The only writer: the app calls this once, when it shuts down, because a log that persisted on every
+   /// attempt would write the whole log each time. Refuses while the log's saves are blocked, so a failed
+   /// load never becomes a silent wipe.
    pub fn save_agent_audit(&self) -> Result<(), anyhow::Error> {
       let key = self.read_vault(|vault| vault.wallet_state_key())?;
       self.agent_audit().save(&key)
