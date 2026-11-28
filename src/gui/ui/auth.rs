@@ -9,7 +9,6 @@ use crate::core::{
 };
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::{self, DeferredFocus};
-use crate::gui::ui::dapps::railgun::BundlerUrl;
 use crate::gui::ui::settings::ImportDataUi;
 use crate::utils::TimeStamp;
 use egui::{
@@ -1026,6 +1025,8 @@ fn on_unlock_vault(mut vault: Vault) {
             ctx.load_client_manager();
             ctx.load_price_manager();
             ctx.load_or_create_address_book();
+            ctx.load_agent_profiles();
+            ctx.load_agent_audit();
 
             if let Err(e) = ctx.load_security_settings() {
                tracing::error!("Failed to load security settings: {:?}", e);
@@ -1047,20 +1048,13 @@ fn on_unlock_vault(mut vault: Vault) {
                   .show(&egui_ctx);
             }
 
-            let bundler_url = match BundlerUrl::exists() {
-               Ok(true) => match BundlerUrl::load(&key) {
-                  Ok(url) => Some(url.url),
-                  Err(e) => {
-                     tracing::error!("Error loading Bundler URL: {:?}", e);
-                     None
-                  }
-               },
-               Ok(false) => None,
-               Err(e) => {
-                  tracing::error!("Error checking Bundler URL: {:?}", e);
-                  None
-               }
-            };
+            // The shipped default is the answer when no file exists, and a file that did not read
+            // leaves the default in its place rather than holding the unlock up.
+            if let Err(e) = ctx.load_bundler_url() {
+               tracing::error!("Error loading Bundler URL: {:?}", e);
+            }
+
+            let bundler_url = ctx.bundler_url().url;
 
             // Persist key
             if (key_generated || migrated)
@@ -1079,9 +1073,7 @@ fn on_unlock_vault(mut vault: Vault) {
                gui.settings.encryption.set_argon2(info.argon2.clone());
                gui.account_panel.open();
                gui.account_panel.set_current_wallet(master_info.clone());
-               if let Some(url) = bundler_url {
-                  gui.shield_ui.set_bundler_url(url);
-               }
+               gui.shield_ui.set_bundler_url(bundler_url);
             });
 
             let now = TimeStamp::now_as_millis().unwrap_or_default().timestamp();

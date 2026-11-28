@@ -9,7 +9,6 @@ use crate::{
 };
 use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_elements::{Button, Checkbox, Chip, ChipRole, Slider, Theme};
-use zeus_eth::types::SUPPORTED_CHAINS;
 use zeus_railgun::indexer::syncer::rpc::DEFAULT_BLOCK_RANGE;
 
 use std::sync::{Arc, OnceLock};
@@ -239,11 +238,8 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig, notice: &'static
       provider.prover().set_allow_download(allow_download);
    }
 
-   let new_config_clone = new_config.clone();
    crate::runtime::rt().spawn(async move {
-      let res = new_config_clone.save();
-
-      match res {
+      match new_config.save() {
          Ok(_) => {
             SHARED_GUI.write(|gui| {
                // The dialog is what a sighted user has always got; opening it through the app's
@@ -262,49 +258,9 @@ fn post_click(ctx: &mut ZeusContext, new_config: RailgunConfig, notice: &'static
 
       let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
 
-      for chain in SUPPORTED_CHAINS {
-         if !ctx.railgun_is_supported(chain.into()) {
-            continue;
-         }
-
-         if !new_config.is_enabled(chain) {
-            continue;
-         }
-
-         if let Err(e) = ctx.register_railgun_signers(chain, false).await {
-            tracing::error!("Error registering Railgun signers: {:?}", e);
-         }
-
-         let provider = match ctx.get_railgun_provider(chain, false).await {
-            Ok(provider) => provider,
-            Err(e) => {
-               tracing::error!("Error getting Railgun provider: {:?}", e);
-               continue;
-            }
-         };
-
-         let concurrency = new_config.rpc_syncer_concurrency;
-         let block_range = new_config
-            .rpc_syncer_block_range
-            .get(&chain)
-            .cloned()
-            .unwrap_or(DEFAULT_BLOCK_RANGE);
-
-         {
-            let syncer = provider.utxo_indexer.lock().await.rpc_syncer.clone();
-            syncer.set_block_range(block_range).await;
-            syncer.set_concurrency(concurrency).await;
-         }
-
-         if let Err(e) = ctx.sync_railgun(chain, false).await {
-            tracing::error!("Error syncing Railgun: {:?}", e);
-         }
-
-         let wallets = ctx.get_all_wallets_info();
-         for wallet in wallets {
-            ctx.update_private_data(chain, wallet.address).await;
-         }
-      }
+      // Re-register the signers, point the indexer at the new numbers and sync. It is the same call an
+      // agent's write makes, so the two paths cannot disagree about what saving a config does.
+      ctx.apply_railgun_config().await;
 
       if circuit_download_just_enabled {
          crate::utils::state::prefetch_railgun_circuits_if_allowed(&ctx).await;

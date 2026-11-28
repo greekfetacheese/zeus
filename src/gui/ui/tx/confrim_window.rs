@@ -12,7 +12,7 @@ use crate::assets::icons::Icons;
 use crate::core::clear_signing::{self, ClearDisplay};
 use crate::core::tx::{FeeTiers, PriorityTier};
 use crate::core::ui::TxConfirmAnswer;
-use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx};
+use crate::core::{DecodedEvent, TransactionAnalysis, ZeusContext, ZeusCtx, default_gas_limit};
 use crate::gui::SHARED_GUI;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::common::windows::PromptGate;
@@ -287,7 +287,7 @@ impl TxConfirmationWindow {
          let native = NativeCurrency::from(chain.id());
          let main_event = tx.infer_main_event(ctx.clone(), chain.id());
          let gas_used = tx.gas_used;
-         let gas_limit = gas_used * 15 / 10;
+         let gas_limit = default_gas_limit(gas_used);
 
          let clear_display = if prebuilt_display.is_some() {
             prebuilt_display
@@ -1087,7 +1087,7 @@ impl TxConfirmationWindow {
    ) -> Self {
       let chain = handle.chain();
       let gas_used = analysis.gas_used;
-      let gas_limit = gas_used * 15 / 10;
+      let gas_limit = default_gas_limit(gas_used);
 
       let mut window = TxConfirmationWindow::new();
       window.chain = chain;
@@ -1527,7 +1527,7 @@ mod height_budget {
    ) -> TxConfirmationWindow {
       let chain = handle.chain();
       let gas_used = analysis.gas_used;
-      let gas_limit = gas_used * 15 / 10;
+      let gas_limit = default_gas_limit(gas_used);
 
       let mut window = TxConfirmationWindow::new();
       window.chain = chain;

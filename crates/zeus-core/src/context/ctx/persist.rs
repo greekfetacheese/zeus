@@ -6,12 +6,13 @@ use super::{bundler_url_dir, pool_data_dir};
 use crate::platform::TimeStamp;
 use crate::{
    Vault, WalletInfo, WalletState,
+   agent::{AgentAuditLog, AgentProfileStore},
    persisted::{self, PersistedFile},
    types::*,
 };
 use anyhow::anyhow;
 use ncrypt_me::Argon2;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// `write_private` only tightens mode on the next save. Existing `0644` files
 /// from older builds stay world-readable until then — fix them at startup.
@@ -27,6 +28,8 @@ pub(super) fn tighten_existing_secret_files() {
       bundler_url_dir().ok(),
       PriceManagerHandle::dir().ok(),
       persisted::file_path(PersistedFile::Security).ok(),
+      persisted::file_path(PersistedFile::AgentProfiles).ok(),
+      persisted::file_path(PersistedFile::AgentAudit).ok(),
       persisted::file_path(PersistedFile::Connector).ok(),
    ];
 
@@ -297,23 +300,116 @@ impl ZeusCtx {
       }
    }
 
-   pub fn save_client_manager(&self) {
+   /// Load `data/agent_profiles.data` into the live store.
+   ///
+   /// Authoritative, not additive: after an import the file is whatever the archive carried, and a
+   /// profile the archive does not have must not keep running on the grants it held in the old install.
+   /// A missing file is a first run — the store becomes empty, and the defaults are the answer.
+   pub fn load_agent_profiles(&self) {
       let key = match self.read_vault(|vault| vault.wallet_state_key()) {
          Ok(k) => k,
          Err(e) => {
-            tracing::error!("Error saving ClientManager: {:?}", e);
+            tracing::error!("Error loading agent profiles: {e:?}");
             return;
          }
       };
-      let client = self.get_client_manager();
-      match client.save_to_file(&key) {
+
+      let store = self.agent_profiles();
+      let present = AgentProfileStore::dir().is_ok_and(|path| path.exists());
+
+      match AgentProfileStore::load_from_file(&key) {
+         Ok(loaded) => store.replace_from(&loaded),
+         // A missing file is a first run (or an archive without one): empty is the answer, not
+         // whatever the previous data directory left in memory.
+         Err(_) if !present => store.replace_from(&AgentProfileStore::default()),
+         Err(e) => {
+            // A file that is there and did not read holds the user's real grants: the store in memory
+            // is a default, so a later save must refuse rather than seal the default over them.
+            tracing::error!("Failed to load agent profiles, leaving the file untouched: {e:?}");
+            store.block_saves(e.to_string());
+         }
+      }
+
+      // A deleted wallet's grant must not be inherited by a wallet derived at the same address later:
+      // deriving a wallet is adding one, not restoring a permission. Both callers have the wallet cache
+      // built by this point, which is what makes this set authoritative.
+      let wallets: HashSet<_> =
+         self.get_all_wallets_info().into_iter().map(|wallet| wallet.address).collect();
+
+      if store.retain_wallets(&wallets) > 0
+         && let Err(e) = store.save(&key)
+      {
+         tracing::error!("Error saving pruned agent profiles: {e:?}");
+      }
+   }
+
+   /// Seal and write `data/agent_profiles.data` with the vault-held key.
+   ///
+   /// Refuses while the store's saves are blocked, so a failed load never becomes a silent wipe.
+   pub fn save_agent_profiles(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let store = self.agent_profiles();
+      store.save(&key)
+   }
+
+   /// Load `data/agent_audit.data` into the live log.
+   ///
+   /// Authoritative for the same reason the grant document is: after an import the file is whatever the
+   /// archive carried, and an entry it does not have must not keep claiming it happened here. A missing
+   /// file is a first run — an empty log is the answer, not whatever a previous run left in memory.
+   pub fn load_agent_audit(&self) {
+      let key = match self.read_vault(|vault| vault.wallet_state_key()) {
+         Ok(k) => k,
+         Err(e) => {
+            tracing::error!("Error loading the agent audit log: {e:?}");
+            return;
+         }
+      };
+
+      let log = self.agent_audit();
+
+      match AgentAuditLog::load_from_file(&key) {
+         Ok(loaded) => log.replace_from(&loaded),
+         Err(e) => {
+            // A file that did not read holds what agents have done; the log in memory is empty, so a
+            // later save must refuse rather than write the empty one over it.
+            tracing::error!(
+               "Failed to load the agent audit log, leaving the file untouched: {e:?}"
+            );
+            log.block_saves(e.to_string());
+         }
+      }
+   }
+
+   /// Write `data/agent_audit.data` with the vault-held key.
+   ///
+   /// The only writer: the app calls this once, when it shuts down, because a log that persisted on every
+   /// attempt would write the whole log each time. Refuses while the log's saves are blocked, so a failed
+   /// load never becomes a silent wipe.
+   pub fn save_agent_audit(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      self.agent_audit().save(&key)
+   }
+
+   pub fn save_client_manager(&self) {
+      match self.try_save_client_manager() {
          Ok(_) => tracing::trace!("ClientManager saved"),
          Err(e) => tracing::error!("Error saving ClientManager: {:?}", e),
       }
+   }
 
-      if let Err(e) = client.save_settings() {
-         tracing::error!("Error saving client settings: {:?}", e);
-      }
+   /// Write `providers.data` and `client_settings.json`, keeping the first error.
+   ///
+   /// Both files are attempted whatever the other did, as the frame's own save has always done. A caller
+   /// that is not a frame needs the result: a refused write is reported, not left in the log.
+   pub fn try_save_client_manager(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      let client = self.get_client_manager();
+
+      let providers = client.save_to_file(&key);
+      let settings = client.save_settings();
+
+      providers.and(settings)
    }
 
    /// Load sealed `providers.data` into the live client (no-op if the file is missing).
@@ -426,6 +522,7 @@ impl ZeusCtx {
       self.set_wallet_state(wallet_state);
       self.load_tx_db();
       self.load_security_settings()?;
+      self.load_bundler_url()?;
 
       self.address_book().replace_from(&AddressBookHandle::default());
       self.ens_cache().clear();
@@ -496,6 +593,8 @@ impl ZeusCtx {
       self.load_client_manager();
       self.load_price_manager();
       self.load_or_create_address_book();
+      self.load_agent_profiles();
+      self.load_agent_audit();
 
       Ok((master_info, info.argon2))
    }
@@ -590,11 +689,53 @@ impl ZeusCtx {
       }
    }
 
+   /// Write `disabled_chains.json` from the live set, keeping the caller's error.
+   pub fn try_save_disabled_chains(&self) -> Result<(), anyhow::Error> {
+      self.read(|ctx| ctx.disabled_chains.clone()).save_to_file()
+   }
+
    pub fn save_disabled_chains(&self) {
-      let chains = self.read(|ctx| ctx.disabled_chains.clone());
-      match chains.save_to_file() {
+      match self.try_save_disabled_chains() {
          Ok(_) => tracing::trace!("Disabled Chains saved"),
          Err(e) => tracing::error!("Error saving disabled chains: {:?}", e),
       }
+   }
+
+   /// Write `misc_config.json` from the live config.
+   ///
+   /// The General page spawns the same save from the frame path; a caller that is not a frame gets the
+   /// result, so a refused write is reported rather than left in the log.
+   pub fn save_misc_config(&self) -> Result<(), anyhow::Error> {
+      self.read(|ctx| ctx.misc_config.clone()).save()
+   }
+
+   /// Read `data/bundler_url.data` into the live context.
+   ///
+   /// A missing file is a first run, and the default for Ethereum is the answer then — the same value the
+   /// page starts with, so an unset bundler and an unread one behave alike.
+   pub fn load_bundler_url(&self) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+
+      let url = if BundlerUrl::exists()? {
+         BundlerUrl::load(&key)?
+      } else {
+         BundlerUrl::default()
+      };
+
+      self.write(|ctx| ctx.bundler_url = url);
+      Ok(())
+   }
+
+   /// The bundler URL the running app would use.
+   pub fn bundler_url(&self) -> BundlerUrl {
+      self.read(|ctx| ctx.bundler_url.clone())
+   }
+
+   /// Seal and write `data/bundler_url.data`, keeping the live copy in step.
+   pub fn save_bundler_url(&self, url: BundlerUrl) -> Result<(), anyhow::Error> {
+      let key = self.read_vault(|vault| vault.wallet_state_key())?;
+      url.save(&key)?;
+      self.write(|ctx| ctx.bundler_url = url);
+      Ok(())
    }
 }

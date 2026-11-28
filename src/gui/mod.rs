@@ -16,6 +16,8 @@ use crate::core::context::{ZeusContext, ZeusCtx};
 use crate::gui::appearance::{AppearanceSettings, load_theme_kind};
 use egui_elements::{Announcer, editor::ThemeEditor, theme::*};
 use lazy_static::lazy_static;
+use std::collections::VecDeque;
+use std::time::Duration;
 
 pub use crate::gui::ui::{
    AccountPanel, ApprovalsUi, ConfirmWindow, LoadingWindow, LockScreen, MsgWindow, Notification,
@@ -155,6 +157,9 @@ pub struct GUI {
    pub msg_window: MsgWindow,
    pub loading_window: LoadingWindow,
    pub settings: SettingsUi,
+   /// The agent endpoint while it runs. The handle owns the listener, so dropping it is the
+   /// stop: the accept loop is aborted and `mcp.json` goes with it.
+   pub agent_server: Option<zeus_mcp::ServerHandle>,
    pub tx_history: TxHistory,
    pub data_inspection: bool,
    pub confirm_window: ConfirmWindow,
@@ -198,6 +203,8 @@ pub struct GUI {
    focus_region: FocusRegion,
    /// The pending announcement; the last `announce` of a frame wins.
    announcement: String,
+   /// What an agent did between two frames, waiting its turn to be said.
+   announcements: Announcements,
    /// The label-focus model a shortcut took away for the pass it moved the focus in.
    ///
    /// A label is focusable only while egui's reader model is on, so `Ctrl+Tab` turns it off for
@@ -213,6 +220,96 @@ pub struct GUI {
    #[cfg(feature = "dev")]
    pub dev: DevUi,
    pub merge_notes_window: MergeNotesWindow,
+}
+
+/// How many sentences the app holds for the reader before the oldest is dropped.
+///
+/// A harness retrying a refusal can produce them faster than they can be heard; a queue with no
+/// ceiling would grow for as long as it kept trying, and a sentence thirty attempts back is not
+/// news. The ring keeps all of them either way.
+const ANNOUNCEMENT_QUEUE: usize = 32;
+
+/// How fast a reader speaks, for the gap between two sentences: about three words a second.
+const WORDS_PER_SECOND: f64 = 3.0;
+
+/// The shortest time a sentence is given, so a two-word one is not cut off by the next.
+const SHORTEST_SENTENCE: f64 = 0.8;
+
+/// The longest time a sentence is given, so a long one cannot hold the queue for a paragraph's time.
+const LONGEST_SENTENCE: f64 = 6.0;
+
+/// How long a reader needs for a sentence, in seconds.
+///
+/// A live region read aloud is spoken by the reader at its own rate, which the app cannot measure
+/// and must not override. This is the estimate that keeps two sentences from being said at once:
+/// a sentence replacing another before it has been heard is one interruption, and the second one is
+/// the one lost.
+fn speaking_time(sentence: &str) -> f64 {
+   let words = sentence.split_whitespace().count() as f64;
+
+   (words / WORDS_PER_SECOND).clamp(SHORTEST_SENTENCE, LONGEST_SENTENCE)
+}
+
+/// The sentences an agent asked the app to say, and how long the last one is given.
+///
+/// The frame path keeps one sentence per frame, which is the right shape for a page: the news of the
+/// frame is the last thing it raised. A tool call is not on that path — two actions can finish between
+/// two frames — so their sentences wait here, one at a time, no closer together than it takes to hear
+/// the one before.
+#[derive(Default)]
+pub struct Announcements {
+   /// Oldest first.
+   queued: VecDeque<String>,
+   /// When the last sentence was said, and how long it needs before the next may replace it.
+   said: Option<(f64, f64)>,
+}
+
+impl Announcements {
+   /// Add a sentence to the end of the queue.
+   ///
+   /// The sentence already waiting is not added twice, because a harness retrying the same call is
+   /// one thing to hear, not a burst of the same one. Answers whether the queue changed.
+   pub fn queue(&mut self, sentence: impl Into<String>) -> bool {
+      let sentence = sentence.into();
+
+      if sentence.is_empty() || self.queued.back() == Some(&sentence) {
+         return false;
+      }
+
+      if self.queued.len() >= ANNOUNCEMENT_QUEUE {
+         self.queued.pop_front();
+      }
+
+      self.queued.push_back(sentence);
+
+      true
+   }
+
+   /// The next sentence, once the last one has had the time a reader needs for it.
+   pub fn next(&mut self, now: f64) -> Option<String> {
+      if let Some((at, spoken_for)) = self.said
+         && now - at < spoken_for
+      {
+         return None;
+      }
+
+      self.queued.pop_front()
+   }
+
+   /// Note that a sentence was said, whoever raised it: the queue waits its turn after that one.
+   pub fn spoken(&mut self, sentence: &str, now: f64) {
+      self.said = Some((now, speaking_time(sentence)));
+   }
+
+   /// When the next queued sentence may be said, if one is waiting.
+   pub fn waiting(&self, now: f64) -> Option<f64> {
+      self.queued.front()?;
+
+      let (at, spoken_for) = self.said?;
+      let until = at + spoken_for;
+
+      (until > now).then_some(until)
+   }
 }
 
 impl GUI {
@@ -243,7 +340,7 @@ impl GUI {
       let wallet_ui = ui::WalletUi::new();
       let approvals = ApprovalsUi::new();
 
-      let settings = ctx.write(|ctx| settings::SettingsUi::new(ctx, &mut appearance_settings));
+      let settings = settings::SettingsUi::new(&ctx, &mut appearance_settings);
 
       let tx_history = ui::tx_history::TxHistory::new();
       let sign_msg_window = SignMsgWindow::new();
@@ -295,6 +392,7 @@ impl GUI {
          msg_window,
          loading_window,
          settings,
+         agent_server: None,
          tx_history,
          data_inspection: false,
          confirm_window,
@@ -316,6 +414,7 @@ impl GUI {
          pending_region: None,
          focus_region: FocusRegion::Main,
          announcement: String::new(),
+         announcements: Announcements::default(),
          reader_model: None,
          announcer: Announcer::new("zeus"),
          last_status_pill: None,
@@ -327,10 +426,6 @@ impl GUI {
 
    pub fn show_top_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
       ui::panels::top_panel::show(self, ctx, ui);
-   }
-
-   pub fn show_bottom_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
-      ui::panels::bottom_panel::_show(self, ctx, ui);
    }
 
    pub fn show_left_panel(&mut self, ctx: &mut ZeusContext, ui: &mut Ui) {
@@ -476,14 +571,47 @@ impl GUI {
       self.announcement = text.into();
    }
 
+   /// Queue `text` for the screen reader from off the frame path: a tool call, a flow, a refusal.
+   ///
+   /// A page speaks in the frame that drew it; an agent's action does not, and two can finish
+   /// between two frames. They wait in [`Announcements`] rather than overwrite each other, and this
+   /// wakes the window when one arrives — an idle app draws no frame to say it in.
+   pub fn announce_from_host(&mut self, text: impl Into<String>) {
+      if self.announcements.queue(text) {
+         self.request_repaint();
+      }
+   }
+
    /// Put this frame's announcement in the tree, once per viewport pass, after the panels.
    ///
    /// The text is set on every pass so the node that carries it outlives it — a live
    /// region created together with its message never speaks — and cleared once drawn, so
    /// the same words twice are two announcements.
+   ///
+   /// A sentence a page raised this frame is the news of the frame and is said at once; one an
+   /// agent raised steps in only when the frame has none, and only once the last sentence has been
+   /// given the time a reader needs for it.
    pub fn show_announcer(&mut self, ui: &Ui) {
-      self.announcer.announce(ui, self.announcement.as_str());
-      self.announcement.clear();
+      let now = ui.input(|input| input.time);
+
+      if self.announcement.is_empty()
+         && let Some(text) = self.announcements.next(now)
+      {
+         self.announcement = text;
+      }
+
+      let said = std::mem::take(&mut self.announcement);
+
+      self.announcer.announce(ui, said.as_str());
+
+      if !said.is_empty() {
+         self.announcements.spoken(&said, now);
+      }
+
+      // The queue asks for its own next frame: an idle window would otherwise sit on the sentence.
+      if let Some(until) = self.announcements.waiting(now) {
+         ui.ctx().request_repaint_after(Duration::from_secs_f64((until - now).max(0.0)));
+      }
    }
 
    /// Close Zeus once the held attempt-cap notice has been acknowledged.

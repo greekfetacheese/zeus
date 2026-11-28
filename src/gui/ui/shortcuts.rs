@@ -114,9 +114,14 @@ pub fn handle(gui: &mut GUI, ctx: &mut ZeusContext, egui_ctx: &Context) {
       return;
    }
 
-   // Behind the lock screen the card owns the keyboard; a dialog keeps it until it closes. The
-   // keys above were still consumed, so a typing field cannot receive their characters.
-   if ctx.locked || !ctx.vault_unlocked || overlay_open(gui) {
+   // Behind the lock screen the card owns the keyboard. The keys above were still consumed, so a
+   // typing field cannot receive their characters.
+   if ctx.locked || !ctx.vault_unlocked {
+      return;
+   }
+
+   // A dialog keeps the keyboard until it closes.
+   if overlay_open(gui) {
       return;
    }
 

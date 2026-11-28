@@ -7,8 +7,10 @@ use super::state::{
    AfterState, BeforeState, NftRequest, known_approvals, not_in, split_approval_pairs,
 };
 use crate::ZeusCtx;
-use crate::sim::approval_diff::{ApprovalCandidate, ApprovalDiff, collect_approval_candidates};
-use crate::sim::balance_diff::{BalanceDiff, collect_token_candidates};
+use crate::sim::approval_diff::{
+   ApprovalCandidate, ApprovalDiff, ApprovalKind, collect_approval_candidates,
+};
+use crate::sim::balance_diff::{BalanceDiff, DiffWatch, collect_token_candidates};
 use anyhow::anyhow;
 use std::sync::Arc;
 use std::time::Instant;
@@ -53,28 +55,44 @@ impl DiffProbe {
       from: Address,
       interact_to: Address,
       call_data: Bytes,
+      watch: &DiffWatch,
    ) -> Self {
       let (known_erc20, known_permit2) = known_approvals(&ctx, chain.id(), from);
       let permit2 = address_book::permit2_contract(chain.id()).ok();
       let concurrency = ctx.get_client_manager().concurrency();
       let semaphore = Arc::new(Semaphore::new(concurrency));
 
-      let portfolio = ctx.get_portfolio(chain.id(), from);
+      let (tokens_pre, candidates_pre): (Vec<Address>, Vec<ApprovalCandidate>) = match watch {
+         // A vetted callee: the flow listed every contract it can move, so that list is the whole pre-state.
+         DiffWatch::Exact { tokens, approvals } => {
+            let tokens = collect_watched(tokens, interact_to);
+            let candidates = watched_approvals(approvals, permit2);
 
-      let tokens_pre = collect_token_candidates(
-         portfolio.tokens().iter().map(|t| t.address),
-         interact_to,
-         std::iter::empty(),
-      );
+            (tokens, candidates)
+         }
+         // Nobody vetted the callee: the portfolio sweep is what catches a token moved by code the call did
+         // not name.
+         DiffWatch::Discovered => {
+            let portfolio = ctx.get_portfolio(chain.id(), from);
 
-      let candidates_pre = collect_approval_candidates(
-         from,
-         interact_to,
-         &call_data,
-         &[],
-         known_erc20.clone(),
-         known_permit2.clone(),
-      );
+            let tokens = collect_token_candidates(
+               portfolio.tokens().iter().map(|t| t.address),
+               interact_to,
+               std::iter::empty(),
+            );
+
+            let candidates = collect_approval_candidates(
+               from,
+               interact_to,
+               &call_data,
+               &[],
+               known_erc20.clone(),
+               known_permit2.clone(),
+            );
+
+            (tokens, candidates)
+         }
+      };
 
       let (erc20_pre, permit2_pre) = split_approval_pairs(&candidates_pre);
 
@@ -214,6 +232,57 @@ impl DiffProbe {
          extras_handle,
       }
    }
+}
+
+/// The contracts an exact watch names, plus the call target the logs will add anyway.
+///
+/// The target is kept so a flow that swaps through a token the caller did not list still sees its row: the
+/// log addresses are folded in at measure time regardless of the watch.
+fn collect_watched(tokens: &[Address], interact_to: Address) -> Vec<Address> {
+   let mut out: Vec<Address> = tokens.iter().copied().filter(|token| !token.is_zero()).collect();
+
+   if !interact_to.is_zero() && !out.contains(&interact_to) {
+      out.push(interact_to);
+   }
+
+   out
+}
+
+/// The allowance candidates an exact watch names.
+///
+/// A pair is read as the allowance the flow is about to change; `None` from the permit registry means the
+/// caller named a token that is not an ERC-20, and the candidate is skipped rather than guessed.
+fn watched_approvals(
+   approvals: &[(Address, Address)],
+   permit2: Option<Address>,
+) -> Vec<ApprovalCandidate> {
+   let mut out = Vec::with_capacity(approvals.len());
+
+   for &(token, spender) in approvals {
+      if token.is_zero() || spender.is_zero() {
+         continue;
+      }
+
+      // Permit2 is the only spender whose allowance lives in the permit registry rather than in the token:
+      // it is the spender a swap names, and its allowance is the one `handle_approve` writes.
+      let kind = if Some(spender) == permit2 {
+         ApprovalKind::Permit2
+      } else {
+         ApprovalKind::Erc20
+      };
+
+      if !out.iter().any(|cand: &ApprovalCandidate| {
+         cand.kind == kind && cand.token == token && cand.spender == spender
+      }) {
+         out.push(ApprovalCandidate {
+            kind,
+            token,
+            spender,
+         });
+      }
+   }
+
+   out
 }
 
 /// A [`DiffProbe`] measured against a finished simulation.

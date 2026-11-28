@@ -1,4 +1,4 @@
-use super::super::app::{main_window, master_wallet, wallet_in_cache};
+use super::super::app::{main_window, master_wallet, settings_window, wallet_in_cache};
 use super::super::harness::{
    announced, clipboard_text, copy_said, focused_node, frame_nodes, frame_nodes_and_output,
    is_control, key_combo, key_release,
@@ -475,4 +475,34 @@ fn ctrl_enter_on_another_page_does_not_press_send() {
    );
 
    assert!(!gui.send_crypto.send_requested());
+}
+/// Nothing starts or stops the endpoint from the keyboard any more: it listens for as long as Zeus
+/// runs, so the brake is the credentials rather than a chord. A key that quietly did nothing used to
+/// be the one control a reader needed in a hurry, so the absence is asserted rather than assumed.
+#[test]
+fn no_chord_stops_the_agent_server() {
+   let (ctx, mut gui, zeus) = settings_window();
+   zeus.write(|zeus| zeus.vault_unlocked = true);
+
+   let nodes = frame_nodes(
+      &ctx,
+      vec![key_combo(Key::A, Modifiers::COMMAND | Modifiers::SHIFT)],
+      |ui| {
+         zeus.write(|zeus| {
+            crate::gui::ui::shortcuts::handle(&mut gui, zeus, ui.ctx());
+            gui.show_announcer(ui);
+         });
+      },
+   );
+
+   assert!(
+      gui.settings.is_open(),
+      "the chord belongs to no action, so the window stays up"
+   );
+
+   assert!(
+      announced(&nodes).is_none_or(|words| words.is_empty()),
+      "and nothing is said about a server that was never touched: {:?}",
+      announced(&nodes)
+   );
 }

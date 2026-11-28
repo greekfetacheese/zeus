@@ -22,10 +22,12 @@ use std::{collections::HashSet, time::Instant};
 use zeus_eth::alloy_rpc_types::Block;
 use zeus_eth::revm::context::ContextTr;
 
+use crate::core::sim::diff::DiffProbe;
 use crate::core::{
-   ApproveSimulation, DecodedEvent, SendTxOptions, SendTxRequest, SwapParams, TransactionAnalysis,
-   UnwrapWETHParams, WrapETHParams, ZeusCtx, send_token_approve, send_transaction, sign_message,
-   signature::Permit2Info, types::Dapp,
+   AgentEnv, Amount, ApproveSimulation, DecodedEvent, DiffWatch, SendTxOptions, SendTxRequest,
+   SwapParams, TransactionAnalysis, TransactionRich, TxPromise, UnwrapWETHParams, WrapETHParams,
+   ZeusCtx, send_token_approve, send_transaction, sign_message, signature::Permit2Info,
+   types::Dapp,
 };
 use crate::utils::{
    simulate::*,
@@ -34,7 +36,7 @@ use crate::utils::{
 };
 
 use zeus_eth::{
-   alloy_primitives::{Address, U256},
+   alloy_primitives::{Address, Bytes, U256},
    alloy_rpc_types::BlockId,
    amm::uniswap::{AnyUniswapPool, UniswapPool, UniswapV4Pool},
    currency::{Currency, erc20::ERC20Token, native::NativeCurrency},
@@ -1252,7 +1254,7 @@ impl SwapUi {
    ///
    /// A hook that is not a flat cut of the input cannot be modelled; those pools get their exact amount
    /// quoted instead, which is the amount a direct hop asks for.
-   async fn prepare_hook_pools(
+   pub(crate) async fn prepare_hook_pools(
       ctx: ZeusCtx,
       pools: &mut [AnyUniswapPool],
       currency_in: &Currency,
@@ -1594,11 +1596,11 @@ impl SwapUi {
          crate::runtime::rt().spawn(async move {
             let ctx = Self::open_loading();
             let result = if wrap {
-               wrap_eth(ctx, from, chain, amount_in).await
+               wrap_eth(ctx, AgentEnv::user(), from, chain, amount_in).await
             } else {
-               unwrap_weth(ctx, from, chain, amount_in).await
+               unwrap_weth(ctx, AgentEnv::user(), from, chain, amount_in).await
             };
-            Self::finish_swap_tx(result, false);
+            Self::finish_swap_tx(result.map(|_| ()), false);
          });
          return;
       }
@@ -1607,6 +1609,9 @@ impl SwapUi {
       let currency_out = self.quote.currency_out.clone();
       let amount_in = self.quote.amount_in.clone();
       let swap_steps = self.quote.swap_steps.clone();
+      // What the form promised: the quote is what the Price Impact row was computed from, so it is also
+      // what the simulation is reviewed against.
+      let expected_out = self.quote.amount_out.clone();
 
       let mev_protect = settings.mev_protect;
       let deadline = settings.deadline;
@@ -1618,6 +1623,7 @@ impl SwapUi {
          let ctx = Self::open_loading();
          let result = swap_via_ur(
             ctx,
+            AgentEnv::user(),
             chain,
             slippage,
             mev_protect,
@@ -1626,10 +1632,11 @@ impl SwapUi {
             amount_in,
             currency_in,
             currency_out,
+            expected_out,
             swap_steps,
          )
          .await;
-         Self::finish_swap_tx(result, true);
+         Self::finish_swap_tx(result.map(|_| ()), true);
       });
    }
 
@@ -1806,10 +1813,11 @@ pub fn get_relevant_pools(
 
 pub async fn wrap_eth(
    ctx: ZeusCtx,
+   env: AgentEnv,
    from: Address,
    chain: ChainId,
    amount: NumericValue,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
@@ -1924,7 +1932,7 @@ pub async fn wrap_eth(
    let mev_protect = false;
    let source_is_zeus = true;
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -1934,6 +1942,8 @@ pub async fn wrap_eth(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         priority: env.priority,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -1958,15 +1968,16 @@ pub async fn wrap_eth(
       ctx.update_public_data(chain.id(), from);
    });
 
-   Ok(())
+   Ok(rich)
 }
 
 pub async fn unwrap_weth(
    ctx: ZeusCtx,
+   env: AgentEnv,
    from: Address,
    chain: ChainId,
    amount: NumericValue,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
 
    let eth_balance_before = native_balance_at(ctx.clone(), chain, from, block_id).await?;
@@ -2064,7 +2075,7 @@ pub async fn unwrap_weth(
    let mev_protect = false;
    let source_is_zeus = true;
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -2074,6 +2085,8 @@ pub async fn unwrap_weth(
          .analysis(tx_analysis),
       SendTxOptions {
          mev_protect,
+         priority: env.priority,
+         authority: env.authority,
          ..Default::default()
       },
    )
@@ -2098,11 +2111,12 @@ pub async fn unwrap_weth(
       ctx.update_public_data(chain.id(), from);
    });
 
-   Ok(())
+   Ok(rich)
 }
 
 async fn handle_approve(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    signer_address: Address,
    token: &ERC20Token,
@@ -2163,6 +2177,7 @@ async fn handle_approve(
 
       let receipt = send_token_approve(
          ctx.clone(),
+         env.clone(),
          chain,
          signer_address,
          token,
@@ -2189,8 +2204,9 @@ async fn handle_approve(
 }
 
 /// Execute a swap through the Universal Router
-async fn swap_via_ur(
+pub(crate) async fn swap_via_ur(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    slippage: f64,
    mev_protect: bool,
@@ -2199,8 +2215,11 @@ async fn swap_via_ur(
    amount_in: NumericValue,
    currency_in: Currency,
    currency_out: Currency,
+   // What the caller was quoted. The simulation is measured against this, never against its own output:
+   // a floor derived from the simulation proves the trade did not move, not that it was a good one.
+   expected_out: NumericValue,
    swap_steps: Vec<SwapStep<AnyUniswapPool>>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let client = ctx.get_client_manager();
 
    let (block, block_id) = pinned_head(ctx.clone(), chain, BlockId::latest()).await?;
@@ -2219,6 +2238,28 @@ async fn swap_via_ur(
    // Prefetch account and storage info
    let router_addr = address_book::universal_router_v2(chain.id())?;
    let permit2_addr = address_book::permit2_contract(chain.id())?;
+
+   // What the swap moves, read before the fork runs. The calldata does not exist yet — it needs the
+   // Permit2 signature and is encoded twice — so the probe starts without it: the pre-state is the
+   // portfolio plus the router, and everything the swap touches is added from its logs after the
+   // simulation. Without this the analysis reaches the confirmation with no diffs at all.
+   // The contracts a swap can move are the ones it names: the two currencies of the trade, and the two
+   // allowances `handle_approve` can write below — the token's to Permit2 and Permit2's to the router.
+   // Nothing else can reach the signer's balance through Zeus's own calldata.
+   let watch = DiffWatch::exact([currency_in.address(), currency_out.address()]).with_approvals([
+      (currency_in.address(), permit2_addr),
+      (currency_in.address(), router_addr),
+   ]);
+
+   let probe = DiffProbe::start(
+      ctx.clone(),
+      chain,
+      block_id,
+      signer_address,
+      router_addr,
+      Bytes::default(),
+      &watch,
+   );
 
    let accounts = swap_prefetch_accounts(
       chain,
@@ -2263,6 +2304,7 @@ async fn swap_via_ur(
 
       let new_db = handle_approve(
          ctx.clone(),
+         env.clone(),
          chain,
          signer_address,
          &token,
@@ -2311,7 +2353,7 @@ async fn swap_via_ur(
 
    // Simulate on the fork the approval was committed into, if there was one, so
    // the swap sees the allowance.
-   let (sim, token_out_balance_after) = simulate_on_fork_db(
+   let (sim, (token_out_balance_after, measured)) = simulate_on_fork_db(
       chain,
       &block,
       fork_db,
@@ -2325,11 +2367,16 @@ async fn swap_via_ur(
          authorization_list: vec![],
       },
       |evm, sim| {
-         if currency_out.is_native() {
+         let balance = if currency_out.is_native() {
             Ok(sim.balance_after)
          } else {
             simulate::erc20_balance(evm, currency_out.address(), signer_address)
-         }
+         };
+
+         // The probe reads the post-simulation EVM here: it cannot be handed across the await.
+         let measured = probe.measure(ctx.clone(), chain, block_id, &sim.logs, evm);
+
+         (balance, measured)
       },
    )?;
 
@@ -2357,8 +2404,13 @@ async fn swap_via_ur(
       return Err(anyhow!("No tokens received from the swap"));
    };
 
-   // Prompt the user to sign a message if needed
-   if let Some(permit2_info) = &permit2_info_opt
+   // Prompt the user to sign a message if needed.
+   //
+   // An agent's grant stands in for the click here, exactly as it does in `confirm_tx`: the permit is
+   // signed from the vault inside `encode_swap` either way, so this window asks for a consent the flow
+   // never reads — and one an autonomous swap has nobody to give.
+   if env.authority.is_none()
+      && let Some(permit2_info) = &permit2_info_opt
       && permit2_info.needs_new_signature
    {
       let msg = permit2_info.msg.clone().ok_or(anyhow!("No permit message found"))?;
@@ -2415,11 +2467,20 @@ async fn swap_via_ur(
       amount_in_usd: Some(amount_in_usd),
       received: real_amount_out,
       received_usd: Some(received_usd),
-      min_received: Some(amount_out_min),
+      min_received: Some(amount_out_min.clone()),
       min_received_usd: Some(min_received_usd),
       sender: signer_address,
       recipient: Some(signer_address),
    };
+
+   let (sim_balance_diff, sim_approval_diff) = measured
+      .resolve(
+         ctx.clone(),
+         chain,
+         eth_balance_before,
+         eth_balance_after,
+      )
+      .await?;
 
    let contract_interact = Some(true);
    let gas_used = sim_res.tx_gas_used();
@@ -2441,6 +2502,9 @@ async fn swap_via_ur(
    )
    .await?;
 
+   swap_tx_analysis.set_diffs(sim_balance_diff, sim_approval_diff);
+   swap_tx_analysis.set_measured_out(swap_params.received.clone());
+
    let main_event = DecodedEvent::SwapToken(swap_params.clone());
    swap_tx_analysis.set_block_number(block_number);
    swap_tx_analysis.set_main_event(main_event);
@@ -2452,7 +2516,7 @@ async fn swap_via_ur(
    let auth_list = Vec::new();
    let source_is_zeus = true;
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, signer_address, router_addr)
@@ -2463,6 +2527,16 @@ async fn swap_via_ur(
       SendTxOptions {
          dapp,
          mev_protect,
+         priority: env.priority,
+         authority: env.authority,
+         // What the caller bargained for: this much in, that much quoted out, and the least the calldata
+         // will accept.
+         promise: Some(TxPromise::Swap {
+            input: Amount::new(currency_in.clone(), amount_in.clone()),
+            output: currency_out.clone(),
+            expected_out,
+            floor: amount_out_min.clone(),
+         }),
          ..Default::default()
       },
    )
@@ -2525,5 +2599,5 @@ async fn swap_via_ur(
       ctx.update_public_data(chain.id(), signer_address);
    });
 
-   Ok(())
+   Ok(rich)
 }

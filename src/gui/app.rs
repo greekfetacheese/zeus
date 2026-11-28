@@ -194,6 +194,40 @@ impl ZeusApp {
       }
    }
 
+   /// Run the endpoint whenever the app runs and there is an agent for it to authenticate.
+   ///
+   /// The listener is not a switch and has no control: it opens as soon as one profile exists — an
+   /// endpoint with nothing to authenticate accepts no one — and closes when the last one is
+   /// deleted. A request that carries no valid token is refused either way.
+   fn reconcile_agent_server(&mut self) {
+      let has_profile = self.ctx.read(|ctx| !ctx.agent_profiles.profiles().is_empty());
+
+      let running = SHARED_GUI.read(|gui| gui.agent_server.is_some());
+
+      if has_profile && !running {
+         SHARED_GUI.write(|gui| {
+            let handle = gui.ctx.clone();
+
+            match crate::gui::ui::settings::agents::server::start(&handle) {
+               Ok(started) => {
+                  let port = started.port();
+                  gui.agent_server = Some(started);
+                  gui.announce(format!("Agent server listening on port {port}."));
+               }
+               Err(e) => gui.announce(format!("Could not start the agent server: {e}")),
+            }
+
+            gui.request_repaint();
+         });
+      } else if !has_profile && running {
+         SHARED_GUI.write(|gui| {
+            gui.agent_server = None;
+            gui.announce("Agent server stopped.".to_owned());
+            gui.request_repaint();
+         });
+      }
+   }
+
    fn toggle_window(&mut self, egui_ctx: &egui::Context) {
       if self.hidden_to_tray {
          self.hidden_to_tray = false;
@@ -308,6 +342,10 @@ fn begin_shutdown(
                ctx.save_currency_db();
                ctx.save_address_book();
                ctx.save_price_manager();
+
+               if let Err(e) = ctx.save_agent_audit() {
+                  tracing::error!("Failed to save the agent audit log: {:?}", e);
+               }
             })
             .await;
 
@@ -397,6 +435,7 @@ impl eframe::App for ZeusApp {
    /// minimize-to-tray leaves it in. No painting is allowed here.
    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
       self.handle_tray(ctx);
+      self.reconcile_agent_server();
 
       // A dapp prompt raised the window from a worker thread (`GUI::bring_to_front`).
       // It already queued the viewport commands; here we only clear the hidden-in-tray
@@ -496,6 +535,7 @@ impl eframe::App for ZeusApp {
                theme,
                &mut gui.appearance_settings,
                &mut gui.keymap,
+               &mut gui.agent_server,
                ui,
             );
 
@@ -510,6 +550,14 @@ impl eframe::App for ZeusApp {
             // the window it was opened from.
             if gui.settings.take_shortcuts_request() {
                gui.shortcut_sheet.open();
+            }
+
+            // The Activity view's link asks for the history page. The window is drawn over the pages
+            // and cannot move them, so the frame closes it and opens what it linked to; the pass
+            // after this one draws it.
+            if let Some(page) = gui.settings.take_page() {
+               gui.settings.close(ctx);
+               crate::gui::ui::panels::left_panel::open_page(gui, ctx, page);
             }
 
             // The app's single announcement channel, after every panel has had its

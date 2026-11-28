@@ -1,0 +1,514 @@
+//! The one decision an agent request gets, and the words a refusal is reported in.
+//!
+//! Nothing here touches a chain, a window or an HTTP request: both functions take a context for the vault
+//! lock, a profile for the grant, and a plain description of what is being asked. That is what makes the
+//! permission model testable without a GUI — and it is why the decision can be the last thing before an
+//! action runs instead of a filter somewhere in the transport.
+//!
+//! The precheck answers at the request's entry, where the capability is known. The authority answers the
+//! question only a simulation can: what is *actually* leaving this wallet. Both agree on the envelope
+//! because the envelope hangs off the wallet, not off the capability.
+
+use super::intent::{Asset, Intent};
+use super::profile::{
+   AgentProfile, CapabilityVerb, NftScope, ProfileMode, TokenRef, TokenScope, WalletGrant,
+   capability,
+};
+use crate::tx::review::review;
+use crate::tx::{TransactionAnalysis, TxPromise};
+use crate::{ZeusContext, ZeusCtx};
+use std::fmt;
+use zeus_eth::alloy_primitives::{Address, U256};
+use zeus_eth::currency::Currency;
+use zeus_eth::utils::NumericValue;
+
+/// The answer to one request.
+///
+/// `PartialEq` rather than `Eq`: a refusal made by the simulation carries the amounts it was made from,
+/// and an amount is a float. Nothing compares decisions as keys, and a test compares them as values.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Decision {
+   /// Run it. The flag is true when the profile asked to see every state change before it happens.
+   Allowed { prompt: bool },
+   /// The human has to finish this one, so the agent cannot be the one who completes it. The reason is
+   /// what the announcement and the transport's user-action code say.
+   NeedsUser { reason: &'static str },
+   /// Refused, with the row of the rules that refused it.
+   Denied(Denial),
+}
+
+/// Why a request was refused.
+///
+/// Each variant is one row of the enforcement rules, and the code is the stable string a client branches
+/// on, so a harness never has to parse the sentence.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Denial {
+   /// The vault is locked, or was never opened in this run.
+   VaultLocked,
+   /// The grant does not carry the capability.
+   NotGranted {
+      capability: String,
+      wallet: Option<Address>,
+   },
+   /// The wallet has no grant at all, or its own switch is off.
+   WalletNotGranted { wallet: Address },
+   /// The token leaving the wallet is not in its allowlist.
+   TokenNotAllowed { wallet: Address, token: TokenRef },
+   /// The NFT leaving the wallet is not in its allowlist.
+   NftNotAllowed {
+      wallet: Address,
+      chain: u64,
+      collection: Address,
+      token_id: U256,
+   },
+   /// The trade loses more to price impact than the grant allows.
+   PriceImpact(Box<Impact>),
+   /// Less arrived than the flow promised: a transfer tax, a fee-on-transfer token, a hook's cut.
+   OutputShortfall(Box<Shortfall>),
+   /// The grant wants the output priced and the app has no price for it, so nobody can say what the
+   /// transaction is worth.
+   PriceUnavailable { currencies: Vec<Currency> },
+}
+
+/// What a trade lost, and the ceiling it lost past.
+///
+/// Boxed because a refusal travels in every `Result` this crate's action path returns, and two amounts
+/// would make that variant the largest thing on the stack for every call that succeeds.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Impact {
+   /// What the simulation showed, against the quote the caller was given.
+   pub bps: u16,
+   /// The grant's own ceiling.
+   pub allowed_bps: u16,
+   /// The input leg, when it was priced.
+   pub usd_in: Option<NumericValue>,
+   /// The output leg, when it was priced.
+   pub usd_out: Option<NumericValue>,
+}
+
+/// What arrived, what was promised, and the ceiling the difference crossed.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Shortfall {
+   /// How short the delivery was, in the currency's own units.
+   pub bps: u16,
+   /// The grant's own ceiling.
+   pub allowed_bps: u16,
+   /// What the flow promised.
+   pub expected: NumericValue,
+   /// What the simulation showed arriving.
+   pub measured: NumericValue,
+   /// What it arrived in.
+   pub currency: Currency,
+}
+
+/// Basis points as the percentage a person reads them as.
+///
+/// The ceilings are stored in basis points because that is what a grant holds and what a comparison wants;
+/// every sentence a reader sees states them as a percent, the same figure the swap page shows beside them.
+pub(crate) fn percent(bps: u16) -> String {
+   format!("{:.2}%", f64::from(bps) / 100.0)
+}
+
+/// The trade's loss against its quote, as one sentence.
+fn impact_sentence(impact: &Impact) -> String {
+   format!(
+      "the trade loses {} to price impact where this grant allows {}",
+      percent(impact.bps),
+      percent(impact.allowed_bps)
+   )
+}
+
+/// What arrived against what was promised, as one sentence.
+fn shortfall_sentence(shortfall: &Shortfall) -> String {
+   format!(
+      "the simulation receives {} {} where the flow promised {} ({} short; this grant allows {})",
+      shortfall.measured.formatted(),
+      shortfall.currency.symbol(),
+      shortfall.expected.formatted(),
+      percent(shortfall.bps),
+      percent(shortfall.allowed_bps)
+   )
+}
+
+impl Denial {
+   /// The stable code a client branches on. Adding a variant must not rename an existing one.
+   pub const fn code(&self) -> &'static str {
+      match self {
+         Self::VaultLocked => "VAULT_LOCKED",
+         Self::NotGranted { .. } | Self::WalletNotGranted { .. } => "NOT_GRANTED",
+         Self::TokenNotAllowed { .. } => "TOKEN_NOT_ALLOWED",
+         Self::NftNotAllowed { .. } => "NFT_NOT_ALLOWED",
+         Self::PriceImpact { .. } => "PRICE_IMPACT",
+         Self::OutputShortfall { .. } => "OUTPUT_SHORTFALL",
+         Self::PriceUnavailable { .. } => "PRICE_UNAVAILABLE",
+      }
+   }
+}
+
+impl fmt::Display for Denial {
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      match self {
+         Self::VaultLocked => f.write_str("Zeus is locked"),
+         Self::NotGranted {
+            capability,
+            wallet: Some(wallet),
+         } => {
+            write!(
+               f,
+               "the grant does not include {capability} on {wallet:#x}"
+            )
+         }
+         Self::NotGranted {
+            capability,
+            wallet: None,
+         } => {
+            write!(f, "the grant does not include {capability}")
+         }
+         Self::WalletNotGranted { wallet } => {
+            write!(f, "the agent has no grant on {wallet:#x}")
+         }
+         Self::TokenNotAllowed { wallet, token } => write!(
+            f,
+            "{:#x} on chain {} is not in the token allowlist for {wallet:#x}",
+            token.address, token.chain
+         ),
+         Self::NftNotAllowed {
+            wallet,
+            chain,
+            collection,
+            token_id,
+         } => write!(
+            f,
+            "{collection:#x} #{token_id} on chain {chain} is not in the NFT allowlist for {wallet:#x}"
+         ),
+         Self::PriceImpact(impact) => {
+            f.write_str(&impact_sentence(impact))?;
+
+            // The legs are what the user was shown, so the sentence says them when the app priced them.
+            match (&impact.usd_in, &impact.usd_out) {
+               (Some(usd_in), Some(usd_out)) => write!(
+                  f,
+                  " (${} in, ${} out)",
+                  usd_in.formatted(),
+                  usd_out.formatted()
+               ),
+               (Some(usd_in), None) => write!(f, " (${} in)", usd_in.formatted()),
+               _ => Ok(()),
+            }
+         }
+         Self::OutputShortfall(shortfall) => f.write_str(&shortfall_sentence(shortfall)),
+         Self::PriceUnavailable { currencies } => {
+            let names: Vec<&str> = currencies.iter().map(Currency::symbol).collect();
+
+            write!(
+               f,
+               "this grant wants the amount that arrives priced, and the app has no price for {}",
+               names.join(", ")
+            )
+         }
+      }
+   }
+}
+
+/// A policy denial carried through an `anyhow` error.
+///
+/// The confirmation seam answers in `anyhow::Error`, and `anyhow!(denial)` would keep the sentence and
+/// lose the variant — so a refusal the grant itself made reached the tool boundary as an unclassified
+/// internal error, with no code a client could branch on and a hint telling the model to report a bug.
+/// Wrapping keeps the typed denial in the error until the edge asks it what it was.
+#[derive(Clone, Debug)]
+pub struct AgentDenial(pub Denial);
+
+impl fmt::Display for AgentDenial {
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      self.0.fmt(f)
+   }
+}
+
+impl std::error::Error for AgentDenial {}
+
+/// Say one refusal out loud.
+///
+/// Two gates answer a refusal — the one in front of a tool and the one inside the pipeline — and both
+/// refuse with a [`Denial`]. The sentence is written once here so a user who cannot see the screen
+/// hears the same words whichever gate said no.
+pub fn announce_denial(denial: &Denial) {
+   crate::ui::announce(&format!("Agent was denied: {denial}"));
+}
+
+/// Decide a request at its entry, before anything is built, simulated or signed.
+pub fn precheck(ctx: &ZeusCtx, profile: &AgentProfile, intent: &Intent) -> Decision {
+   if !vault_open(ctx) {
+      return Decision::Denied(Denial::VaultLocked);
+   }
+
+   let name = intent.capability();
+   let Some(entry) = capability(name) else {
+      // The catalog is the answer to "may this be granted at all", so a name it does not know — a typo
+      // in a tool table, a capability from a newer build — denies rather than passes.
+      return Decision::Denied(Denial::NotGranted {
+         capability: name.to_owned(),
+         wallet: intent.wallet(),
+      });
+   };
+
+   let wallet = intent.wallet();
+   let granted = match wallet {
+      Some(wallet) => profile.allows(wallet, name),
+      None => profile.allows_global(name),
+   };
+
+   if !granted {
+      return Decision::Denied(Denial::NotGranted {
+         capability: name.to_owned(),
+         wallet,
+      });
+   }
+
+   if let Intent::AssetMove { asset, .. } = intent
+      && let Some(wallet) = wallet
+      && let Some(grant) = armed_grant(profile, wallet)
+      && let Some(denial) = asset_denial(wallet, grant, *asset)
+   {
+      return Decision::Denied(denial);
+   }
+
+   match intent {
+      // A key is a secret the app owner types into Zeus and a file dialog is a path only they can pick,
+      // so here the grant is not enough: the agent opens the form and stops there.
+      Intent::NeedsHuman { .. } => {
+         return Decision::NeedsUser {
+            reason: "the key is typed into Zeus by the app owner, never handed to an agent",
+         };
+      }
+      // An export writes to the destination the grant fixed, so the human's part of it already happened
+      // when the grant was made; with no destination there is nothing to write to.
+      Intent::Export { .. } if profile.export_dir.is_none() => {
+         return Decision::NeedsUser {
+            reason: "an export needs a destination folder, chosen in Zeus",
+         };
+      }
+      _ => {}
+   }
+
+   // A read changes nothing, so it never asks. Only a write can be made to ask, and only by the
+   // profile's own mode. An export is the one write whose human step is fixed at grant time, which is
+   // why it stays autonomous even here.
+   let prompt = entry.verb() == CapabilityVerb::Write
+      && profile.mode == ProfileMode::ConfirmEach
+      && !matches!(intent, Intent::Export { .. });
+
+   Decision::Allowed { prompt }
+}
+
+/// Decide a transaction from what the simulation says it moves.
+///
+/// The precheck answered "may this profile do this" at the entry, where the capability was known. This
+/// answers the one question the request cannot: what *actually* leaves this wallet. It runs where every
+/// broadcasting flow converges on the app's authorising prompt, so it is the gate a future caller cannot
+/// route around by forgetting a check of its own.
+///
+/// The envelope belongs to the wallet rather than to the capability, which is why the analysis alone
+/// decides it — and why a swap routed through a token the caller never named is caught here.
+///
+/// The promise is the other half of the question. An envelope asks what may leave; a promise asks whether
+/// what comes back is what the caller was told to expect, which is the only way a transfer tax, a fee on
+/// transfer or a route that quietly keeps the difference is visible. A flow that states no promise — a dapp
+/// request, an approval, a dry run of either — passes `None` and is decided exactly as it was before the
+/// review existed.
+pub fn authorise(
+   ctx: &ZeusCtx,
+   profile: &AgentProfile,
+   analysis: &TransactionAnalysis,
+   promise: Option<&TxPromise>,
+) -> Decision {
+   if !vault_open(ctx) {
+      return Decision::Denied(Denial::VaultLocked);
+   }
+
+   let wallet = analysis.sender;
+   let Some(grant) = armed_grant(profile, wallet) else {
+      return Decision::Denied(Denial::WalletNotGranted { wallet });
+   };
+
+   // The native leg comes from the value the transaction declares, not from the simulated balance: every
+   // transaction pays its fee in native, so a simulated native diff would demand the native token in the
+   // allowlist for an ordinary ERC-20 send. A declared value is native moving on purpose.
+   if !analysis.value.is_zero() {
+      let token = TokenRef {
+         chain: analysis.chain,
+         address: Address::ZERO,
+      };
+      if let Some(denial) = token_denial(wallet, grant, token) {
+         return Decision::Denied(denial);
+      }
+   }
+
+   for change in &analysis.balance_diff.tokens {
+      if change.is_increase() {
+         continue;
+      }
+
+      let token = TokenRef {
+         chain: analysis.chain,
+         address: change.currency.address(),
+      };
+      if let Some(denial) = token_denial(wallet, grant, token) {
+         return Decision::Denied(denial);
+      }
+   }
+
+   for change in &analysis.balance_diff.nfts {
+      if change.after >= change.before {
+         continue;
+      }
+
+      if let Some(denial) = nft_denial(
+         wallet,
+         grant,
+         analysis.chain,
+         change.collection,
+         change.token_id,
+      ) {
+         return Decision::Denied(denial);
+      }
+   }
+
+   let prompt = profile.mode == ProfileMode::ConfirmEach;
+
+   // The second reading of the same simulation, and the only one that can say a transaction is safe to
+   // send and still a bad bargain. Skipped entirely in `ConfirmEach`: there the human reads the same
+   // numbers in the window and keeps the decision, so a ceiling here would take it from them.
+   if !prompt
+      && let Some(promise) = promise
+      && let Some(denial) = review_denial(ctx, profile, promise, analysis)
+   {
+      return Decision::Denied(denial);
+   }
+
+   Decision::Allowed { prompt }
+}
+
+/// Read the simulation against the promise, and refuse what the grant's ceilings do not allow.
+///
+/// Three questions in the order a person asks them. Is what arrives worth enough to be worth pricing at
+/// all — a grant that sets a dollar ceiling cannot honour one for an amount the app cannot price, so an
+/// unpriced leg is refused rather than counted as free. Is the trade buying as much as its quote said it
+/// would, after the bridge's own cut. And does the amount that arrives match the amount promised.
+fn review_denial(
+   ctx: &ZeusCtx,
+   profile: &AgentProfile,
+   promise: &TxPromise,
+   analysis: &TransactionAnalysis,
+) -> Option<Denial> {
+   // The app's price, or nothing: a currency it does not quote reads as zero everywhere else in the
+   // pipeline, and a zero here would make every unpriced leg look like a free trade.
+   let price = |currency: &Currency| {
+      let usd = ctx.get_currency_price(currency);
+
+      (!usd.is_zero()).then_some(usd)
+   };
+
+   let review = review(promise, analysis, price);
+
+   if !review.unpriced.is_empty() {
+      return Some(Denial::PriceUnavailable {
+         currencies: review.unpriced,
+      });
+   }
+
+   if let Some(bps) = review.price_impact_bps
+      && bps > profile.max_price_impact_bps
+   {
+      return Some(Denial::PriceImpact(Box::new(Impact {
+         bps,
+         allowed_bps: profile.max_price_impact_bps,
+         usd_in: review.usd_in,
+         usd_out: review.usd_out,
+      })));
+   }
+
+   if let Some(bps) = review.shortfall_bps
+      && bps > profile.max_transfer_shortfall_bps
+      && let Some(measured) = analysis.measured_out.clone()
+   {
+      return Some(Denial::OutputShortfall(Box::new(Shortfall {
+         bps,
+         allowed_bps: profile.max_transfer_shortfall_bps,
+         expected: promise.expected_out().clone(),
+         measured,
+         currency: promise.output_currency().clone(),
+      })));
+   }
+
+   None
+}
+
+/// Whether the vault is open: unlocked in this run, and not auto-locked since.
+///
+/// Both halves are one question to a caller — an agent must not act on a wallet it cannot see — so the
+/// two flags are read together and a context that is neither is never mistaken for one that is.
+///
+/// Public because a caller that answers without a capability — the settings list, which only reports the
+/// profile's own switches — still has to refuse while the app is locked, and it must ask the same
+/// question the policy asks rather than reading the two flags itself.
+pub fn vault_open(ctx: &ZeusCtx) -> bool {
+   ctx.read(|open: &ZeusContext| open.vault_unlocked && !open.locked)
+}
+
+/// The wallet's grant, or nothing when the profile or that wallet is switched off.
+fn armed_grant(profile: &AgentProfile, wallet: Address) -> Option<&WalletGrant> {
+   if !profile.enabled {
+      return None;
+   }
+
+   profile.wallets.get(&wallet).filter(|grant| grant.enabled)
+}
+
+fn asset_denial(wallet: Address, grant: &WalletGrant, asset: Asset) -> Option<Denial> {
+   match asset {
+      Asset::Token(token) => token_denial(wallet, grant, token),
+      Asset::Nft {
+         chain,
+         collection,
+         token_id,
+      } => nft_denial(wallet, grant, chain, collection, token_id),
+   }
+}
+
+fn token_denial(wallet: Address, grant: &WalletGrant, token: TokenRef) -> Option<Denial> {
+   let allowed = match &grant.tokens {
+      TokenScope::None => false,
+      TokenScope::All => true,
+      TokenScope::Allowlist { tokens } => tokens.contains(&token),
+   };
+
+   (!allowed).then_some(Denial::TokenNotAllowed { wallet, token })
+}
+
+fn nft_denial(
+   wallet: Address,
+   grant: &WalletGrant,
+   chain: u64,
+   collection: Address,
+   token_id: U256,
+) -> Option<Denial> {
+   let allowed = match &grant.nfts {
+      NftScope::None => false,
+      NftScope::All => true,
+      // A collection without ids covers every id in it: that is the shape's whole point, since an open
+      // edition cannot be enumerated in a grant.
+      NftScope::Allowlist { nfts } => nfts.iter().any(|nft| {
+         nft.chain == chain
+            && nft.collection == collection
+            && nft.token_ids.as_ref().is_none_or(|ids| ids.contains(&token_id))
+      }),
+   };
+
+   (!allowed).then_some(Denial::NftNotAllowed {
+      wallet,
+      chain,
+      collection,
+      token_id,
+   })
+}

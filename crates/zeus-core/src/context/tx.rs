@@ -12,6 +12,7 @@ use zeus_eth::{
    utils::NumericValue,
 };
 
+use crate::agent::AgentProfileId;
 use crate::clear_signing::ClearDisplay;
 use crate::context::MutexHandle;
 use crate::persisted::{PersistedFile, ensure_data_dir, file_path};
@@ -354,6 +355,8 @@ struct StoredTx {
    main_event: DecodedEvent,
    #[serde(default)]
    clear_display: Option<ClearDisplay>,
+   #[serde(default)]
+   authorised_by: Option<AgentProfileId>,
 }
 
 impl From<&TransactionRich> for StoredTx {
@@ -372,6 +375,7 @@ impl From<&TransactionRich> for StoredTx {
          tx_cost_usd: tx.tx_cost_usd.clone(),
          hash: tx.hash,
          contract_interact: tx.contract_interact,
+         authorised_by: tx.authorised_by.clone(),
          analysis: tx.analysis.clone(),
          main_event: tx.main_event.clone(),
          clear_display: tx.clear_display.clone(),
@@ -402,6 +406,7 @@ impl TryFrom<StoredTx> for TransactionRich {
          analysis: s.analysis,
          main_event: s.main_event,
          clear_display: s.clear_display,
+         authorised_by: s.authorised_by,
       })
    }
 }
@@ -522,6 +527,27 @@ mod tests {
       tx.hash = TxHash::repeat_byte(hash_byte);
       tx.block = block;
       tx
+   }
+
+   /// An agent's send records which profile asked for it, through the sealed store and back.
+   #[test]
+   fn the_agent_that_asked_survives_the_roundtrip() {
+      let dir = tempfile::tempdir().unwrap();
+      let path = dir.path().join("tx_history.db");
+      let key = WalletStateKey::generate().unwrap();
+      let owner = Address::repeat_byte(1);
+      let id = crate::agent::AgentProfileId::generate();
+
+      let mut tx = dummy_tx(5, 20);
+      tx.authorised_by = Some(id.clone());
+
+      let db = TxDBHandle::open_at(&path, &key).unwrap();
+      db.add_tx(1, owner, tx).unwrap();
+      drop(db);
+
+      let loaded = TxDBHandle::open_at(&path, &key).unwrap();
+      let got = loaded.get_txs(1, owner).unwrap();
+      assert_eq!(got[0].authorised_by, Some(id));
    }
 
    #[test]

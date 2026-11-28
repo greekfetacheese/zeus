@@ -18,8 +18,8 @@ use zeus_railgun::{
 
 use crate::{
    core::{
-      DecodedEvent, PrivateTransferParams, SendTxOptions, SendTxRequest, TransactionAnalysis,
-      ZeusCtx, send_transaction,
+      AgentEnv, DecodedEvent, PrivateTransferParams, SendTxOptions, SendTxRequest,
+      TransactionAnalysis, TransactionRich, ZeusCtx, send_transaction,
    },
    gui::SHARED_GUI,
    utils::simulate::{
@@ -39,13 +39,14 @@ use super::{
 /// answered by `asset_id()` and `value()` in one place.
 pub async fn private_transfer(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    asset: RailgunAsset,
    amount: NumericValue,
    from: Address,
    recipient_zk: String,
    memo: String,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    // A fungible transfer has to move an ERC-20 — native has no note of its own to spend, so WETH stands
    // in. An NFT note *is* the asset, so there is nothing to check for it.
    if let RailgunAsset::Fungible(currency) = &asset
@@ -138,6 +139,7 @@ pub async fn private_transfer(
 
    exec_private_transfer(
       ctx,
+      env,
       chain,
       railgun_signer,
       from,
@@ -155,11 +157,12 @@ pub async fn private_transfer(
 /// even when larger notes exist.
 pub async fn private_merge_notes(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    currency: Currency,
    amount: NumericValue,
    from: Address,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing note merge…");
       gui.request_repaint();
@@ -215,6 +218,7 @@ pub async fn private_merge_notes(
 
    exec_private_transfer(
       ctx,
+      env,
       chain,
       railgun_signer,
       from,
@@ -230,13 +234,14 @@ pub async fn private_merge_notes(
 /// `contract` is what the fork prefetches — the token for an ERC-20, the collection for an NFT.
 async fn exec_private_transfer(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    railgun_signer: RailgunSigner,
    from: Address,
    contract: Address,
    tx: TransactionBuilder,
    transfer_params: PrivateTransferParams,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
@@ -335,10 +340,11 @@ async fn exec_private_transfer(
    let tx_opt = SendTxOptions {
       dapp: "Railgun".to_string(),
       keep_intent_event: true,
+      authority: env.authority,
       ..Default::default()
    };
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       true,
       SendTxRequest::new(chain, from, interact_to)
@@ -356,5 +362,5 @@ async fn exec_private_transfer(
       SettledOp::Private,
    ));
 
-   Ok(())
+   Ok(rich)
 }

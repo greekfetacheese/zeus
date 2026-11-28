@@ -179,6 +179,95 @@ pub fn token_change(
    BalanceChange::from_wei(Currency::from(token), price, before, after)
 }
 
+/// Which contracts a diff probe reads.
+///
+/// The default, `DiffWatch::Discovered`, is what every path has always done: the signer's whole
+/// portfolio plus whatever the call and its logs name. That is the safe shape for a callee nobody
+/// vetted — a malicious token's `transfer` runs arbitrary code and can move a token the call never
+/// mentions, and only the portfolio sweep sees it.
+///
+/// `DiffWatch::Exact` is for the flows whose movement is known before the fork runs: Zeus builds the
+/// calldata itself, to a router or protocol it names, and the set of contracts the signer can gain or lose
+/// is exactly the one the flow can list. It probes those and the call target, and nothing else.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum DiffWatch {
+   /// The portfolio, the call target and every log address. Today's behaviour, and the default.
+   #[default]
+   Discovered,
+   /// Only these contracts: each one is probed for the signer's balance, and each pair for its allowance.
+   Exact {
+      tokens: Vec<Address>,
+      /// `(token, spender)` allowances to read. The token side is read for its balance as well.
+      approvals: Vec<(Address, Address)>,
+   },
+}
+
+impl DiffWatch {
+   /// The contracts the watch names, for a flow that knows them before it builds its calldata.
+   pub fn exact(tokens: impl IntoIterator<Item = Address>) -> Self {
+      let tokens = tokens.into_iter().filter(|token| !token.is_zero()).collect();
+
+      Self::Exact {
+         tokens: dedup(tokens),
+         approvals: Vec::new(),
+      }
+   }
+
+   /// Add the allowances to read, `(token, spender)`. A token joins the balance list too: an allowance
+   /// change is always reported beside the balance it belongs to.
+   #[must_use]
+   pub fn with_approvals(
+      mut self,
+      approvals: impl IntoIterator<Item = (Address, Address)>,
+   ) -> Self {
+      let approvals: Vec<(Address, Address)> = approvals.into_iter().collect();
+
+      if let Self::Exact {
+         tokens,
+         approvals: held,
+      } = &mut self
+      {
+         for (token, _) in &approvals {
+            tokens.push(*token);
+         }
+
+         *tokens = dedup(std::mem::take(tokens));
+         *held = dedup_pairs(approvals);
+      }
+
+      self
+   }
+
+   /// Whether the probe should look for addresses it was not told about.
+   pub fn discovers(&self) -> bool {
+      matches!(self, Self::Discovered)
+   }
+}
+
+/// The same addresses in order, first occurrence kept.
+fn dedup(addresses: Vec<Address>) -> Vec<Address> {
+   let mut out = Vec::with_capacity(addresses.len());
+
+   for address in addresses {
+      if !out.contains(&address) {
+         out.push(address);
+      }
+   }
+
+   out
+}
+
+fn dedup_pairs(pairs: Vec<(Address, Address)>) -> Vec<(Address, Address)> {
+   let mut out = Vec::with_capacity(pairs.len());
+
+   for pair in pairs {
+      if !out.contains(&pair) {
+         out.push(pair);
+      }
+   }
+
+   out
+}
 /// Token contracts to `balanceOf` for the signer.
 ///
 /// Portfolio holdings catch silent drains. `interact_to` and log addresses
@@ -761,5 +850,57 @@ mod tests {
          collect_nft_balance_candidates(owner(), &[log], []).is_empty(),
          "a three-topic Transfer is not an ERC-721 one"
       );
+   }
+
+   fn token(byte: u8) -> Address {
+      Address::repeat_byte(byte)
+   }
+
+   /// The refactor's whole safety property: a request that does not name a watch keeps the sweep every
+   /// existing path has always done.
+   #[test]
+   fn the_default_watch_is_the_portfolio_sweep() {
+      assert_eq!(DiffWatch::default(), DiffWatch::Discovered);
+      assert!(DiffWatch::default().discovers());
+   }
+
+   #[test]
+   fn an_exact_watch_names_only_what_it_was_given() {
+      let watch = DiffWatch::exact([token(0x11), token(0x22), token(0x11)]);
+
+      let DiffWatch::Exact { tokens, approvals } = &watch else {
+         panic!("an exact watch is exact");
+      };
+
+      // Deduplicated, order kept, and nothing discovered behind it.
+      assert_eq!(tokens, &vec![token(0x11), token(0x22)]);
+      assert!(approvals.is_empty());
+      assert!(!watch.discovers());
+   }
+
+   /// The native currency is the zero address, so a flow that lists it must not spend a probe on it.
+   #[test]
+   fn the_zero_address_is_not_probed() {
+      let watch = DiffWatch::exact([Address::ZERO, token(0x11)]);
+
+      let DiffWatch::Exact { tokens, .. } = &watch else {
+         panic!("an exact watch is exact");
+      };
+
+      assert_eq!(tokens, &vec![token(0x11)]);
+   }
+
+   #[test]
+   fn an_allowance_brings_its_token_into_the_balance_list() {
+      let watch = DiffWatch::exact([token(0x11)])
+         .with_approvals([(token(0x22), token(0x33)), (token(0x22), token(0x33))]);
+
+      let DiffWatch::Exact { tokens, approvals } = &watch else {
+         panic!("an exact watch is exact");
+      };
+
+      // The allowance's token joins the balances, so its row can be read; the pair is not duplicated.
+      assert_eq!(tokens, &vec![token(0x11), token(0x22)]);
+      assert_eq!(approvals, &vec![(token(0x22), token(0x33))]);
    }
 }

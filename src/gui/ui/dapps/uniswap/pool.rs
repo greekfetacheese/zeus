@@ -7,7 +7,7 @@ use egui::{
 };
 
 use crate::assets::icons::Icons;
-use crate::core::{PoolManagerHandle, ZeusContext, ZeusCtx};
+use crate::core::{PoolError, PoolManagerHandle, ZeusContext, ZeusCtx};
 use crate::gui::SHARED_GUI;
 use crate::gui::ui::common::{currency_for_speech, name_alert, name_picker, name_text};
 use crate::utils::truncate_symbol_or_name;
@@ -108,7 +108,7 @@ struct PoolRow {
 
 /// What the add-pool form asks the background task to build.
 #[derive(Clone, Copy)]
-enum AddPoolRequest {
+pub(crate) enum AddPoolRequest {
    V2 {
       token_a: Address,
       token_b: Address,
@@ -1123,10 +1123,21 @@ async fn resolve_token_pair(
    Ok((token_a, token_b))
 }
 
-async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Result<String, String> {
+/// Look one pool up on chain, proving the request describes a pool that exists.
+///
+/// Separate from [`store_pool`] because the two answer different questions: this one says whether such
+/// a pool is there, and the store is what makes it tracked. The agent port reaches the pair directly, so
+/// it can answer the row it added; the page only wants a sentence.
+pub(crate) async fn build_pool(
+   ctx: ZeusCtx,
+   chain: u64,
+   request: AddPoolRequest,
+) -> Result<AnyUniswapPool, PoolError> {
    let pool = match request {
       AddPoolRequest::V2 { token_a, token_b } => {
-         let (token_a, token_b) = resolve_token_pair(&ctx, chain, token_a, token_b).await?;
+         let (token_a, token_b) = resolve_token_pair(&ctx, chain, token_a, token_b)
+            .await
+            .map_err(PoolError::Refused)?;
          let client = ctx.get_client_manager();
 
          let pool = client
@@ -1146,8 +1157,8 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
                }
             })
             .await
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| "No V2 pool exists for this pair".to_string())?;
+            .map_err(|error| PoolError::Network(error.to_string()))?
+            .ok_or_else(|| PoolError::Refused("No V2 pool exists for this pair".to_owned()))?;
 
          AnyUniswapPool::from_pool(pool)
       }
@@ -1156,7 +1167,9 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
          token_b,
          fee,
       } => {
-         let (token_a, token_b) = resolve_token_pair(&ctx, chain, token_a, token_b).await?;
+         let (token_a, token_b) = resolve_token_pair(&ctx, chain, token_a, token_b)
+            .await
+            .map_err(PoolError::Refused)?;
          let client = ctx.get_client_manager();
 
          let pool = client
@@ -1177,7 +1190,7 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
                }
             })
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| PoolError::Network(error.to_string()))?;
 
          AnyUniswapPool::from_pool(pool)
       }
@@ -1188,11 +1201,15 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
          tick_spacing,
          hooks,
       } => {
-         let currency_a = resolve_currency(&ctx, chain, token_a).await?;
-         let currency_b = resolve_currency(&ctx, chain, token_b).await?;
+         let currency_a =
+            resolve_currency(&ctx, chain, token_a).await.map_err(PoolError::Refused)?;
+         let currency_b =
+            resolve_currency(&ctx, chain, token_b).await.map_err(PoolError::Refused)?;
 
          if currency_a.address() == currency_b.address() {
-            return Err("Token A and Token B must be different".to_string());
+            return Err(PoolError::Refused(
+               "Token A and Token B must be different".to_owned(),
+            ));
          }
 
          let fee = FeeAmount::new(fee);
@@ -1203,7 +1220,9 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
          };
 
          if FeeAmount::i24_tick_spacing(tick_spacing).is_none() {
-            return Err("Tick spacing is out of range".to_string());
+            return Err(PoolError::Refused(
+               "Tick spacing is out of range".to_owned(),
+            ));
          }
 
          let pool = UniswapV4Pool::from_components_with_spacing(
@@ -1224,30 +1243,34 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
                batch::validate_v4_pools(client, chain, vec![pool_id]).await
             })
             .await
-            .map_err(|e| e.to_string())?;
+            .map_err(|error| PoolError::Network(error.to_string()))?;
 
          if valid.is_empty() {
-            return Err("The V4 pool is not initialized on chain".to_string());
+            return Err(PoolError::Refused(
+               "The V4 pool is not initialized on chain".to_owned(),
+            ));
          }
 
          AnyUniswapPool::V4(pool)
       }
    };
 
-   // The name this pool goes by in words, for anything that says it out loud.
-   let label = format!(
-      "{}/{}",
-      currency_for_speech(pool.currency0()).name,
-      currency_for_speech(pool.currency1()).name
-   );
+   Ok(pool)
+}
 
+/// Make one pool tracked: sync its state, remember its currencies, and save the store.
+pub(crate) async fn store_pool(
+   ctx: ZeusCtx,
+   chain: u64,
+   pool: AnyUniswapPool,
+) -> Result<(), PoolError> {
    let currencies = [pool.currency0().clone(), pool.currency1().clone()];
    let manager = ctx.pool_manager();
 
    manager
       .update_state_for_pools(ctx.clone(), chain, vec![pool])
       .await
-      .map_err(|e| e.to_string())?;
+      .map_err(|error| PoolError::Network(error.to_string()))?;
 
    ctx.write(|ctx| {
       for currency in currencies {
@@ -1256,6 +1279,24 @@ async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Resul
    });
 
    ctx.save_pool_manager();
+
+   Ok(())
+}
+
+/// Look a pool up and track it, answering the sentence the page shows.
+async fn insert_pool(ctx: ZeusCtx, chain: u64, request: AddPoolRequest) -> Result<String, String> {
+   let pool = build_pool(ctx.clone(), chain, request)
+      .await
+      .map_err(|error| error.message().to_owned())?;
+
+   // The name this pool goes by in words, for anything that says it out loud.
+   let label = format!(
+      "{}/{}",
+      currency_for_speech(pool.currency0()).name,
+      currency_for_speech(pool.currency1()).name
+   );
+
+   store_pool(ctx, chain, pool).await.map_err(|error| error.message().to_owned())?;
 
    Ok(format!("{label} added to the pool list"))
 }

@@ -10,6 +10,12 @@ use tracing_subscriber::{
    EnvFilter, fmt, layer::SubscriberExt, prelude::*, util::SubscriberInitExt,
 };
 
+pub mod agent_bridge;
+pub mod agent_ops;
+pub mod agent_pools;
+pub mod agent_screens;
+pub mod agent_swap;
+pub mod agent_tx;
 pub mod assets;
 pub mod connector;
 pub use zeus_core as core;

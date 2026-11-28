@@ -35,10 +35,10 @@ use crate::{
    core::sim::diff::DiffProbe,
    core::types::EnsRecipientGuard,
    core::{
-      ApprovalDiff, BalanceDiff, DecodedEvent, MainEvent, MinedTx, RecordPolicy, SendTxOptions,
-      SendTxRequest, TransactionAnalysis, UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx,
-      ensure_recipient_is_not_contract, record_and_notify, send_transaction,
-      sim::diff::diffs_from_receipt,
+      AgentEnv, Amount, ApprovalDiff, BalanceDiff, DecodedEvent, DiffWatch, MainEvent, MinedTx,
+      RecordPolicy, SendTxOptions, SendTxRequest, TransactionAnalysis, TransactionRich, TxPromise,
+      UnshieldParams, ZeusCtx, build_tx_outcome, confirm_tx, ensure_recipient_is_not_contract,
+      record_and_notify, send_transaction, sim::diff::diffs_from_receipt,
    },
    gui::SHARED_GUI,
    utils::{
@@ -69,6 +69,23 @@ fn eip7702_delegated_code(implementation: Address) -> Bytes {
    code.into()
 }
 
+/// What an unshield promises, when the asset has a currency to weigh it in.
+///
+/// An NFT has no currency and no price, so it states no promise and is reviewed by nothing — the same
+/// behaviour it had before this review existed. The amount is what the user asked to unshield; the
+/// protocol's own cut is already taken before the withdrawal, so it is not a fee this promise allows.
+fn unshield_promise(asset: &RailgunAsset, amount_wei: U256) -> Option<TxPromise> {
+   match asset {
+      RailgunAsset::Fungible(currency) => Some(TxPromise::Unshield {
+         amount: Amount::new(
+            currency.clone(),
+            NumericValue::format_wei(amount_wei, currency.decimals()),
+         ),
+      }),
+      RailgunAsset::Nft(_) => None,
+   }
+}
+
 /// Unshield private notes to a public address.
 ///
 /// - `self_broadcast = false` (default): Railgun privacy paymaster + bundler UserOp.
@@ -76,6 +93,7 @@ fn eip7702_delegated_code(implementation: Address) -> Bytes {
 ///   (links submitter to recipient; breaks anonymity).
 pub async fn unshield(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    asset: RailgunAsset,
    amount: NumericValue,
@@ -86,7 +104,7 @@ pub async fn unshield(
    bundler_url: String,
    memo: String,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    if asset.is_native() {
       return Err(anyhow!(
          "Unshield requires a token or an NFT (use WETH for native-equivalent)"
@@ -147,11 +165,13 @@ pub async fn unshield(
    if self_broadcast {
       unshield_self_broadcast(
          ctx,
+         env.clone(),
          chain,
          railgun_signer,
          from,
          recipient,
          &asset,
+         asset.value(amount.wei()),
          tx,
          recipient_guard,
       )
@@ -159,6 +179,7 @@ pub async fn unshield(
    } else {
       unshield_via_paymaster(
          ctx,
+         env,
          chain,
          from,
          &asset,
@@ -177,14 +198,17 @@ pub async fn unshield(
 
 async fn unshield_self_broadcast(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    railgun_signer: RailgunSigner,
    from: Address,
    recipient: Address,
    asset: &RailgunAsset,
+   // What the caller asked to unshield, in the asset's wei: the promise the simulation is read against.
+   amount_wei: U256,
    tx: TransactionBuilder,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Preparing your transaction…");
       gui.request_repaint();
@@ -314,6 +338,8 @@ async fn unshield_self_broadcast(
    .await?;
 
    tx_analysis.set_block_number(block_number);
+   // What the unshield's own event says leaves the private pool for the recipient.
+   tx_analysis.set_measured_out(unshield_params.amount.clone().unwrap_or_default());
    tx_analysis.set_main_event(DecodedEvent::Unshield(unshield_params));
 
    let tx_opt = SendTxOptions {
@@ -321,10 +347,12 @@ async fn unshield_self_broadcast(
       // The Transact logs do not describe the unshield, so record the intent.
       keep_intent_event: true,
       ens_recipient: recipient_guard,
+      authority: env.authority.clone(),
+      promise: unshield_promise(asset, asset.value(amount_wei)),
       ..Default::default()
    };
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       true,
       SendTxRequest::new(chain, from, interact_to)
@@ -344,11 +372,12 @@ async fn unshield_self_broadcast(
       asset.settled_op(false),
    ));
 
-   Ok(())
+   Ok(rich)
 }
 
 async fn unshield_via_paymaster(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    asset: &RailgunAsset,
@@ -360,7 +389,7 @@ async fn unshield_via_paymaster(
    bundler_url: String,
    memo: String,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let mut railgun_provider = ctx.get_railgun_provider(chain.id(), false).await?;
 
    let chain_config = railgun_provider.chain_config();
@@ -684,6 +713,7 @@ async fn unshield_via_paymaster(
       from,
       interact_to,
       handle_ops_data.clone(),
+      &DiffWatch::default(),
    );
 
    let eth_balance_after;
@@ -827,6 +857,7 @@ async fn unshield_via_paymaster(
 
    let main_event = DecodedEvent::Unshield(unshield_params.clone());
    tx_analysis.set_block_number(fork_block.header.number);
+   tx_analysis.set_measured_out(unshield_params.amount.clone().unwrap_or_default());
    tx_analysis.set_main_event(main_event);
 
    // Replace the decoded unshield with the main so it can also show
@@ -841,6 +872,8 @@ async fn unshield_via_paymaster(
       dapp: "Railgun".to_string(),
       sponsored: true,
       ens_recipient: recipient_guard,
+      authority: env.authority.clone(),
+      promise: unshield_promise(asset, asset.value(amount)),
       ..Default::default()
    };
 
@@ -981,7 +1014,7 @@ async fn unshield_via_paymaster(
 
    crate::runtime::rt().spawn(settle_railgun_op(ctx, chain, from, settled_op));
 
-   Ok(())
+   Ok(outcome.tx_rich)
 }
 
 async fn fee_token_selection(chain: u64, from: Address) -> Result<ERC20Token, anyhow::Error> {
@@ -1050,6 +1083,7 @@ mod tests {
 
       let err = unshield(
          ctx,
+         AgentEnv::user(),
          ChainId::from(1u64),
          RailgunAsset::Fungible(Currency::wrapped_native(1)),
          NumericValue::parse_to_wei("0.001", 18),

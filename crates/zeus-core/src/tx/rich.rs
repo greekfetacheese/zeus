@@ -1,3 +1,4 @@
+use crate::agent::AgentProfileId;
 use crate::clear_signing::ClearDisplay;
 use crate::platform::TimeStamp;
 use zeus_eth::{
@@ -35,6 +36,10 @@ pub struct TransactionRich {
    /// ERC-7730 view when [`Self::main_event`] is unknown. Older vaults omit this.
    #[serde(default)]
    pub clear_display: Option<ClearDisplay>,
+   /// The agent profile whose grant asked for this transaction. `None` for the user's own sends, and
+   /// for every record written before agents existed.
+   #[serde(default)]
+   pub authorised_by: Option<AgentProfileId>,
 }
 
 impl TransactionRich {
@@ -84,6 +89,7 @@ impl TransactionRich {
          analysis: TransactionAnalysis::dummy_clear_signed(),
          main_event: DecodedEvent::Other,
          clear_display: Some(ClearDisplay::dummy_calldata()),
+         authorised_by: None,
       }
    }
 }

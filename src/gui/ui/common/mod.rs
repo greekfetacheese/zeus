@@ -48,7 +48,7 @@ use crate::core::ZeusContext;
 use crate::gui::{SHARED_GUI, ui::dapps::railgun::RailgunMode};
 use crate::utils::TimeStamp;
 use egui::{Align, Layout, Response, RichText, Role, Ui, Vec2, WidgetInfo, pos2, vec2};
-use egui_elements::{Button, Switch, Theme, ToggleVisuals};
+use egui_elements::{Button, Chip, ChipRole, Switch, Theme, ToggleVisuals};
 use egui_lucide::Lucide;
 use std::time::{Duration, Instant};
 use zeus_eth::types::ChainId;
@@ -337,6 +337,32 @@ pub fn dots_button(theme: &Theme, size: Vec2, ui: &mut Ui) -> Response {
       }
    }
    resp
+}
+
+/// The `?` chip beside a setting, which says what the setting means.
+///
+/// The chip keeps its drawn question mark, and its node carries the name and the sentence, because a
+/// hover is not reachable without a pointer. Draw it as the last thing in a row, so two rows'
+/// tooltips cannot stack.
+pub fn q_mark(ui: &mut Ui, theme: &Theme, says: &'static str) -> Response {
+   let q_mark = RichText::new("?").size(theme.typography.normal);
+   let chip = ui.add(Chip::new(q_mark).role(ChipRole::Info)).on_hover_text(says);
+
+   ui.ctx().accesskit_node_builder(chip.id, |node| {
+      node.set_label("What this means");
+      node.set_description(says);
+   });
+
+   chip
+}
+
+/// Name what a control holds for a reader, without changing the words drawn beside it.
+pub fn describe(ui: &Ui, response: &Response, description: impl Into<String>) {
+   let description = description.into();
+
+   ui.ctx().accesskit_node_builder(response.id, |node| {
+      node.set_description(description)
+   });
 }
 
 #[cfg(test)]

@@ -17,7 +17,7 @@ use zeus_railgun::{
 };
 
 use crate::{
-   core::ZeusContext,
+   core::{AgentEnv, ZeusContext},
    gui::{
       SHARED_GUI,
       ui::{common::currency_for_speech, dapps::railgun::transfer::private_merge_notes},
@@ -334,6 +334,7 @@ impl MergeNotesWindow {
          let ctx_handle = SHARED_GUI.read(|gui| gui.ctx.clone());
          let result = crate::runtime::rt().block_on(private_merge_notes(
             ctx_handle.clone(),
+            AgentEnv::user(),
             chain,
             currency,
             amount,

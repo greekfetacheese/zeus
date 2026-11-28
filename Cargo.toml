@@ -6,6 +6,7 @@ members = [
     "crates/zeus-railgun-snapshot",
     "crates/zeus-pools",
     "crates/zeus-core",
+    "crates/zeus-mcp",
     "crates/zeus-bip32",
     "crates/zeus-wallet",
     "crates/zeus-poseidon",
@@ -78,6 +79,7 @@ zeus-bip32 = { path = "crates/zeus-bip32", features = ["serde"] }
 zeus-wallet = { path = "crates/zeus-wallet", features = ["serde"] }
 zeus-eth = { path = "crates/zeus-eth" }
 zeus-core = { path = "crates/zeus-core" }
+zeus-mcp = { path = "crates/zeus-mcp" }
 zeus-railgun = { path = "crates/zeus-railgun" }
 zeus-userop-kit = { path = "crates/zeus-userop-kit" }
 

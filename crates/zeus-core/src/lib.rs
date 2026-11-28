@@ -1,4 +1,5 @@
 #![doc = include_str!("../readme.md")]
+pub mod agent;
 pub mod assets;
 pub mod clear_signing;
 pub mod context;
@@ -17,6 +18,7 @@ pub mod wallet;
 pub mod wallet_state;
 pub mod wallet_state_key;
 
+pub use agent::{AgentAuthority, AgentEnv};
 pub use context::*;
 pub use platform::{
    TimeStamp, malloc_trim, restrict_dir_to_owner, restrict_file_to_owner, truncate_address,
@@ -24,7 +26,10 @@ pub use platform::{
 };
 pub use signature::{msg::SignMsgType, sign::sign_message};
 pub use sim::{approval_diff::*, balance_diff::*};
-pub use tx::{analysis::*, approve::*, events::*, finalize::*, rich::*, send::*, send_calls::*};
+pub use tx::{
+   analysis::*, approve::*, events::*, finalize::*, promise::*, review::*, rich::*, send::*,
+   send_calls::*,
+};
 pub use vault::*;
 pub use wallet::*;
 pub use wallet_state::{WalletState, WalletStateInner, WalletStateKey};

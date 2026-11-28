@@ -9,11 +9,11 @@ use std::{
    time::{Duration, Instant},
 };
 
-use crate::core::types::EnsRecipientGuard;
+use crate::core::types::{BundlerUrl, EnsRecipientGuard};
 use crate::core::urls::ZeusUrl;
 use crate::core::{
-   DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis, WalletStateKey,
-   ZeusContext, ZeusCtx, bundler_url_dir, ensure_allowance, ensure_approval_for_all,
+   AgentEnv, Amount, DecodedEvent, SendTxOptions, SendTxRequest, ShieldParams, TransactionAnalysis,
+   TransactionRich, TxPromise, ZeusContext, ZeusCtx, ensure_allowance, ensure_approval_for_all,
    ensure_erc721_approve, send_transaction,
 };
 use crate::{
@@ -21,7 +21,7 @@ use crate::{
       blocked_announcement, blocked_reason_line, currency_for_speech, name_text, notices,
       section_heading, show_with_fade,
    },
-   utils::{TimeStamp, write_private_atomic},
+   utils::TimeStamp,
 };
 
 use super::privacy::{
@@ -64,15 +64,11 @@ use zeus_railgun::{
 };
 
 use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
 use tracing::{error, warn};
 
 use super::unshield::{default_bundler_url, unshield};
 
 const POOL_UPDATE_TIMEOUT: u64 = 60;
-
-/// Bound ciphertext to this logical slot (AAD).
-const BUNDLER_URL_AAD: &[u8] = b"zeus-bundler-url-v1";
 
 pub(crate) const SELF_BROADCAST_TIP: &str = "Submits the unshield from your public wallet. Breaks anonymity only use if private broadcast is unavailable.";
 pub(crate) const UNWRAP_TO_ETH_TIP: &str =
@@ -120,44 +116,6 @@ struct PrivacyKey {
    amount: String,
    recipient: Address,
    owner: Address,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BundlerUrl {
-   pub url: String,
-}
-
-impl Default for BundlerUrl {
-   fn default() -> Self {
-      Self {
-         url: default_bundler_url(1),
-      }
-   }
-}
-
-impl BundlerUrl {
-   pub fn new(url: String) -> Self {
-      Self { url }
-   }
-
-   pub fn save(&self, key: &WalletStateKey) -> Result<(), anyhow::Error> {
-      let sealed = key.seal_json(self, BUNDLER_URL_AAD)?;
-      write_private_atomic(&Self::dir()?, &sealed)?;
-      Ok(())
-   }
-
-   pub fn load(key: &WalletStateKey) -> Result<Self, anyhow::Error> {
-      let sealed = std::fs::read(Self::dir()?)?;
-      key.open_json(&sealed, BUNDLER_URL_AAD)
-   }
-
-   pub fn dir() -> Result<std::path::PathBuf, anyhow::Error> {
-      bundler_url_dir()
-   }
-
-   pub fn exists() -> Result<bool, anyhow::Error> {
-      Ok(Self::dir()?.exists())
-   }
 }
 
 /// Enum to determine which railgun mode to use.
@@ -1759,6 +1717,7 @@ impl ShieldUi {
 
             match shield(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                asset,
                amount,
@@ -1808,6 +1767,7 @@ impl ShieldUi {
 
             let result = crate::runtime::rt().block_on(unshield(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                asset,
                amount,
@@ -2141,15 +2101,16 @@ fn value(
    value
 }
 
-async fn shield(
+pub(crate) async fn shield(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    asset: RailgunAsset,
    amount: NumericValue,
    from: Address,
    recipient: String,
    recipient_guard: Option<EnsRecipientGuard>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let railgun_provider = railgun_ready(ctx.clone(), chain).await?;
 
    let recipient = match RailgunAddress::from_zk_address(&recipient) {
@@ -2176,6 +2137,7 @@ async fn shield(
 
             ensure_allowance(
                ctx.clone(),
+               env.clone(),
                chain,
                from,
                &token,
@@ -2190,6 +2152,7 @@ async fn shield(
             NftStandard::Erc721 => {
                ensure_erc721_approve(
                   ctx.clone(),
+                  env.clone(),
                   chain,
                   from,
                   nft.collection,
@@ -2203,6 +2166,7 @@ async fn shield(
             NftStandard::Erc1155 => {
                ensure_approval_for_all(
                   ctx.clone(),
+                  env.clone(),
                   chain,
                   from,
                   nft.collection,
@@ -2326,9 +2290,23 @@ async fn shield(
 
    // Transact logs are not public ERC-20 transfers, so record the intent.
    tx_analysis.set_block_number(block_number);
+   // What the note the shield created actually holds, in the asset's units — the commitment's value, which
+   // is already net of the protocol's cut. Promising the amount that was asked for and measuring what
+   // arrived against it is what makes the shortfall mean something: measured whatever came back would be
+   // comparing it against itself. An NFT has no currency to weigh it against, so it states no promise and
+   // is reviewed by nothing — the same behaviour it had before this review existed.
+   tx_analysis.set_measured_out(shield_params.amount.clone().unwrap_or_else(|| amount.clone()));
+
+   let promise = match &asset {
+      RailgunAsset::Fungible(currency) => Some(TxPromise::Shield {
+         amount: Amount::new(currency.clone(), amount.clone()),
+         fee: shield_params.fee.clone(),
+      }),
+      RailgunAsset::Nft(_) => None,
+   };
    tx_analysis.set_main_event(DecodedEvent::Shield(shield_params));
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       true,
       SendTxRequest::new(chain, from, interact_to)
@@ -2339,6 +2317,11 @@ async fn shield(
          dapp: "Railgun".to_string(),
          keep_intent_event: true,
          ens_recipient: recipient_guard,
+         priority: env.priority,
+         authority: env.authority.clone(),
+         // A shield moves one asset and trades nothing: the promise is the amount, and the simulation
+         // says whether all of it entered the pool.
+         promise,
          ..Default::default()
       },
    )
@@ -2354,7 +2337,7 @@ async fn shield(
       asset.settled_op(false),
    ));
 
-   Ok(())
+   Ok(rich)
 }
 
 /// The host of the bundler URL — what the options dialog may say instead of a URL that can carry
@@ -2363,14 +2346,7 @@ async fn shield(
 /// The host is the part between `://` and the first `/` or `?`, so a key in the path never
 /// reaches the accessibility tree. A string without those parts falls back to a plain description.
 fn bundler_host(url: &str) -> &str {
-   let Some((_, rest)) = url.split_once("://") else {
-      return "the configured bundler";
-   };
-
-   match rest.split(['/', '?']).next() {
-      Some(host) if !host.is_empty() => host,
-      _ => "the configured bundler",
-   }
+   crate::core::platform::url_host(url).unwrap_or("the configured bundler")
 }
 
 fn persist_bundler_url(url: BundlerUrl) {
@@ -2607,16 +2583,6 @@ mod tests {
       ui.nft = Some(nft(NftStandard::Erc1155));
       ui.set_mode(RailgunMode::Unshield);
       assert!(!ui.erc1155_shield_blocked());
-   }
-
-   #[test]
-   fn test_bundler_url_seal_open_roundtrip() {
-      let key = WalletStateKey::generate().unwrap();
-      let url = BundlerUrl::new("https://example.invalid/rpc".into());
-      let sealed = key.seal_json(&url, BUNDLER_URL_AAD).unwrap();
-      let loaded: BundlerUrl = key.open_json(&sealed, BUNDLER_URL_AAD).unwrap();
-      assert_eq!(loaded.url, url.url);
-      assert!(key.open_json::<BundlerUrl>(&sealed, b"wrong-aad").is_err());
    }
 
    /// A chain switch forgets the NFT, because the send path pairs the selection with the chain active at

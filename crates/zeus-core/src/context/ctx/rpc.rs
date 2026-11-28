@@ -1,9 +1,10 @@
 use super::super::{ClientKind, RpcFunctionality, ZeusContext, ZeusCtx};
 use crate::{client::Rpc, tx::fees::FeeTiers, types::*};
-use anyhow::anyhow;
+use anyhow::{anyhow, bail};
 use std::time::Instant;
 use zeus_eth::{
    alloy_primitives::{Address, FixedBytes, U256},
+   alloy_provider::Provider,
    amm::uniswap::{
       AnyUniswapPool, DexKind, State, UniswapPool, UniswapV2Pool, UniswapV3Pool, UniswapV4Pool,
       V4_FEE_CANDIDATES, v4_fee_spacing_candidates,
@@ -39,6 +40,41 @@ impl ZeusCtx {
    pub async fn connect_to_rpc(&self, rpc: &Rpc) -> Result<RpcClient, anyhow::Error> {
       let z_client = self.get_client_manager();
       z_client.connect_to(rpc).await
+   }
+
+   /// Add an endpoint, after proving it answers for the chain it is filed under.
+   ///
+   /// The Settings page's Add form proves the same two things before it stores anything: the URL
+   /// connects, and the node reports the chain the record claims. Skipping that would let an endpoint
+   /// file itself under one chain while answering from another — a hostile node could then show
+   /// balances from somewhere else and censor the broadcasts it was trusted with.
+   pub async fn add_rpc_endpoint(&self, chain: u64, url: &str) -> Result<Rpc, anyhow::Error> {
+      let rpc = Rpc::builder(url, chain).enabled().build();
+      let manager = self.get_client_manager();
+
+      if manager.get_rpcs(chain).contains_key(&rpc.url) {
+         bail!("{url} is already listed for chain {chain}: remove it first");
+      }
+
+      let client = self
+         .connect_to_rpc(&rpc)
+         .await
+         .map_err(|e| anyhow!("could not connect to {url}: {e}"))?;
+
+      let reported = client
+         .get_chain_id()
+         .await
+         .map_err(|e| anyhow!("{url} did not report a chain id: {e}"))?;
+
+      if reported != chain {
+         bail!("{url} answers for chain {reported}, not chain {chain}");
+      }
+
+      manager.add_rpc(chain, rpc.clone());
+      manager.run_check_for(self.clone(), rpc.clone()).await;
+      self.try_save_client_manager()?;
+
+      Ok(rpc)
    }
 
    /// Get an archive client for the given chain.

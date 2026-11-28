@@ -1,3 +1,4 @@
+use crate::agent::{AgentAuthority, AgentDenial, AgentEnv, Decision, authorise};
 use crate::context::{self, get_base_fee};
 use crate::platform::TimeStamp;
 use crate::sim::eip7702_implementation;
@@ -9,10 +10,14 @@ use alloy_eips::eip7702::{Authorization, SignedAuthorization};
 use anyhow::anyhow;
 use std::time::Duration;
 
+use super::fees::PriorityTier;
 use super::finalize::{MainEvent, MinedTx, RecordPolicy, build_tx_outcome, record_and_notify};
 use crate::clear_signing::ClearDisplay;
+use crate::sim::balance_diff::DiffWatch;
 use crate::sim::diff::{diffs_from_receipt, simulate_and_diff};
 use crate::tx::notification::NotificationType;
+use crate::tx::promise::TxPromise;
+use crate::tx::review::{SimReview, review_with};
 use crate::ui::{self, ConfirmRequest, PromptOpen, TxConfirmRequest};
 use zeus_eth::{
    alloy_contract::private::Provider,
@@ -170,6 +175,12 @@ pub struct SendTxRequest {
    /// An analysis the caller already built. `None` makes the send simulate the
    /// call on a fork and analyze the result before opening the confirm window.
    pub analysis: Option<TransactionAnalysis>,
+   /// Which contracts this send's simulation should diff.
+   ///
+   /// Only read when [`Self::analysis`] is `None` — a caller that simulated already measured what it
+   /// chose to measure. The default is [`DiffWatch::Discovered`], the portfolio sweep every path has
+   /// always done, so a request that does not set it changes nothing.
+   pub watch: DiffWatch,
 }
 
 impl SendTxRequest {
@@ -184,7 +195,19 @@ impl SendTxRequest {
          value: U256::ZERO,
          authorization_list: Vec::new(),
          analysis: None,
+         watch: DiffWatch::default(),
       }
+   }
+
+   /// Diff exactly these contracts instead of sweeping the portfolio.
+   ///
+   /// For a flow that builds its own calldata to a protocol it names: the contracts it can move are known
+   /// before the fork runs, so nothing else has to be read. A callee nobody vetted keeps the sweep.
+   #[must_use]
+   pub fn watch(mut self, watch: DiffWatch) -> Self {
+      self.watch = watch;
+
+      self
    }
 
    #[must_use]
@@ -234,15 +257,56 @@ pub struct SendTxOptions {
    /// when the picker had no name. Display only — what is sent is the address, and the address is
    /// carried so the row cannot be labeled with a name picked for a different address.
    pub recipient_name: Option<(Address, String)>,
+   /// Who asked for this send. `None` is the user, whose confirmation the window decides as it always
+   /// has; `Some` is an agent whose grant stands in for that click.
+   pub authority: Option<AgentAuthority>,
+   /// The fee tier a granted caller asked for. Only the grant path reads it — a confirmation the user
+   /// answers states the user's own choice — and `None` keeps the ceiling and tip that path used before a
+   /// caller could name one.
+   pub priority: Option<PriorityTier>,
+   /// What this transaction promised to do, when the flow knows it.
+   ///
+   /// The analysis can say what moved; only the flow knows what was *asked* for — the quote a swap was
+   /// priced against, the amount a transfer was meant to deliver. It is read against the simulation by
+   /// [crate::tx::review::review], and `None` keeps today's decision exactly: a flow that states no promise
+   /// is reviewed by nothing, which is every dapp request and the approval helpers.
+   pub promise: Option<TxPromise>,
+}
+
+impl SendTxOptions {
+   /// State what this transaction promised, so its simulation can be read against it.
+   #[must_use]
+   pub fn promise(mut self, promise: TxPromise) -> Self {
+      self.promise = Some(promise);
+
+      self
+   }
 }
 
 /// What the user left in the transaction confirmation window.
+#[derive(Debug)]
 pub struct ConfirmedTx {
    pub priority_fee: NumericValue,
    pub gas_limit: u64,
    /// The max-fee ceiling the chosen tier carries, in basis points.
    pub fee_ceiling_bps: u32,
    pub clear_display: Option<ClearDisplay>,
+   /// How the simulation read against the flow's promise.
+   ///
+   /// Computed where the promise and the analysis finally meet, and handed out so the record can carry it:
+   /// the flow's own options are gone by the time the transaction is mined, and an autonomous action has no
+   /// window anyone saw its numbers in.
+   pub review: Option<SimReview>,
+}
+
+/// The gas limit the confirmation window prefills for a simulated transaction: what it used, plus half
+/// again.
+///
+/// The margin absorbs what a fork cannot predict — a cold storage slot, a little more work in the mined
+/// block — and it is deliberately one number: a confirmation the user never saw must ask the chain for
+/// the same limit the window would have offered.
+pub fn default_gas_limit(gas_used: u64) -> u64 {
+   gas_used * 15 / 10
 }
 
 /// Releases the confirmation window's claim when the flow holding it ends.
@@ -423,6 +487,50 @@ pub fn refuse_contract_recipient(
    Err(anyhow!(FUNDS_TO_CONTRACT_MSG))
 }
 
+/// Why the pipeline itself refused, in a form an agent edge can branch on.
+///
+/// The pipeline has no typed error — a refusal is a sentence, and the dapp server has always matched one
+/// of them by string — so the four an agent must tell apart carry this type inside the `anyhow`. Every
+/// `Display` here is the sentence the flow returned before this type existed, which is what keeps the
+/// window, the toast and the dapp server reading exactly as they did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TxRefusal {
+   /// Zeus is locked, or was never unlocked in this run: nothing may be signed.
+   Locked,
+   /// Another transaction is already waiting for confirmation.
+   Busy,
+   /// The profile wants to see every change and no window could ask.
+   NoUi,
+   /// The user declined the confirmation.
+   Rejected,
+}
+
+impl TxRefusal {
+   /// The stable code the refusal is reported under.
+   pub const fn code(self) -> &'static str {
+      match self {
+         Self::Locked => "VAULT_LOCKED",
+         Self::Busy => "BUSY",
+         Self::NoUi => "NO_UI",
+         Self::Rejected => "USER_REJECTED",
+      }
+   }
+}
+
+impl std::fmt::Display for TxRefusal {
+   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+      match self {
+         Self::Locked => f.write_str("Zeus is locked"),
+         Self::Busy => f.write_str("Another transaction is already waiting for confirmation"),
+         Self::NoUi => f.write_str(ui::NO_UI_MSG),
+         // The dapp server matches this sentence (`src/server.rs`), so it is not a message to reword.
+         Self::Rejected => f.write_str("Transaction rejected"),
+      }
+   }
+}
+
+impl std::error::Error for TxRefusal {}
+
 /// Open the transaction confirmation window, wait for the user, and hand back
 /// their edits.
 ///
@@ -436,7 +544,9 @@ pub async fn confirm_tx(
    opts: &SendTxOptions,
 ) -> Result<ConfirmedTx, anyhow::Error> {
    // A locked wallet never confirms: refuse before opening the prompt.
-   ctx.ensure_unlocked()?;
+   if ctx.ensure_unlocked().is_err() {
+      return Err(TxRefusal::Locked.into());
+   }
 
    // A recommendation is a snapshot: the 300 s loop can leave it minutes old, and a stale tip is
    // the thing this path exists to stop showing. Failure is not fatal — the window falls back to
@@ -445,6 +555,51 @@ pub async fn confirm_tx(
 
    let priority_fee = ctx.get_priority_fee(chain.id()).unwrap_or_default();
    let tiers = ctx.get_fee_tiers(chain.id());
+
+   // The one reading of the simulation against the promise, made here because this is the only place both
+   // are in hand. The gate refuses on it; the caller records it.
+   let review = opts.promise.as_ref().map(|promise| review_with(&ctx, promise, analysis));
+
+   // An agent's grant stands in for the click, here, where every broadcasting flow converges. The
+   // decision reads the simulated analysis — the only honest measure of what the transaction takes out
+   // of the wallet — and `None` leaves the path below exactly as it was. The profile is looked up now
+   // rather than carried in the request, so a grant withdrawn while the flow was building its
+   // transaction is a withdrawal.
+   if let Some(authority) = &opts.authority {
+      let profile = ctx.agent_profiles().profile(authority.profile()).ok_or_else(|| {
+         anyhow!("The agent profile that asked for this transaction is no longer present")
+      })?;
+
+      match authorise(&ctx, &profile, analysis, opts.promise.as_ref()) {
+         Decision::Allowed { prompt: false } => {
+            // The tier the grant asked for, when it asked for one. `None` keeps the tip and the ceiling
+            // this path has always used, so a grant that names no tier sends exactly as it did before
+            // the parameter existed.
+            let (tip, ceiling) = match opts.priority {
+               Some(tier) => (
+                  tiers
+                     .map(|tiers| NumericValue::format_to_gwei(tiers.tip(tier)))
+                     .unwrap_or(priority_fee),
+                  tier.fee_ceiling_bps(),
+               ),
+               None => (priority_fee, PriorityTier::Fast.fee_ceiling_bps()),
+            };
+
+            return Ok(ConfirmedTx {
+               priority_fee: tip,
+               gas_limit: default_gas_limit(analysis.gas_used),
+               fee_ceiling_bps: ceiling,
+               clear_display: None,
+               review,
+            });
+         }
+         Decision::Allowed { prompt: true } => {}
+         // Nothing authorise can answer needs a human, but a flow that ever sees this must stop
+         // rather than decide for them.
+         Decision::NeedsUser { reason } => return Err(anyhow!(reason)),
+         Decision::Denied(denial) => return Err(AgentDenial(denial).into()),
+      }
+   }
 
    // One confirmation at a time, whatever raised it. Two sends racing here would share this
    // window — the second prompt replacing what the first displayed — and both would then act on
@@ -464,12 +619,8 @@ pub async fn confirm_tx(
       recipient_name: opts.recipient_name.clone(),
    }) {
       PromptOpen::Opened => {}
-      PromptOpen::Busy => {
-         return Err(anyhow!(
-            "Another transaction is already waiting for confirmation"
-         ));
-      }
-      PromptOpen::Unavailable => return Err(anyhow!(ui::NO_UI_MSG)),
+      PromptOpen::Busy => return Err(TxRefusal::Busy.into()),
+      PromptOpen::Unavailable => return Err(TxRefusal::NoUi.into()),
    }
 
    // Held until this flow is done with the prompt, however it ends: the claim is
@@ -485,7 +636,14 @@ pub async fn confirm_tx(
    };
 
    if answer.is_rejected() {
-      return Err(anyhow!("Transaction rejected"));
+      // A rejection that lands while the vault is locked is the auto-lock closing this window
+      // (`GUI::cancel_pending_actions`), not a click: the user never said no, and an agent told "the
+      // user declined" would report a decision nobody made.
+      if ctx.ensure_unlocked().is_err() {
+         return Err(TxRefusal::Locked.into());
+      }
+
+      return Err(TxRefusal::Rejected.into());
    }
 
    // The recipient was locked in before the window opened, and the user may have sat on it: a name
@@ -517,7 +675,91 @@ pub async fn confirm_tx(
       gas_limit: answer.gas_limit,
       fee_ceiling_bps: answer.fee_ceiling_bps,
       clear_display: answer.clear_display,
+      review,
    })
+}
+
+/// Simulate a call and build the analysis the pipeline is about to authorise.
+///
+/// The stage [`send_transaction`] runs for a request that carries no analysis, and the whole of a dry run:
+/// a preview is this, plus [`price_analysis`] and the policy check, and nothing after it
+/// (`agent::exec::preview`). Nothing here signs, opens a window or touches the wallet's key.
+pub async fn analyse(
+   ctx: ZeusCtx,
+   chain: ChainId,
+   from: Address,
+   interact_to: Address,
+   call_data: Bytes,
+   value: U256,
+   authorization_list: Vec<SignedAuthorization>,
+   watch: &DiffWatch,
+) -> Result<TransactionAnalysis, anyhow::Error> {
+   let simulated = simulate_and_diff(
+      ctx.clone(),
+      chain,
+      from,
+      interact_to,
+      call_data.clone(),
+      value,
+      authorization_list.clone(),
+      watch,
+   )
+   .await?;
+
+   let mut analysis = TransactionAnalysis::new(
+      ctx,
+      chain.id(),
+      from,
+      interact_to,
+      Some(simulated.contract_interact),
+      call_data,
+      value,
+      simulated.logs,
+      simulated.sim_res.tx_gas_used(),
+      simulated.balance_before,
+      simulated.balance_after,
+      authorization_list,
+   )
+   .await?;
+
+   analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
+   analysis.set_block_number(simulated.block_number);
+
+   Ok(analysis)
+}
+
+/// Price what an analysis says moved, so its USD figures are the current ones.
+///
+/// Best effort, and deliberately shared with the preview: a price the app does not have stays zero, which
+/// is why every amount an answer carries has `usd.known` beside it.
+pub async fn price_analysis(ctx: &ZeusCtx, chain: ChainId, analysis: &mut TransactionAnalysis) {
+   let tokens = analysis
+      .involved_currencies()
+      .iter()
+      .map(|currency| currency.to_erc20().into_owned())
+      .collect::<Vec<_>>();
+
+   let time = std::time::Instant::now();
+
+   if let Err(e) = ctx
+      .price_manager()
+      .calculate_prices(
+         ctx.clone(),
+         chain.id(),
+         ctx.pool_manager(),
+         tokens,
+      )
+      .await
+   {
+      tracing::error!("Error updating prices: {:?}", e);
+   }
+
+   tracing::info!(
+      "Updated prices in {} ms",
+      time.elapsed().as_millis()
+   );
+
+   analysis.refresh_usd(ctx);
 }
 
 /// Simulate the call unless the request already carries an analysis, ask the
@@ -542,6 +784,7 @@ pub async fn send_transaction(
       value,
       authorization_list,
       analysis,
+      watch,
    } = req;
 
    ui::host().open_loading("Sending your transaction…");
@@ -554,64 +797,24 @@ pub async fn send_transaction(
       client.get_transaction_count(from).await.map_err(|e| anyhow!("{:?}", e))
    });
 
-   let mut tx_analysis = if let Some(analysis) = analysis {
-      analysis
-   } else {
-      let simulated = simulate_and_diff(
-         ctx.clone(),
-         chain,
-         from,
-         interact_to,
-         call_data.clone(),
-         value,
-         authorization_list.clone(),
-      )
-      .await?;
-
-      let mut analysis = TransactionAnalysis::new(
-         ctx.clone(),
-         chain.id(),
-         from,
-         interact_to,
-         Some(simulated.contract_interact),
-         call_data.clone(),
-         value,
-         simulated.logs,
-         simulated.sim_res.tx_gas_used(),
-         simulated.balance_before,
-         simulated.balance_after,
-         authorization_list.clone(),
-      )
-      .await?;
-      analysis.set_diffs(simulated.balance_diff, simulated.approval_diff);
-      analysis.set_block_number(simulated.block_number);
-      analysis
+   let mut tx_analysis = match analysis {
+      Some(analysis) => analysis,
+      None => {
+         analyse(
+            ctx.clone(),
+            chain,
+            from,
+            interact_to,
+            call_data.clone(),
+            value,
+            authorization_list.clone(),
+            &watch,
+         )
+         .await?
+      }
    };
 
-   let involved_currencies = tx_analysis.involved_currencies();
-   let price_manager = ctx.price_manager();
-   let pool_manager = ctx.pool_manager();
-
-   let tokens = involved_currencies
-      .iter()
-      .map(|c| c.to_erc20().into_owned())
-      .collect::<Vec<_>>();
-
-   let time = std::time::Instant::now();
-
-   if let Err(e) = price_manager
-      .calculate_prices(ctx.clone(), chain.id(), pool_manager, tokens)
-      .await
-   {
-      tracing::error!("Error updating prices: {:?}", e);
-   }
-
-   tracing::info!(
-      "Updated prices in {} ms",
-      time.elapsed().as_millis()
-   );
-
-   tx_analysis.refresh_usd(&ctx);
+   price_analysis(&ctx, chain, &mut tx_analysis).await;
 
    let confirmed = confirm_tx(
       ctx.clone(),
@@ -622,6 +825,9 @@ pub async fn send_transaction(
    )
    .await?;
 
+   // The record keeps the reading: an autonomous action has no window anyone saw its numbers in, so this is
+   // what its activity entry and its answer are made of. It is attached to the record's own analysis by
+   // `build_tx_outcome`, because that one is rebuilt from the receipt rather than handed in.
    let main_event = tx_analysis.infer_main_event(ctx.clone(), chain.id());
    let main_event_name = if main_event.is_known() {
       main_event.name()
@@ -795,6 +1001,8 @@ pub async fn send_transaction(
          // Connector / inferred swaps do not — those keep the log heuristic.
          onchain_swap_received: tx_analysis.main_event_opt().is_some_and(|e| e.is_swap()),
          priority_fee,
+         authorised_by: opts.authority.as_ref().map(|authority| authority.profile().clone()),
+         review: confirmed.review.clone(),
       },
    )
    .await?;
@@ -806,11 +1014,12 @@ pub async fn send_transaction(
 
 pub async fn delegate_to(
    ctx: ZeusCtx,
+   env: AgentEnv,
    source_is_zeus: bool,
    chain: ChainId,
    from: Address,
    delegate_to: Address,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let wallet = ctx.get_wallet(from).ok_or(anyhow!("Wallet not found"))?.key;
    let client = ctx.get_client_manager();
 
@@ -841,11 +1050,15 @@ pub async fn delegate_to(
    let signed_authorization =
       signed_7702_authorization(&wallet, chain.id(), delegate_to, auth_nonce)?;
 
-   send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, from).authorization_list(vec![signed_authorization]),
-      SendTxOptions::default(),
+      SendTxOptions {
+         priority: env.priority,
+         authority: env.authority,
+         ..Default::default()
+      },
    )
    .await?;
 
@@ -859,7 +1072,7 @@ pub async fn delegate_to(
       });
    }
 
-   Ok(())
+   Ok(rich)
 }
 
 pub async fn send_tx<P>(client: P, params: TxParams) -> Result<TransactionReceipt, anyhow::Error>
@@ -922,6 +1135,10 @@ fn make_tx_request(params: &TxParams) -> TransactionRequest {
 #[cfg(test)]
 mod tests {
    use super::*;
+   use crate::agent::{
+      AgentEnv, AgentProfile, AgentProfileId, ProfileMode, TokenRef, TokenScope, WalletGrant,
+   };
+   use std::collections::BTreeSet;
    use zeus_eth::alloy_primitives::{address, hex};
 
    /// `send_transaction` fills in nothing but the dapp and the MEV flag, so its
@@ -933,6 +1150,10 @@ mod tests {
       assert!(!opts.sponsored);
       assert!(!opts.keep_intent_event);
       assert!(opts.dapp.is_empty());
+      assert!(
+         opts.authority.is_none(),
+         "nothing carries an agent authority unless one is handed to it"
+      );
    }
 
    /// The refusal decision: an EOA passes, a plain contract is refused with the fixed copy.
@@ -1204,5 +1425,229 @@ mod tests {
          );
          previous = max_fee;
       }
+   }
+
+   fn alice() -> Address {
+      Address::repeat_byte(0xa1)
+   }
+
+   fn bob() -> Address {
+      Address::repeat_byte(0xb0)
+   }
+
+   /// The recommendation the tests put on hand: one the branch can quote without a chain.
+   fn tip() -> NumericValue {
+      NumericValue::format_to_gwei(U256::from(2_000_000_000u64))
+   }
+
+   /// An unlocked context with a recommendation on hand, so no confirmation reaches for the network.
+   fn unlocked() -> ZeusCtx {
+      let ctx = ZeusCtx::new(crate::platform::runtime::test_handle());
+      ctx.write(|ctx| {
+         ctx.vault_unlocked = true;
+         ctx.locked = false;
+      });
+      ctx.update_priority_fee(1, tip());
+      ctx
+   }
+
+   /// A profile granting one wallet the native send capability, in mode, over the one token.
+   fn send_grant(wallet: Address, mode: ProfileMode, token: Address) -> AgentProfile {
+      let (_, token_hash) = crate::agent::token::generate();
+      let mut profile = AgentProfile::new("Claude Code - laptop", token_hash, 1_700_000_000);
+      profile.mode = mode;
+
+      let mut caps = BTreeSet::new();
+      caps.insert("wallet.write.send".to_string());
+
+      profile.wallets.insert(
+         wallet,
+         WalletGrant {
+            enabled: true,
+            caps,
+            tokens: TokenScope::Allowlist {
+               tokens: vec![TokenRef {
+                  chain: 1,
+                  address: token,
+               }],
+            },
+            ..WalletGrant::default()
+         },
+      );
+
+      profile
+   }
+
+   /// The analysis a native send of 0.001 ETH from a wallet leaves behind.
+   fn native_send(wallet: Address, gas_used: u64) -> TransactionAnalysis {
+      let mut analysis = TransactionAnalysis::default();
+      analysis.chain = 1;
+      analysis.sender = wallet;
+      analysis.value = U256::from(1_000_000_000_000_000u64);
+      analysis.gas_used = gas_used;
+      analysis
+   }
+
+   fn on_behalf_of(profile: AgentProfileId) -> SendTxOptions {
+      SendTxOptions {
+         authority: AgentEnv::agent(profile).authority,
+         ..Default::default()
+      }
+   }
+
+   /// One number for both the window's prefill and a confirmation nobody saw.
+   #[test]
+   fn the_default_gas_limit_is_the_windows_prefill() {
+      assert_eq!(default_gas_limit(21_000), 31_500);
+      assert_eq!(default_gas_limit(100_000), 150_000);
+      // Integer division: the limit is what the window offered, never a gas past it.
+      assert_eq!(default_gas_limit(101), 151);
+   }
+
+   /// The normal path for a granted capability: no window, and the answer the window would have given.
+   #[tokio::test]
+   async fn a_granted_capability_confirms_without_a_window() {
+      let ctx = unlocked();
+      let wallet = alice();
+      let profile = send_grant(wallet, ProfileMode::Authorized, Address::ZERO);
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let analysis = native_send(wallet, 21_000);
+      let confirmed = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &analysis,
+         &on_behalf_of(id),
+      )
+      .await
+      .expect("a granted send must not wait for a window");
+
+      assert_eq!(
+         confirmed.gas_limit,
+         default_gas_limit(analysis.gas_used)
+      );
+      assert_eq!(
+         confirmed.fee_ceiling_bps,
+         PriorityTier::Fast.fee_ceiling_bps()
+      );
+      assert_eq!(confirmed.priority_fee, tip());
+      assert!(
+         confirmed.clear_display.is_none(),
+         "clear signing is the window's own work, and there was no window"
+      );
+   }
+
+   /// A wallet the grant does not cover is refused, and the refusal never reaches the prompt.
+   #[tokio::test]
+   async fn an_ungranted_wallet_is_refused_before_the_window() {
+      let ctx = unlocked();
+      let profile = send_grant(bob(), ProfileMode::Authorized, Address::ZERO);
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(alice(), 21_000),
+         &on_behalf_of(id),
+      )
+      .await
+      .expect_err("a wallet with no grant is refused");
+
+      assert!(err.to_string().contains("no grant on"), "{err}");
+   }
+
+   /// The envelope is the grant's, not the caller's: an asset outside the allowlist is refused here.
+   #[tokio::test]
+   async fn an_asset_outside_the_allowlist_is_refused() {
+      let ctx = unlocked();
+      let wallet = alice();
+      let profile = send_grant(
+         wallet,
+         ProfileMode::Authorized,
+         Address::repeat_byte(0x5c),
+      );
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(wallet, 21_000),
+         &on_behalf_of(id),
+      )
+      .await
+      .expect_err("the native token is not in this grant");
+
+      assert!(
+         err.to_string().contains("token allowlist"),
+         "{err}"
+      );
+   }
+
+   /// A cautious profile keeps today's prompt: the answer is the one only a human can give.
+   #[tokio::test]
+   async fn a_confirm_each_profile_still_opens_the_window() {
+      let ctx = unlocked();
+      let wallet = alice();
+      let profile = send_grant(wallet, ProfileMode::ConfirmEach, Address::ZERO);
+      let id = profile.id.clone();
+      ctx.agent_profiles().insert(profile);
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(wallet, 21_000),
+         &on_behalf_of(id),
+      )
+      .await
+      .expect_err("no UI is installed, so the prompt cannot open");
+
+      assert_eq!(err.to_string(), ui::NO_UI_MSG);
+   }
+
+   /// The user's own send is untouched: no authority, and the prompt is what answers it.
+   #[tokio::test]
+   async fn a_user_send_takes_the_prompt_path() {
+      let ctx = unlocked();
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(alice(), 21_000),
+         &SendTxOptions::default(),
+      )
+      .await
+      .expect_err("no UI is installed, so today's prompt cannot open");
+
+      assert_eq!(err.to_string(), ui::NO_UI_MSG);
+   }
+
+   /// A grant withdrawn between building the transaction and confirming it authorises nothing.
+   #[tokio::test]
+   async fn a_profile_that_is_gone_is_refused() {
+      let ctx = unlocked();
+      let opts = on_behalf_of(AgentProfileId::generate());
+
+      let err = confirm_tx(
+         ctx,
+         true,
+         ChainId::from(1u64),
+         &native_send(alice(), 21_000),
+         &opts,
+      )
+      .await
+      .expect_err("the profile is not in the store");
+
+      assert!(
+         err.to_string().contains("no longer present"),
+         "{err}"
+      );
    }
 }

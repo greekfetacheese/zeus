@@ -302,7 +302,7 @@ impl AppearanceSettings {
 
    /// The copy [`Self::save`] writes: clamped, with every transient settings
    /// window closed.
-   fn persisted(&self) -> Self {
+   pub(crate) fn persisted(&self) -> Self {
       let mut settings = self.clone();
       settings.clamp();
       settings.close_settings_windows();

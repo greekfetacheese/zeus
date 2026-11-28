@@ -101,6 +101,7 @@ Currently the extension is not listed in the Chrome Web Store, so you will need 
 | **Tx simulation** | Local EVM sims with [revm](https://github.com/bluealloy/revm) + Balance & Approval diffs |
 | **MEV protect** | MEV-vulnerable txs prefer mev-protect RPCs |
 | **Dapp connect** | Via the [wallet-connector](https://github.com/greekfetacheese/zeus/tree/main/wallet-connector) extension |
+| **Agent access** | An MCP endpoint on loopback, off by default, for a model harness you connect yourself — under a grant you write, per credential and per wallet. See [docs/agents.md](docs/agents.md) |
 
 ### Railgun
 
@@ -141,6 +142,8 @@ What a screen reader hears:
 - waits that say what they are doing ("Sending your transaction…", "Generating the private proof. This takes a few seconds and cannot be cancelled.") and results that are said once rather than on every frame.
 
 Keyboard: Tab and Shift+Tab move through the page and into an open picker, Enter or Space activates the focused control (or picks the focused option), and Escape closes whatever is on top — a dialog, a picker, or the Settings window. Every prompt has a way out that is not its primary action, and its copy says which one that is.
+
+The agent endpoint is built for this too: an autonomous action says what it did through the same speech channel the rest of the app uses, the Agents page shows what each credential did, and `Ctrl+Shift+A` stops the listener from anywhere — including over a dialog. [docs/agents.md](docs/agents.md) is the user's guide.
 
 ### What is not accessible, and what to do instead
 

@@ -10,7 +10,7 @@ pub mod unshield;
 pub use merge_notes::MergeNotesWindow;
 pub use ops::*;
 pub use privacy::{UnshieldPrivacy, assess_unshield};
-pub use shield::{BundlerUrl, RailgunMode, ShieldUi};
+pub use shield::{RailgunMode, ShieldUi};
 pub use transfer::{private_merge_notes, private_transfer};
 pub use unshield::default_bundler_url;
 

@@ -180,7 +180,10 @@ impl std::fmt::Debug for WalletStateKey {
 }
 
 /// Compare two equally long byte slices without letting the position of the first difference show.
-fn ct_eq(a: &[u8], b: &[u8]) -> bool {
+///
+/// Shared with [`crate::agent::token`], which compares a stored `keccak256` against a presented token: one
+/// constant-time compare in the crate, not two that could drift apart.
+pub(crate) fn ct_eq(a: &[u8], b: &[u8]) -> bool {
    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 

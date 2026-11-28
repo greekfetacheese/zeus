@@ -151,6 +151,19 @@ impl UiHost for GuiHost {
       });
    }
 
+   fn announce(&self, message: &str) {
+      // Queued, not written to the frame's slot: this is called from an agent's own task, and two
+      // actions can finish between two frames. The queue wakes the window for each sentence it adds.
+      SHARED_GUI.write(|gui| gui.announce_from_host(message));
+   }
+
+   fn set_bundler_url(&self, url: String) {
+      SHARED_GUI.write(|gui| {
+         gui.shield_ui.set_bundler_url(url);
+         gui.request_repaint();
+      });
+   }
+
    fn lockout_and_shutdown(&self, msg: &str) {
       SHARED_GUI.write(|gui| {
          gui.open_msg_window(msg);

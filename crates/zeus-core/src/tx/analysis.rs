@@ -25,6 +25,7 @@ use super::events::{
    PermitParams, ShieldParams, SwapParams, TokenApproveParams, TransferParams,
    UniswapPositionParams, UnshieldParams, UnwrapWETHParams, WrapETHParams,
 };
+use super::review::SimReview;
 use crate::sim::approval_diff::ApprovalDiff;
 #[cfg(any(test, feature = "test-fixtures"))]
 use crate::sim::approval_diff::{
@@ -92,6 +93,22 @@ pub struct TransactionAnalysis {
    /// "simulated at block" row when it is set.
    #[serde(default)]
    pub block_number: Option<u64>,
+
+   /// What the flow's own simulation measured arriving, when the flow measured it.
+   ///
+   /// The diffs are the signer's net change; this is the one number a flow can state more precisely than
+   /// the diff can — a swap's received amount, a transfer's delivery. It is what the review reads against
+   /// the promise, and it is `None` for anything the flow did not measure rather than zero.
+   #[serde(default)]
+   pub measured_out: Option<NumericValue>,
+
+   /// How the simulation read against what the flow promised, when one did.
+   ///
+   /// Written at the confirmation, which is the only place that holds the promise and the analysis together,
+   /// and then carried on the record: an autonomous action has no window anyone saw it in, so the record is
+   /// the only place its numbers survive.
+   #[serde(default)]
+   pub review: Option<SimReview>,
 }
 
 /// Output-token amount the sender actually received, from `balanceOf` at
@@ -457,6 +474,16 @@ impl TransactionAnalysis {
       self.approval_diff = approval;
    }
 
+   /// Record what the flow's own simulation measured arriving.
+   pub fn set_measured_out(&mut self, amount: NumericValue) {
+      self.measured_out = Some(amount);
+   }
+
+   /// Record how the simulation read against the promise the flow made.
+   pub fn set_review(&mut self, review: SimReview) {
+      self.review = Some(review);
+   }
+
    pub fn remove_main_event(&mut self) {
       self.main_event = None;
    }
@@ -621,6 +648,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -646,6 +675,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -671,6 +702,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -696,6 +729,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -722,6 +757,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -747,6 +784,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -773,6 +812,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -798,6 +839,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -823,6 +866,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -848,6 +893,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -873,6 +920,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -898,6 +947,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -926,6 +977,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 
@@ -953,6 +1006,8 @@ impl TransactionAnalysis {
          onchain_swap_received: None,
          balance_diff: BalanceDiff::default(),
          approval_diff: ApprovalDiff::default(),
+         measured_out: None,
+         review: None,
       }
    }
 

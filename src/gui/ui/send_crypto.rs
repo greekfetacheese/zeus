@@ -12,8 +12,9 @@ use std::{
 
 use crate::core::types::EnsRecipientGuard;
 use crate::core::{
-   DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis, TransferParams, ZeusContext,
-   ZeusCtx, ensure_recipient_is_not_contract, send_transaction,
+   AgentEnv, Amount, DecodedEvent, SendTxOptions, SendTxRequest, TransactionAnalysis,
+   TransactionRich, TransferParams, TxPromise, ZeusContext, ZeusCtx,
+   ensure_recipient_is_not_contract, send_transaction,
 };
 use crate::utils::{TimeStamp, estimate_tx_cost, simulate};
 
@@ -805,6 +806,7 @@ impl SendCryptoUi {
 
          match send_nft(
             ctx.clone(),
+            AgentEnv::user(),
             chain,
             from,
             recipient_address,
@@ -869,6 +871,7 @@ impl SendCryptoUi {
 
          let result = crate::runtime::rt().block_on(private_transfer(
             ctx.clone(),
+            AgentEnv::user(),
             chain,
             RailgunAsset::Nft(nft),
             amount,
@@ -1247,6 +1250,7 @@ impl SendCryptoUi {
 
          let result = crate::runtime::rt().block_on(private_transfer(
             ctx.clone(),
+            AgentEnv::user(),
             chain,
             RailgunAsset::Fungible(currency),
             amount,
@@ -1310,6 +1314,7 @@ impl SendCryptoUi {
          if currency.is_native() {
             match send_eth(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                from,
                recipient_address,
@@ -1340,6 +1345,7 @@ impl SendCryptoUi {
          } else {
             match send_token(
                ctx.clone(),
+               AgentEnv::user(),
                chain,
                from,
                recipient_address,
@@ -1435,8 +1441,9 @@ fn value(
    value
 }
 
-async fn send_eth(
+pub(crate) async fn send_eth(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    recipient: Address,
@@ -1444,7 +1451,7 @@ async fn send_eth(
    currency: Currency,
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    // Funds must never go straight to a contract: verify the recipient before anything
    // is simulated.
    ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
@@ -1565,13 +1572,16 @@ async fn send_eth(
 
    let eth_cur = eth.clone().into();
    let amount_usd = ctx.get_currency_value_for_amount(amount.f64(), &eth_cur);
-   // let real_amount_sent = NumericValue::format_wei(real_amount_sent, eth.decimals);
-   // let real_amount_send_usd = ctx.get_currency_value_for_amount(real_amount_sent.f64(), &eth_cur);
+   // What the recipient's balance actually gained in the simulation: the number a transfer tax would show up
+   // in, and the one the confirmation reads against the amount asked for.
+   let real_amount_sent = NumericValue::format_wei(_real_amount_sent, eth.decimals);
+   let real_amount_send_usd = ctx.get_currency_value_for_amount(real_amount_sent.f64(), &eth_cur);
 
-   transfer_params.amount = amount;
+   transfer_params.amount = amount.clone();
    transfer_params.amount_usd = Some(amount_usd);
-   // transfer_params.real_amount_sent = Some(real_amount_sent);
-   // transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+   transfer_params.real_amount_sent = Some(real_amount_sent.clone());
+   transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+   let real_amount_sent_proof = real_amount_sent.clone();
 
    let contract_interact = Some(false);
    let auth_list = Vec::new();
@@ -1595,8 +1605,10 @@ async fn send_eth(
 
    tx_analysis.set_block_number(block.header.number);
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
+   // What the recipient's own balance gained in the simulation: the amount a transfer tax would leave.
+   tx_analysis.set_measured_out(real_amount_sent_proof.clone());
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -1609,6 +1621,12 @@ async fn send_eth(
          mev_protect,
          ens_recipient: recipient_guard,
          recipient_name: recipient_name.map(|name| (recipient, name)),
+         priority: env.priority,
+         authority: env.authority.clone(),
+         // What the recipient was promised. The simulation above says what it actually gets.
+         promise: Some(TxPromise::Transfer {
+            amount: Amount::new(currency.clone(), amount.clone()),
+         }),
          ..Default::default()
       },
    )
@@ -1621,11 +1639,12 @@ async fn send_eth(
       }
    }
 
-   Ok(())
+   Ok(rich)
 }
 
-async fn send_token(
+pub(crate) async fn send_token(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    recipient: Address,
@@ -1633,7 +1652,7 @@ async fn send_token(
    amount: NumericValue,
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    // Funds must never go straight to a contract: verify the recipient before anything
    // is simulated.
    ensure_recipient_is_not_contract(ctx.clone(), chain, recipient).await?;
@@ -1734,10 +1753,11 @@ async fn send_token(
    let real_amount_sent = NumericValue::format_wei(real_amount_sent, token.decimals);
    let real_amount_send_usd = ctx.get_token_value_for_amount(real_amount_sent.f64(), &token);
 
-   transfer_params.amount = amount;
+   transfer_params.amount = amount.clone();
    transfer_params.amount_usd = Some(amount_usd);
-   transfer_params.real_amount_sent = Some(real_amount_sent);
+   transfer_params.real_amount_sent = Some(real_amount_sent.clone());
    transfer_params.real_amount_sent_usd = Some(real_amount_send_usd);
+   let real_amount_sent_proof = real_amount_sent.clone();
 
    let contract_interact = Some(true);
    let auth_list = Vec::new();
@@ -1761,8 +1781,10 @@ async fn send_token(
 
    tx_analysis.set_block_number(block.header.number);
    tx_analysis.set_main_event(DecodedEvent::Transfer(transfer_params));
+   // What the recipient's own balance gained in the simulation: the amount a transfer tax would leave.
+   tx_analysis.set_measured_out(real_amount_sent_proof.clone());
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -1775,6 +1797,12 @@ async fn send_token(
          mev_protect,
          ens_recipient: recipient_guard,
          recipient_name: recipient_name.map(|name| (recipient, name)),
+         priority: env.priority,
+         authority: env.authority.clone(),
+         // What the recipient was promised. The simulation above says what it actually gets.
+         promise: Some(TxPromise::Transfer {
+            amount: Amount::new(currency.clone(), amount.clone()),
+         }),
          ..Default::default()
       },
    )
@@ -1787,7 +1815,7 @@ async fn send_token(
       }
    }
 
-   Ok(())
+   Ok(rich)
 }
 
 /// Send one NFT to `recipient`.
@@ -1800,8 +1828,9 @@ async fn send_token(
 /// Deliberately no `set_main_event`: the simulation's own logs decode into what the confirm window
 /// shows, and an ERC-721/1155 transfer is one of them (`DecodedEvent::NftTransfer`, shown as
 /// "NFT Transfer") — so this path leaves the main event to them rather than synthesizing one.
-async fn send_nft(
+pub(crate) async fn send_nft(
    ctx: ZeusCtx,
+   env: AgentEnv,
    chain: ChainId,
    from: Address,
    recipient: Address,
@@ -1809,7 +1838,7 @@ async fn send_nft(
    amount: U256,
    recipient_guard: Option<EnsRecipientGuard>,
    recipient_name: Option<String>,
-) -> Result<(), anyhow::Error> {
+) -> Result<TransactionRich, anyhow::Error> {
    let mev_protect = false;
    let dapp = String::new();
    let interact_to = nft.collection;
@@ -1944,7 +1973,7 @@ async fn send_nft(
 
    tx_analysis.set_block_number(block.header.number);
 
-   let (_, _) = send_transaction(
+   let (_, rich) = send_transaction(
       ctx.clone(),
       source_is_zeus,
       SendTxRequest::new(chain, from, interact_to)
@@ -1957,6 +1986,8 @@ async fn send_nft(
          mev_protect,
          ens_recipient: recipient_guard,
          recipient_name: recipient_name.map(|name| (recipient, name)),
+         priority: env.priority,
+         authority: env.authority.clone(),
          ..Default::default()
       },
    )
@@ -1977,7 +2008,7 @@ async fn send_nft(
       }
    }
 
-   Ok(())
+   Ok(rich)
 }
 
 /// Re-read one NFT after a send, and make the portfolio agree with the chain.
@@ -2233,6 +2264,7 @@ mod tests {
 
       let err = send_eth(
          ctx,
+         AgentEnv::user(),
          ChainId::from(1u64),
          Address::from([9u8; 20]),
          usdc,
@@ -2258,6 +2290,7 @@ mod tests {
 
       let err = send_token(
          ctx,
+         AgentEnv::user(),
          ChainId::from(1u64),
          Address::from([9u8; 20]),
          usdc,

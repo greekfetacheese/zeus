@@ -600,13 +600,7 @@ impl NetworkSettings {
 
          if checkbox.clicked() {
             let z_client = ctx.client_manager.clone();
-            z_client.write(|rpcs_map| {
-               if let Some(rpcs) = rpcs_map.get_mut(&rpc.chain_id)
-                  && let Some(old_rpc) = rpcs.get_mut(&rpc.url)
-               {
-                  old_rpc.mev_protect = rpc.mev_protect;
-               }
-            });
+            z_client.set_rpc_mev_protect(rpc.chain_id, &rpc.url, rpc.mev_protect);
             crate::runtime::rt().spawn_blocking(move || {
                let ctx = SHARED_GUI.read(|gui| gui.ctx.clone());
                ctx.save_client_manager();

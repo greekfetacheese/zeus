@@ -1,7 +1,8 @@
 //! Settings window: category nav + inlined pages.
 
 use crate::assets::icons::Icons;
-use crate::core::ZeusContext;
+use crate::core::{ZeusContext, ZeusCtx};
+use crate::gui::Page;
 use crate::gui::appearance::AppearanceSettings;
 use crate::gui::ui::{
    common::{heading, privacy_mode_switch},
@@ -13,6 +14,7 @@ use egui_elements::{Fill, Frame as Frame2, Label, Theme};
 use egui_lucide::Lucide;
 use std::sync::Arc;
 
+pub mod agents;
 pub mod appearance;
 pub mod autolock;
 pub mod change_credentials;
@@ -26,6 +28,7 @@ pub mod networks;
 pub mod railgun;
 pub mod theme;
 
+pub use agents::AgentsUi;
 pub use appearance::AppearanceSettingsUi;
 pub use autolock::AutoLockSettings;
 pub use change_credentials::ChangeCredentialsUi;
@@ -48,6 +51,7 @@ pub enum SettingsPage {
    Security,
    Contacts,
    Railgun,
+   Agents,
    Data,
 }
 
@@ -62,6 +66,7 @@ impl SettingsPage {
          Self::Security => "Security",
          Self::Contacts => "Contacts",
          Self::Railgun => "Railgun",
+         Self::Agents => "Agents",
          Self::Data => "Data",
       }
    }
@@ -87,6 +92,12 @@ pub struct SettingsUi {
    focus_page: bool,
    /// The words a page asked the app to say, drained right after the window is drawn.
    notice: Option<String>,
+   /// The page a page inside the window asked for — the Activity view's link to the history — for
+   /// the app to open, because a page cannot move the window it is drawn in.
+   page_request: Option<Page>,
+   /// The context the pages that start background work need.
+   ctx: ZeusCtx,
+   agents: AgentsUi,
    general: GeneralSettings,
    appearance: AppearanceSettingsUi,
    keyboard: KeyboardSettings,
@@ -102,7 +113,14 @@ pub struct SettingsUi {
 }
 
 impl SettingsUi {
-   pub fn new(ctx: &mut ZeusContext, appearance: &mut AppearanceSettings) -> Self {
+   pub fn new(handle: &ZeusCtx, appearance: &mut AppearanceSettings) -> Self {
+      let (general, railgun) = handle.write(|ctx| {
+         (
+            GeneralSettings::new(ctx),
+            RailgunSettings::new(ctx),
+         )
+      });
+
       Self {
          open: false,
          focus_return: false,
@@ -112,7 +130,10 @@ impl SettingsUi {
          focus_nav: false,
          focus_page: false,
          notice: None,
-         general: GeneralSettings::new(ctx),
+         page_request: None,
+         ctx: handle.clone(),
+         agents: AgentsUi::new(),
+         general,
          appearance: AppearanceSettingsUi::new(appearance),
          keyboard: KeyboardSettings::new(),
          encryption: EncryptionSettings::new(),
@@ -123,7 +144,7 @@ impl SettingsUi {
          change_credentials_ui: ChangeCredentialsUi::new(),
          export: ExportDataUi::new(),
          import: ImportDataUi::new(),
-         railgun: RailgunSettings::new(ctx),
+         railgun,
       }
    }
 
@@ -160,11 +181,16 @@ impl SettingsUi {
       }
    }
 
-   pub fn close(&mut self) {
+   /// Close the window.
+   ///
+   /// The Agents page keeps its edits in a draft while the window is open, so closing is when they
+   /// reach the store — once, and only if something changed.
+   pub fn close(&mut self, ctx: &mut ZeusContext) {
       if self.open {
          self.promote_network_notice();
          self.promote_contacts_notice();
          self.promote_keyboard_notice();
+         self.promote_agents_notice();
       }
       self.open = false;
       self.change_credentials_ui.reset();
@@ -173,6 +199,8 @@ impl SettingsUi {
       // again the next time Settings opens — e.g. after an auto-lock/unlock.
       self.import.erase();
       self.contacts_ui.reset_page();
+      // The Agents page holds its edits until the window closes, so this is its one write.
+      self.agents.close(ctx, &self.ctx);
       self.keyboard.reset();
       self.network.reset_view();
       // Reopening lands on the open page's heading again, even though the page itself did not change.
@@ -191,6 +219,11 @@ impl SettingsUi {
    /// The words this frame should say, drained by the app right after the window is drawn.
    pub fn take_notice(&mut self) -> Option<String> {
       self.notice.take()
+   }
+
+   /// The page a page inside the window asked for, drained by the app that can open it.
+   pub fn take_page(&mut self) -> Option<Page> {
+      self.page_request.take()
    }
 
    /// Whether the Keyboard page is recording a chord.
@@ -227,6 +260,19 @@ impl SettingsUi {
    fn promote_keyboard_notice(&mut self) {
       if let Some(text) = self.keyboard.take_notice() {
          self.notice = Some(text);
+      }
+   }
+
+   /// Hand a notice the Agents page raised up to the window, where the app drains it.
+   fn promote_agents_notice(&mut self) {
+      if let Some(text) = self.agents.take_notice() {
+         self.notice = Some(text);
+      }
+
+      // The Activity view links to the history page, which the window draws over: the request goes
+      // up to the app, which closes the window and opens the page in the same frame.
+      if let Some(page) = self.agents.take_page() {
+         self.page_request = Some(page);
       }
    }
 
@@ -280,12 +326,13 @@ impl SettingsUi {
       theme: &Theme,
       appearance: &mut AppearanceSettings,
       keymap: &mut KeyBindings,
+      server: &mut Option<zeus_mcp::ServerHandle>,
       ui: &mut Ui,
    ) {
       if ctx.locked {
          // A locked wallet must not leave Settings usable.
          if self.open {
-            self.close();
+            self.close(ctx);
          }
          return;
       }
@@ -306,12 +353,12 @@ impl SettingsUi {
          .default_size([1120.0, 720.0])
          .open(&mut open)
          .show(ui.ctx(), |ui| {
-            self.paint(ctx, icons, theme, appearance, keymap, ui);
+            self.paint(ctx, icons, theme, appearance, keymap, server, ui);
             escaped = escape_closes_window(ui);
          });
 
       if !open || escaped {
-         self.close();
+         self.close(ctx);
          self.focus_return = true;
       }
    }
@@ -323,6 +370,7 @@ impl SettingsUi {
       theme: &Theme,
       appearance: &mut AppearanceSettings,
       keymap: &mut KeyBindings,
+      server: &mut Option<zeus_mcp::ServerHandle>,
       ui: &mut Ui,
    ) {
       // Tab belongs to this window while it is up. Without a modal layer egui hands the keyboard to
@@ -332,7 +380,7 @@ impl SettingsUi {
       // shortcut sheet — still takes the keyboard, and the layer is gone the frame the window is.
       ui.ctx().memory_mut(|memory| memory.set_modal_layer(ui.layer_id()));
 
-      self.show_shell(ctx, icons, theme, appearance, keymap, ui);
+      self.show_shell(ctx, icons, theme, appearance, keymap, server, ui);
    }
 
    fn show_shell(
@@ -342,6 +390,7 @@ impl SettingsUi {
       theme: &Theme,
       appearance: &mut AppearanceSettings,
       keymap: &mut KeyBindings,
+      server: &mut Option<zeus_mcp::ServerHandle>,
       ui: &mut Ui,
    ) {
       // The page a reader is not offered cannot stay in front: its plate is gone from the nav, so
@@ -359,8 +408,8 @@ impl SettingsUi {
          .show_separator_line(false)
          .frame(egui::Frame::new().fill(nav_bg).inner_margin(8.0))
          .show(ui, |ui| {
-            // The seven plates are one page switcher: named here so a reader knows what they
-            // belong to before it walks them.
+            // The plates are one page switcher: named here so a reader knows what they belong
+            // to before it walks them.
             ui.ctx().accesskit_node_builder(ui.unique_id(), |node| {
                node.set_role(Role::TabList);
                node.set_label("Settings pages");
@@ -489,6 +538,15 @@ impl SettingsUi {
                         self.import.show_page(theme, ui);
                      },
                   );
+
+                  show_with_fade(
+                     ui,
+                     "settings_agents_ui_fade",
+                     page == SettingsPage::Agents,
+                     |ui| {
+                        self.agents.show(ctx, &self.ctx, server, theme, ui);
+                     },
+                  );
                });
             });
          });
@@ -515,6 +573,7 @@ impl SettingsUi {
       self.promote_network_notice();
       self.promote_contacts_notice();
       self.promote_keyboard_notice();
+      self.promote_agents_notice();
    }
 
    /// Draw the page switcher and return the plate of the page in front.
@@ -560,6 +619,10 @@ impl SettingsUi {
          (
             SettingsPage::Railgun,
             Lucide::Shield.size(20.0).color(icon_color).image(),
+         ),
+         (
+            SettingsPage::Agents,
+            Lucide::Bot.size(20.0).color(icon_color).image(),
          ),
          (
             SettingsPage::Data,
