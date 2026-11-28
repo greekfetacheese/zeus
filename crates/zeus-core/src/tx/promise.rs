@@ -47,8 +47,12 @@ pub enum TxPromise {
    },
    /// A transfer: `amount` is what the recipient is meant to receive.
    Transfer { amount: Amount },
-   /// A shield: the same amount leaves the public balance and enters the private one.
-   Shield { amount: Amount },
+   /// A shield: `amount` is what the caller asked to move, and `fee` is Railgun's own cut of it — the note
+   /// that arrives is the two less the fee, which is the shape a bridge's deposit already has.
+   Shield {
+      amount: Amount,
+      fee: Option<NumericValue>,
+   },
    /// An unshield: the same amount leaves the private balance, less any protocol fee already taken.
    Unshield { amount: Amount },
 }
@@ -61,7 +65,7 @@ impl TxPromise {
    pub fn output_currency(&self) -> &Currency {
       match self {
          Self::Swap { output, .. } | Self::Bridge { output, .. } => output,
-         Self::Transfer { amount } | Self::Shield { amount } | Self::Unshield { amount } => {
+         Self::Transfer { amount } | Self::Shield { amount, .. } | Self::Unshield { amount } => {
             &amount.currency
          }
       }
@@ -71,7 +75,7 @@ impl TxPromise {
    pub fn expected_out(&self) -> &NumericValue {
       match self {
          Self::Swap { expected_out, .. } | Self::Bridge { expected_out, .. } => expected_out,
-         Self::Transfer { amount } | Self::Shield { amount } | Self::Unshield { amount } => {
+         Self::Transfer { amount } | Self::Shield { amount, .. } | Self::Unshield { amount } => {
             &amount.amount
          }
       }
@@ -88,10 +92,13 @@ impl TxPromise {
       }
    }
 
-   /// The bridge fee the destination is allowed to be short by.
+   /// The fee the bargain already allows: a bridge's own cut, or Railgun's on a shield.
+   ///
+   /// The review takes it off the promise before comparing, so a flow that legitimately pays it is not
+   /// read as arriving short — and a flow that arrives short *past* it still is.
    pub fn fee(&self) -> Option<&NumericValue> {
       match self {
-         Self::Bridge { fee, .. } => fee.as_ref(),
+         Self::Bridge { fee, .. } | Self::Shield { fee, .. } => fee.as_ref(),
          _ => None,
       }
    }

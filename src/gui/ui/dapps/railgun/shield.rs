@@ -2290,14 +2290,17 @@ pub(crate) async fn shield(
 
    // Transact logs are not public ERC-20 transfers, so record the intent.
    tx_analysis.set_block_number(block_number);
-   // What the shield's own event says entered the private pool, in the asset's units. An NFT has no
-   // currency to weigh it against, so it states no promise and is reviewed by nothing — the same
-   // behaviour it had before this review existed.
-   tx_analysis.set_measured_out(amount.clone());
+   // What the note the shield created actually holds, in the asset's units — the commitment's value, which
+   // is already net of the protocol's cut. Promising the amount that was asked for and measuring what
+   // arrived against it is what makes the shortfall mean something: measured whatever came back would be
+   // comparing it against itself. An NFT has no currency to weigh it against, so it states no promise and
+   // is reviewed by nothing — the same behaviour it had before this review existed.
+   tx_analysis.set_measured_out(shield_params.amount.clone().unwrap_or_else(|| amount.clone()));
 
    let promise = match &asset {
       RailgunAsset::Fungible(currency) => Some(TxPromise::Shield {
          amount: Amount::new(currency.clone(), amount.clone()),
+         fee: shield_params.fee.clone(),
       }),
       RailgunAsset::Nft(_) => None,
    };

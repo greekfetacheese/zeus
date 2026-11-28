@@ -357,6 +357,41 @@ mod tests {
       assert!(review.is_complete());
    }
 
+   /// A shield pays Railgun's own cut, so the bargain already allows it: the promise carries the fee and the
+   /// note that arrives is weighed against what is left of it. A loss past that fee is still a shortfall.
+   #[test]
+   fn a_shield_fee_is_allowed_and_a_loss_past_it_is_not() {
+      let promise = TxPromise::Shield {
+         amount: Amount::new(pepe(), units(100.0)),
+         fee: Some(units(0.25)),
+      };
+      let mut analysis = TransactionAnalysis::default();
+      measured(&mut analysis, 99.75);
+
+      let allowed = review(&promise, &analysis, unpriced);
+
+      assert_eq!(
+         allowed.shortfall_bps,
+         Some(0),
+         "the fee is part of the bargain"
+      );
+      assert!(
+         allowed.unpriced.is_empty(),
+         "a shield trades nothing"
+      );
+
+      let mut taxed = TransactionAnalysis::default();
+      measured(&mut taxed, 95.0);
+
+      let short = review(&promise, &taxed, unpriced);
+
+      assert_eq!(
+         short.shortfall_bps,
+         Some(476),
+         "1 - 95/99.75 is past the fee, so it is a shortfall like any other"
+      );
+   }
+
    /// No measurement is not a zero measurement.
    #[test]
    fn nothing_measured_is_reported_as_nothing() {
