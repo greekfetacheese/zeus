@@ -134,7 +134,7 @@ fn shield(call: &Call, arguments: Value) -> ToolFuture<'_> {
          amount: ledger.amount(&arguments)?,
          decimals: ledger.decimals,
          nft: ledger.nft,
-         recipient: string_argument(&arguments, "recipient")?.trim().to_owned(),
+         recipient: zk_recipient(&arguments)?,
          priority: priority_argument(&arguments)?,
       });
       let capability = wanted.capability();
@@ -257,6 +257,28 @@ fn merge_notes(call: &Call, arguments: Value) -> ToolFuture<'_> {
       })
       .await
    })
+}
+
+/// The zk address a shield's note goes to.
+///
+/// The schema requires it and the generic "recipient is required" would leave a model guessing what to
+/// put there: for a shield the recipient is the wallet's own zk address, which `railgun_status` answers.
+fn zk_recipient(arguments: &Value) -> Result<String, ToolError> {
+   let Some(text) = arguments.get("recipient").and_then(Value::as_str) else {
+      return Err(ToolError::validation(
+         "recipient is required: the wallet's zk address, as railgun_status shows it",
+      ));
+   };
+
+   let text = text.trim();
+
+   if text.is_empty() {
+      return Err(ToolError::validation(
+         "recipient is empty: the wallet's zk address, as railgun_status shows it",
+      ));
+   }
+
+   Ok(text.to_owned())
 }
 
 /// What moves, before the amount is read: an id when a collection was named, the token otherwise.

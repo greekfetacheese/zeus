@@ -2404,8 +2404,13 @@ pub(crate) async fn swap_via_ur(
       return Err(anyhow!("No tokens received from the swap"));
    };
 
-   // Prompt the user to sign a message if needed
-   if let Some(permit2_info) = &permit2_info_opt
+   // Prompt the user to sign a message if needed.
+   //
+   // An agent's grant stands in for the click here, exactly as it does in `confirm_tx`: the permit is
+   // signed from the vault inside `encode_swap` either way, so this window asks for a consent the flow
+   // never reads — and one an autonomous swap has nobody to give.
+   if env.authority.is_none()
+      && let Some(permit2_info) = &permit2_info_opt
       && permit2_info.needs_new_signature
    {
       let msg = permit2_info.msg.clone().ok_or(anyhow!("No permit message found"))?;

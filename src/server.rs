@@ -388,7 +388,7 @@ impl JsonRpcError {
 ///
 /// Dapps (OpenSea/viem, etc.) retry `-32603` up to 3 times, which re-opens
 /// the confirm UI. EIP-1193 `4001` is not retried.
-fn is_user_rejected(err: &anyhow::Error) -> bool {
+pub(crate) fn is_user_rejected(err: &anyhow::Error) -> bool {
    let msg = err.to_string();
    msg.contains("Transaction rejected") || msg.contains("You cancelled the signing process")
 }

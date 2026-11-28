@@ -1,4 +1,4 @@
-use crate::agent::{AgentAuthority, AgentEnv, Decision, authorise};
+use crate::agent::{AgentAuthority, AgentDenial, AgentEnv, Decision, authorise};
 use crate::context::{self, get_base_fee};
 use crate::platform::TimeStamp;
 use crate::sim::eip7702_implementation;
@@ -597,7 +597,7 @@ pub async fn confirm_tx(
          // Nothing authorise can answer needs a human, but a flow that ever sees this must stop
          // rather than decide for them.
          Decision::NeedsUser { reason } => return Err(anyhow!(reason)),
-         Decision::Denied(denial) => return Err(anyhow!(denial)),
+         Decision::Denied(denial) => return Err(AgentDenial(denial).into()),
       }
    }
 

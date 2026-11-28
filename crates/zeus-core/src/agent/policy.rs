@@ -210,6 +210,23 @@ impl fmt::Display for Denial {
    }
 }
 
+/// A policy denial carried through an `anyhow` error.
+///
+/// The confirmation seam answers in `anyhow::Error`, and `anyhow!(denial)` would keep the sentence and
+/// lose the variant — so a refusal the grant itself made reached the tool boundary as an unclassified
+/// internal error, with no code a client could branch on and a hint telling the model to report a bug.
+/// Wrapping keeps the typed denial in the error until the edge asks it what it was.
+#[derive(Clone, Debug)]
+pub struct AgentDenial(pub Denial);
+
+impl fmt::Display for AgentDenial {
+   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+      self.0.fmt(f)
+   }
+}
+
+impl std::error::Error for AgentDenial {}
+
 /// Say one refusal out loud.
 ///
 /// Two gates answer a refusal — the one in front of a tool and the one inside the pipeline — and both

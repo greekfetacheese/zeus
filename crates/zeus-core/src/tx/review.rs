@@ -203,11 +203,16 @@ fn unpriced_of(
    promise: &TxPromise,
    price: &impl Fn(&Currency) -> Option<NumericValue>,
 ) -> Vec<Currency> {
-   let mut wanted: Vec<Currency> = vec![promise.output_currency().clone()];
+   // Only a trade has two legs to weigh, and only the ratio between them needs a dollar figure. A
+   // transfer, a shield and an unshield move one asset, so their shortfall is measured in that asset's
+   // own units and no ceiling of theirs becomes unenforceable for want of a price. Refusing them for one
+   // would stop a token the app has no market for from ever leaving the wallet, which is a bound the
+   // grant never asked for.
+   let Some(input) = promise.input() else {
+      return Vec::new();
+   };
 
-   if let Some(input) = promise.input() {
-      wanted.push(input.currency.clone());
-   }
+   let wanted = [promise.output_currency().clone(), input.currency.clone()];
 
    wanted.into_iter().filter(|currency| price(currency).is_none()).collect()
 }
@@ -329,6 +334,26 @@ mod tests {
       assert_eq!(review.price_impact_bps, None);
       assert!(review.usd_in.is_none() && review.usd_out.is_none());
       assert_eq!(review.unpriced, vec![pepe(), eth()]);
+      assert!(review.is_complete());
+   }
+
+   /// A one-sided move trades nothing, so there is no ratio to take and no dollar ceiling to honour. The
+   /// shortfall is measured in the asset itself, so an unpriceable token is still held to its promise.
+   #[test]
+   fn a_one_sided_move_needs_no_price() {
+      let promise = TxPromise::Transfer {
+         amount: Amount::new(pepe(), units(100.0)),
+      };
+      let mut analysis = TransactionAnalysis::default();
+      measured(&mut analysis, 70.0);
+
+      let review = review(&promise, &analysis, unpriced);
+
+      assert!(
+         review.unpriced.is_empty(),
+         "a transfer weighs nothing against a dollar ceiling, so nothing about it is unpriced"
+      );
+      assert_eq!(review.shortfall_bps, Some(3_000));
       assert!(review.is_complete());
    }
 

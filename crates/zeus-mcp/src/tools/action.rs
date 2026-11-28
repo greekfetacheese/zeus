@@ -13,7 +13,7 @@
 //! retry may legitimately succeed — and after a broadcast whose receipt timed out the honest answer is
 //! "check the history", never "it failed".
 
-use super::{Call, ToolOutput};
+use super::{Call, ToolOutput, Warning};
 use crate::error::ToolError;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -118,9 +118,23 @@ where
 pub fn preview(data: Value, arguments: &Value) -> ToolOutput {
    let id = arguments.get("action_id").and_then(Value::as_str).map(str::to_owned);
 
-   ToolOutput::new(data)
-      .stamped(json!({"id": id, "replayed": false, "idempotent": false, "preview": true}))
+   let mut output = ToolOutput::new(data)
+      .stamped(json!({"id": id, "replayed": false, "idempotent": false, "preview": true}));
+
+   // A preview runs no flow, so it has no promise to read and decides on the envelope alone. Saying so is
+   // the difference between "this will be allowed" and "the envelope allows it": a transfer tax or a bad
+   // route is only visible when the promise and the simulation are compared, and that happens at broadcast.
+   output.warnings.push(Warning {
+      code: "PREVIEW_SKIPS_REVIEW",
+      message: PREVIEW_SKIPS_REVIEW.to_owned(),
+      effect: "an allowed preview is not a promise the broadcast will be allowed",
+   });
+
+   output
 }
+
+/// What a preview does not do: the review needs a promise, and only a flow builds one.
+const PREVIEW_SKIPS_REVIEW: &str = "This preview decides on the envelope alone: the price-impact and shortfall review runs at broadcast.";
 
 /// Wait for an action's answer, whether this call started it or is replaying one still in flight.
 async fn wait(mut receiver: watch::Receiver<Option<Outcome>>) -> Result<Outcome, ToolError> {

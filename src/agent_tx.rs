@@ -380,6 +380,19 @@ pub(crate) async fn erc20(
 
 /// The pipeline's typed refusals, as the pipeline reports them, and everything else as itself.
 pub(crate) fn classify(error: anyhow::Error) -> ExecError {
+   // A refusal the grant itself made keeps its variant, so the tool boundary answers the code that names
+   // it — PRICE_UNAVAILABLE, OUTPUT_SHORTFALL, TOKEN_NOT_ALLOWED — rather than "the app's own words"
+   // under a code whose meaning is "report this".
+   if let Some(denial) = error.downcast_ref::<crate::core::agent::AgentDenial>() {
+      return ExecError::Denied(denial.0.clone());
+   }
+
+   // A cancelled prompt is the user saying no, not the app failing. A swap signs its permit through the
+   // same window a dapp request does, so this is the answer an agent sees when nobody answered it.
+   if crate::server::is_user_rejected(&error) {
+      return ExecError::Rejected;
+   }
+
    match error.downcast_ref::<TxRefusal>() {
       Some(TxRefusal::Locked) => ExecError::Locked,
       Some(TxRefusal::Busy) => ExecError::Busy,

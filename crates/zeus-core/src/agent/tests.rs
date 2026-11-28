@@ -1428,6 +1428,58 @@ fn an_output_no_one_can_price_is_refused_while_the_grant_asks_for_a_priced_trade
    );
 }
 
+/// A one-sided move is bounded by the shortfall alone, which is measured in the asset's own units — so a
+/// token the app has no market for can still be sent, shielded or unshielded under the grant that allows it.
+#[test]
+fn a_one_sided_move_of_an_unpriced_token_is_allowed() {
+   let profile = sample_profile();
+   let mut autonomous = profile.clone();
+   autonomous.mode = ProfileMode::Authorized;
+
+   let mut analysis = simulated(alice(), 1);
+   analysis.set_measured_out(NumericValue::from_f64(1_000.0));
+
+   let promise = TxPromise::Transfer {
+      amount: Amount::new(
+         Currency::from(usdc()),
+         NumericValue::from_f64(1_000.0),
+      ),
+   };
+
+   assert!(
+      matches!(
+         authorise(
+            &unlocked(),
+            &autonomous,
+            &analysis,
+            Some(&promise)
+         ),
+         Decision::Allowed { .. }
+      ),
+      "nothing in a transfer needs a price, so an unpriced token must not be refused for want of one"
+   );
+}
+
+/// The confirmation seam answers `anyhow`, so the wrapper is how a policy refusal keeps the variant the
+/// tool boundary turns into a code. Without it every refusal read as "the app's own words".
+#[test]
+fn an_agent_denial_keeps_its_code_through_an_anyhow_error() {
+   let error: anyhow::Error = crate::agent::AgentDenial(Denial::TokenNotAllowed {
+      wallet: alice(),
+      token: TokenRef {
+         chain: 1,
+         address: Address::repeat_byte(0x2a),
+      },
+   })
+   .into();
+
+   let carried = error
+      .downcast_ref::<crate::agent::AgentDenial>()
+      .expect("the typed refusal survives the error");
+
+   assert_eq!(carried.0.code(), "TOKEN_NOT_ALLOWED");
+}
+
 #[test]
 fn a_request_that_states_no_promise_is_decided_exactly_as_it_was_before() {
    let profile = sample_profile();

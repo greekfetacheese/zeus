@@ -31,7 +31,7 @@ pub use exec::{
    UnshieldRequest, WalletLock, execute, overrides_broadcast, preview,
 };
 pub use intent::{Asset, Intent};
-pub use policy::{Decision, Denial, announce_denial, authorise, precheck, vault_open};
+pub use policy::{AgentDenial, Decision, Denial, announce_denial, authorise, precheck, vault_open};
 pub use profile::{
    AgentProfile, AgentProfileId, CAPABILITIES, Capability, CapabilityScope, CapabilityVerb,
    DEFAULT_MAX_PRICE_IMPACT_BPS, DEFAULT_MAX_TRANSFER_SHORTFALL_BPS, MAX_PRICE_IMPACT_BPS,
