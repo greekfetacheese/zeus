@@ -447,7 +447,9 @@ async fn a_get_on_the_endpoint_is_method_not_allowed() {
 
 #[tokio::test]
 async fn the_legacy_handshake_then_a_tool_call_reads_the_wallets() {
-   let fixture = Fixture::start(true);
+   // The wallet list is a screen grant and one wallet's own row is per wallet, so a profile that reads
+   // both holds the two capabilities that surface needs.
+   let fixture = Fixture::with(&["wallet.read.names"], &["settings.wallets.read"]);
    let auth = format!("Bearer {}", fixture.token);
 
    let initialize = request(
@@ -1218,6 +1220,7 @@ async fn the_probe_performs_the_handshake_the_connect_panel_offers() {
 /// The read capabilities the fixture's one wallet can hold.
 const READ_CAPS: &[&str] = &[
    "wallet.read.portfolio",
+   "wallet.read.names",
    "wallet.read.history",
    "wallet.read.approvals",
    "wallet.read.private",
@@ -4148,4 +4151,129 @@ async fn a_dry_run_of_a_flow_built_transaction_says_why_it_cannot() {
       reply.body
    );
    assert!(ops.swaps().is_empty());
+}
+
+#[tokio::test]
+async fn the_profile_resource_leaves_the_credential_verifier_out() {
+   let fixture = Fixture::start(true);
+   let auth = format!("Bearer {}", fixture.token);
+
+   let reply = request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[("Authorization", &auth)],
+      &call(
+         1,
+         "resources/read",
+         json!({"uri": "zeus://profile"}),
+      ),
+      None,
+   )
+   .await;
+
+   let document = reply
+      .body
+      .pointer("/result/contents/0/text")
+      .and_then(Value::as_str)
+      .expect("the grant document");
+
+   let parsed: Value = serde_json::from_str(document).expect("the grant document is JSON");
+
+   // The store keeps the hash and needs it; a model does not, and a hash of the caller's own bearer token
+   // is the one field in this document that is credential material rather than grant.
+   assert!(
+      parsed.get("token_hash").is_none(),
+      "the verifier of the caller's own token is in the grant document: {document}"
+   );
+   assert!(
+      parsed["wallets"].is_object(),
+      "the rest of the grant is still there"
+   );
+   assert!(parsed["max_slippage_bps"].is_number());
+}
+
+#[tokio::test]
+async fn a_read_that_ran_is_in_the_ring() {
+   let fixture = Fixture::with(&["wallet.read.names"], &[]);
+
+   let read = call_tool(&fixture, "wallet_get", json!({"wallet": WALLET})).await;
+   assert_eq!(
+      read.body.pointer("/result/isError"),
+      None,
+      "{}",
+      read.body
+   );
+
+   let activity = call_tool(&fixture, "agent_activity", json!({"limit": 20})).await;
+   let answer = data(&activity);
+
+   // A granted read changes nothing, but it is still what the agent did with the wallet, so the ring says
+   // it happened rather than only that refusals happened.
+   assert_eq!(answer["count"], 1, "{answer}");
+   assert_eq!(answer["entries"][0]["tool"], "wallet_get");
+   assert_eq!(answer["entries"][0]["decision"], "allowed");
+   assert_eq!(
+      answer["entries"][0]["capability"],
+      "wallet.read.names"
+   );
+   assert_eq!(answer["entries"][0]["wallet"]["address"], WALLET);
+
+   // The row carries what the call took, which a refusal never could.
+   assert!(
+      answer["entries"][0]["latency_ms"].is_u64(),
+      "the row records how long it took: {answer}"
+   );
+}
+
+#[tokio::test]
+async fn wallet_get_asks_for_the_names_capability() {
+   // The wallet list is one global read over every granted address; one wallet's own row is the per-wallet
+   // read the names capability describes. A profile holding only the screen grant cannot read it.
+   let screen_only = Fixture::with(&["settings.wallets.read"], &[]);
+   let denied = call_tool(
+      &screen_only,
+      "wallet_get",
+      json!({"wallet": WALLET}),
+   )
+   .await;
+
+   assert_eq!(error_code(&denied), Some("NOT_GRANTED"));
+
+   let named = Fixture::with(&["wallet.read.names"], &[]);
+   let allowed = call_tool(&named, "wallet_get", json!({"wallet": WALLET})).await;
+
+   assert_eq!(
+      allowed.body.pointer("/result/isError"),
+      None,
+      "{}",
+      allowed.body
+   );
+   assert!(
+      data(&allowed).to_string().contains(WALLET),
+      "the answer is the wallet it named: {}",
+      allowed.body
+   );
+   assert!(data(&allowed)["capabilities"].is_array());
+}
+
+#[tokio::test]
+async fn the_status_says_what_may_leave_each_wallet() {
+   let fixture = Fixture::with(&["wallet.write.send"], &[]);
+   allow_native(&fixture);
+
+   let status = call_tool(&fixture, "zeus_status", json!({})).await;
+   let wallet = status
+      .body
+      .pointer("/result/structuredContent/data/grant/wallets/0")
+      .expect("the granted wallet");
+
+   // The allowlist is the bound a granted send actually runs under, so it is in the summary a model reads
+   // first rather than only in a document it would have to know to fetch.
+   assert_eq!(wallet["tokens"]["kind"], "allowlist", "{wallet}");
+   assert_eq!(
+      wallet["tokens"]["tokens"][0]["chain"], 1,
+      "{wallet}"
+   );
+   assert_eq!(wallet["nfts"]["kind"], "none", "{wallet}");
 }

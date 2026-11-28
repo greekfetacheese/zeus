@@ -102,12 +102,14 @@ An autonomous action leaves two traces, because a user may not be watching the s
 - **The announcement.** One sentence through the accessibility channel — "Agent sent 12 USDC to
   0x1234…abcd" — and, when something is refused, "Agent was denied: …". Sentences from tools wait their
   turn, so two actions finishing together are two announcements rather than one.
-- **The activity ring.** Every write and every refusal, with the tool, the wallet, the decision, the
-  refusal's code, the transaction hash and the estimated value. A granted *read* is not recorded — a
-  portfolio poll every thirty seconds would bury the log — so the ring answers "what has this thing been
-  doing", not "what has it been looking at". The Agents page shows it under **Activity**, newest first,
-  and the `agent_activity` tool reads the same rows back to the agent that made them — never another
-  credential's.
+- **The activity ring.** Every call that ran and every refusal, with the tool, the wallet, the
+  decision, the refusal's code, the transaction hash and the estimated value. A *read* is recorded too:
+  being shown only the refusals made a read that ran look like a call that never happened. The cost is
+  that a portfolio poll every thirty seconds is a row every thirty seconds, and the ring keeps the newest
+  five thousand — a chatty harness spends history, never correctness, and a call is recorded once, so a
+  write the pipeline broadcast is one row and not two. The Agents page shows it under **Activity**, newest
+  first, and the `agent_activity` tool reads the same rows back to the agent that made them — never
+  another credential's.
 
 A row that produced a transaction links to the transaction history, where the outcome is.
 

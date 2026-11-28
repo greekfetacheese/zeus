@@ -74,10 +74,15 @@ where
 }
 
 pub fn revert_msg(bytes: &Bytes) -> String {
-   if let Some(msg) = decode_revert_reason(bytes) {
+   // A decoder can answer with an empty string — an Error("") or a custom error whose argument is blank —
+   // and that used to reach the caller as "Failed to simulate transaction: " with nothing after the
+   // colon, which names no problem and cannot be acted on. An empty answer is no answer.
+   if let Some(msg) = decode_revert_reason(bytes).filter(|msg| !msg.trim().is_empty()) {
       return msg;
    }
-   if let Some(msg) = crate::abi::permit::decode_permit2_revert(bytes) {
+   if let Some(msg) =
+      crate::abi::permit::decode_permit2_revert(bytes).filter(|msg| !msg.trim().is_empty())
+   {
       return msg;
    }
    if bytes.is_empty() {
@@ -143,6 +148,23 @@ mod tests {
       let short_bytes = Bytes::from(vec![1, 2, 3]);
       let msg = revert_msg(&short_bytes);
       assert!(!msg.is_empty());
+   }
+
+   /// An Error("") decodes to the empty string, and that used to become "Failed to simulate transaction: "
+   /// with nothing after the colon. An empty answer is no answer: the caller always gets something to read.
+   #[test]
+   fn a_revert_that_decodes_to_nothing_still_says_something() {
+      let mut data = hex::decode("08c379a0").unwrap();
+      data.extend_from_slice(&[0u8; 31]);
+      data.push(0x20);
+      data.extend_from_slice(&[0u8; 32]);
+
+      let msg = revert_msg(&Bytes::from(data));
+
+      assert!(
+         !msg.trim().is_empty(),
+         "a refusal with no sentence cannot be acted on"
+      );
    }
 
    #[test]

@@ -6,7 +6,7 @@
 
 use super::tx::wei_amount;
 use super::{
-   Call, ToolFuture, ToolOutput, ToolSpec, action, dry_run_argument, exec_error, optional_address,
+   Call, ToolFuture, ToolSpec, action, dry_run_argument, exec_error, optional_address,
    priority_argument, required_address, required_chain, string_argument, wallet_argument,
 };
 use crate::error::ToolError;
@@ -45,15 +45,13 @@ fn bridge(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            super::tx::perform(&held, "tx_bridge", capability, wanted).await?,
-         ))
+         Ok(super::tx::perform(&held, "tx_bridge", capability, wanted).await?)
       })
       .await
    })

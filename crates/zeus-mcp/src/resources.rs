@@ -13,7 +13,7 @@ use crate::error::{ErrorCode, ProtocolError, ToolError};
 use crate::protocol::types;
 use crate::tools::{Call, catalog, guard, read_error};
 use serde_json::{Value, json};
-use zeus_core::agent::{Intent, read};
+use zeus_core::agent::{AgentProfile, Intent, read};
 use zeus_eth::alloy_primitives::Address;
 
 /// One document this server serves by a fixed URI.
@@ -120,6 +120,22 @@ pub fn read(call: &Call, uri: &str, modern: bool) -> Result<Value, ProtocolError
    Ok(types::resource_contents(uri, &document, modern))
 }
 
+/// The grant document a model is shown: everything the policy enforces, and not the verifier.
+///
+/// The profile carries a token hash because the store needs it to authenticate the next request; a model
+/// does not, and a hash of its own bearer token is the one field in this document that is credential
+/// material rather than grant. Dropping it keeps "the grant, exactly as enforced" true without handing
+/// the caller the second half of the credential it presented.
+fn public_profile(profile: &AgentProfile) -> Value {
+   let mut document = serde_json::to_value(profile).unwrap_or(Value::Null);
+
+   if let Value::Object(fields) = &mut document {
+      fields.remove("token_hash");
+   }
+
+   document
+}
+
 /// One document served at a fixed URI.
 fn fixed(call: &Call, resource: &Resource) -> Result<Value, ProtocolError> {
    // An ungranted document is answered as unknown rather than empty: whether it exists is itself part of
@@ -134,7 +150,7 @@ fn fixed(call: &Call, resource: &Resource) -> Result<Value, ProtocolError> {
    }
 
    Ok(match resource.uri {
-      "zeus://profile" => serde_json::to_value(&call.profile).unwrap_or(Value::Null),
+      "zeus://profile" => public_profile(&call.profile),
       "zeus://wallets" => json!({"wallets": crate::tools::wallet::rows(call)}),
       _ => json!({
          "catalog": catalog(&call.profile),

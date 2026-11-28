@@ -52,10 +52,10 @@ pub const GET: ToolSpec = ToolSpec {
    description: "One granted wallet, plus the capabilities this profile holds on it — so a caller \
       can tell what it may do with this address without trying.",
    schema: r#"{"type": "object", "properties": {"wallet": {"type": "string",
-      "description": "The wallet's address, as wallet_list shows it."}}, "required": ["wallet"],
+      "description": "The wallet's address, from zeus_status or wallet_list."}}, "required": ["wallet"],
       "additionalProperties": false}"#,
    annotations: Annotations::READ,
-   capability: Some("settings.wallets.read"),
+   capability: Some("wallet.read.names"),
    call: get,
 };
 
@@ -149,15 +149,13 @@ fn set_delegation(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            perform(&held, "delegate_set", capability, wanted).await?,
-         ))
+         Ok(perform(&held, "delegate_set", capability, wanted).await?)
       })
       .await
    })

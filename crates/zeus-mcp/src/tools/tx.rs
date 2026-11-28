@@ -122,15 +122,13 @@ fn send(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            perform(&held, "tx_send", capability, wanted).await?,
-         ))
+         Ok(perform(&held, "tx_send", capability, wanted).await?)
       })
       .await
    })
@@ -147,15 +145,13 @@ fn send_nft(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            perform(&held, "tx_send_nft", capability, wanted).await?,
-         ))
+         Ok(perform(&held, "tx_send_nft", capability, wanted).await?)
       })
       .await
    })
@@ -170,7 +166,7 @@ pub(super) async fn perform(
    tool: &str,
    capability: &str,
    wanted: ExecCall,
-) -> Result<Value, ToolError> {
+) -> Result<ToolOutput, ToolError> {
    let client = call.client_info();
    let origin = exec::Origin {
       tool,
@@ -186,6 +182,7 @@ pub(super) async fn perform(
       flows,
    )
    .await
+   .map(|value| ToolOutput::new(value).recorded())
    .map_err(|error| exec_error(error, capability))
 }
 

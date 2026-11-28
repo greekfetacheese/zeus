@@ -122,10 +122,13 @@ fn get(call: &Call, arguments: Value) -> ToolFuture<'_> {
             },
          )?;
 
+         record_allowed(call, "settings_get", bin.read);
+
          return Ok(ToolOutput::new(json!({
              "screen": bin.name,
              "values": bin.values,
-         })));
+         }))
+         .recorded());
       }
 
       let Some(capability) = read::screen_read(&screen) else {
@@ -149,7 +152,9 @@ fn get(call: &Call, arguments: Value) -> ToolFuture<'_> {
          .read(|ctx| read::screen(ctx, &call.profile, &screen))
          .map_err(read_error)?;
 
-      Ok(ToolOutput::new(value))
+      record_allowed(call, "settings_get", capability);
+
+      Ok(ToolOutput::new(value).recorded())
    })
 }
 
@@ -166,12 +171,15 @@ fn describe(call: &Call, arguments: Value) -> ToolFuture<'_> {
             },
          )?;
 
+         record_allowed(call, "settings_describe", bin.read);
+
          return Ok(ToolOutput::new(settings::describe_parts(
             bin.name,
             bin.write,
             bin.schema,
             &bin.closed,
-         )));
+         ))
+         .recorded());
       }
 
       let Some(capability) = read::screen_read(&screen) else {
@@ -187,7 +195,9 @@ fn describe(call: &Call, arguments: Value) -> ToolFuture<'_> {
          &Intent::GlobalRead { capability },
       )?;
 
-      Ok(ToolOutput::new(settings::describe(&screen)))
+      record_allowed(call, "settings_describe", capability);
+
+      Ok(ToolOutput::new(settings::describe(&screen)).recorded())
    })
 }
 
@@ -331,7 +341,8 @@ fn landed(
       return ToolOutput::new(json!({
           "screen": screen,
           "changed": [],
-      }));
+      }))
+      .recorded();
    }
 
    record_allowed(call, "settings_set", capability);
@@ -352,7 +363,7 @@ fn landed(
       data["values"] = values;
    }
 
-   ToolOutput::new(data)
+   ToolOutput::new(data).recorded()
 }
 
 /// The binary's record of one screen, read now.

@@ -164,6 +164,10 @@ fn grant_summary(profile: &AgentProfile) -> Value {
          json!({
             "address": format!("{address:#x}"),
             "capabilities": grant.caps.iter().collect::<Vec<_>>(),
+            // The allowlist is the bound that actually holds a granted send, so a summary that a model
+            // reads first is misleading without it: a capability alone says nothing about what may leave.
+            "tokens": grant.tokens,
+            "nfts": grant.nfts,
          })
       })
       .collect();

@@ -5,10 +5,11 @@
 //! the same table is the dispatcher, so a tool cannot be listed without being gated: the gate reads the
 //! descriptor's own capability.
 //!
-//! Every refusal that is not a protocol error is recorded. An allow is not: the ring answers what this
-//! thing has been *doing*, and a granted read changes nothing. A write is recorded once the first one
-//! lands, and a refusal always is, because "it tried to send outside its allowlist" is the line a user
-//! most needs to see.
+//! Every call that ran and every refusal that is not a protocol error is recorded, so the ring answers
+//! what this thing has been *doing* rather than only what it was stopped from doing. A call is recorded
+//! once: a write the pipeline broadcast carries its hash into its own row and marks its answer recorded,
+//! and a refusal is recorded where it was decided, because "it tried to send outside its allowlist" is
+//! the line a user most needs to see.
 
 pub mod action;
 pub mod approvals;
@@ -86,6 +87,9 @@ pub struct Warning {
 pub struct ToolOutput {
    pub data: Value,
    pub warnings: Vec<Warning>,
+   /// Whether this answer is already in the audit ring: a write that records itself says so, so the gate
+   /// in front of every call does not write a second, emptier row for one action.
+   pub recorded: bool,
 }
 
 impl ToolOutput {
@@ -93,7 +97,15 @@ impl ToolOutput {
       Self {
          data,
          warnings: Vec::new(),
+         recorded: false,
       }
+   }
+
+   /// Mark this answer as recorded, so the gate in front of every call leaves it alone.
+   pub fn recorded(mut self) -> Self {
+      self.recorded = true;
+
+      self
    }
 
    /// The same answer with the action's own block beside its data.
@@ -272,6 +284,10 @@ pub async fn call_request(
 /// each: a wallet-scoped read is decided against the wallet the call names, and a global one against the
 /// profile. Asking the catalog rather than the tool table keeps the two from drifting.
 pub async fn run(spec: &ToolSpec, call: &Call, arguments: Value) -> Result<ToolOutput, ToolError> {
+   let started = Instant::now();
+   let wallet = wallet_of(&arguments);
+   let chain = chain_of(&arguments);
+
    if let Some(name) = spec.capability {
       let entry = capability(name);
       let scoped = entry.is_some_and(|entry| entry.scope == CapabilityScope::Wallet);
@@ -295,15 +311,28 @@ pub async fn run(spec: &ToolSpec, call: &Call, arguments: Value) -> Result<ToolO
       guard(call, spec.name, &intent)?;
    }
 
-   (spec.call)(call, arguments).await
+   let output = (spec.call)(call, arguments).await?;
+
+   // A granted read changes nothing, but it is still something the agent did with the wallet, and the
+   // ring is the only place a user sees it. A write that records itself marks its answer instead — the
+   // pipeline with the hash it broadcast, a settings screen with the fields it changed — so one call is
+   // one row. The tools that only describe the surface name no capability and leave no row at all.
+   if !output.recorded
+      && let Some(capability) = spec.capability
+   {
+      record_success(
+         call, spec.name, capability, wallet, chain, started,
+      );
+   }
+
+   Ok(output)
 }
 
 /// The wallet address a call names.
 pub fn wallet_argument(arguments: &Value) -> Result<Address, ToolError> {
-   let text = arguments
-      .get("wallet")
-      .and_then(Value::as_str)
-      .ok_or_else(|| ToolError::validation("wallet is required: the address wallet_list shows"))?;
+   let text = arguments.get("wallet").and_then(Value::as_str).ok_or_else(|| {
+      ToolError::validation("wallet is required: an address zeus_status lists under grant.wallets")
+   })?;
 
    text
       .parse()
@@ -330,6 +359,19 @@ pub fn chain_argument(arguments: &Value) -> Result<Option<u64>, ToolError> {
    }
 
    Ok(Some(chain))
+}
+
+/// The wallet a call names, when it names one: for the row a call leaves, not for a decision.
+fn wallet_of(arguments: &Value) -> Option<Address> {
+   arguments
+      .get("wallet")
+      .and_then(Value::as_str)
+      .and_then(|text| text.parse().ok())
+}
+
+/// The chain a call names, when it names one.
+fn chain_of(arguments: &Value) -> Option<u64> {
+   arguments.get("chain").and_then(Value::as_u64)
 }
 
 /// A whole-number argument with a default.
@@ -669,15 +711,41 @@ fn record(call: &Call, subject: &str, intent: &Intent, decision: &Decision, star
    }
 }
 
+/// The row a call that ran leaves, before the caller adds what only it knows.
+fn allowed(call: &Call, subject: &str, capability: &str) -> AuditEntry {
+   let mut entry = AuditEntry::new(&call.profile, subject, capability, now_secs())
+      .decided(&Decision::Allowed { prompt: false });
+
+   entry.client_info = call.client_info();
+
+   entry
+}
+
 /// Record a write that ran.
 ///
 /// A refusal is recorded by the gate in front of every call; an allowed write is recorded here, by the
 /// handler that performed it, because only it knows the write landed.
 pub fn record_allowed(call: &Call, subject: &str, capability: &str) {
-   let mut entry = AuditEntry::new(&call.profile, subject, capability, now_secs())
-      .decided(&Decision::Allowed { prompt: false });
+   call.ctx.agent_audit().record(allowed(call, subject, capability));
+}
 
-   entry.client_info = call.client_info();
+/// Record a call that the gate let through, with what the arguments said and how long it took.
+///
+/// The wallet and the chain come from the arguments rather than from the intent: a read the grant covers
+/// carries no asset, and a row that named the wallet of a call that had no wallet would be a lie.
+fn record_success(
+   call: &Call,
+   subject: &str,
+   capability: &str,
+   wallet: Option<Address>,
+   chain: Option<u64>,
+   started: Instant,
+) {
+   let mut entry = allowed(call, subject, capability);
+
+   entry.wallet = wallet;
+   entry.chain = chain;
+   entry.latency_ms = started.elapsed().as_millis() as u64;
 
    call.ctx.agent_audit().record(entry);
 }

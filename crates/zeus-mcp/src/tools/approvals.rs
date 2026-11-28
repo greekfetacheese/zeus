@@ -74,15 +74,13 @@ fn revoke(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            perform(&held, "approvals_revoke", capability, wanted).await?,
-         ))
+         Ok(perform(&held, "approvals_revoke", capability, wanted).await?)
       })
       .await
    })

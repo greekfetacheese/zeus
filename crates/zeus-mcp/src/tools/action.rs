@@ -110,6 +110,18 @@ where
    outcome.map(|output| output.stamped(json!({"id": id, "replayed": replayed, "idempotent": true})))
 }
 
+/// Stamp a preview's answer: the id it carried, and the fact that a preview never consumed it.
+///
+/// A dry run answers before run is reached, and it must not register its id: registering one would make
+/// the real send that repeats it replay the preview and never send at all. The answer says so rather than
+/// leaving the caller to notice that its id went nowhere.
+pub fn preview(data: Value, arguments: &Value) -> ToolOutput {
+   let id = arguments.get("action_id").and_then(Value::as_str).map(str::to_owned);
+
+   ToolOutput::new(data)
+      .stamped(json!({"id": id, "replayed": false, "idempotent": false, "preview": true}))
+}
+
 /// Wait for an action's answer, whether this call started it or is replaying one still in flight.
 async fn wait(mut receiver: watch::Receiver<Option<Outcome>>) -> Result<Outcome, ToolError> {
    loop {
@@ -134,4 +146,32 @@ fn fingerprint(arguments: &Value) -> String {
    }
 
    arguments.to_string()
+}
+
+#[cfg(test)]
+mod tests {
+   use super::*;
+
+   /// A preview answers before the ring is reached, so its id is not consumed — and the answer says so
+   /// rather than leaving the caller to find out when the real send runs as though it were new.
+   #[test]
+   fn a_preview_says_the_action_id_it_did_not_consume() {
+      let output = preview(
+         json!({"preview": true}),
+         &json!({"action_id": "order-1"}),
+      );
+
+      assert_eq!(
+         output.data["action"],
+         json!({"id": "order-1", "replayed": false, "idempotent": false, "preview": true})
+      );
+   }
+
+   #[test]
+   fn a_preview_without_an_id_says_that_too() {
+      let output = preview(json!({}), &json!({}));
+
+      assert_eq!(output.data["action"]["id"], Value::Null);
+      assert_eq!(output.data["action"]["idempotent"], false);
+   }
 }

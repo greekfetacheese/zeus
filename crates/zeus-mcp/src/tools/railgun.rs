@@ -144,15 +144,13 @@ fn shield(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            super::tx::perform(&held, "railgun_shield", capability, wanted).await?,
-         ))
+         Ok(super::tx::perform(&held, "railgun_shield", capability, wanted).await?)
       })
       .await
    })
@@ -196,7 +194,7 @@ fn unshield(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       // A URL the app does not already hold is a change to the setting it keeps, not a choice for this call.
@@ -209,13 +207,12 @@ fn unshield(call: &Call, arguments: Value) -> ToolFuture<'_> {
       let held = call.clone();
 
       let answer = action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            super::tx::perform(&held, "railgun_unshield", capability, wanted).await?,
-         ))
+         Ok(super::tx::perform(&held, "railgun_unshield", capability, wanted).await?)
       })
       .await?;
 
       output.data = answer.data;
+      output.recorded = answer.recorded;
 
       // The privacy consequence is not grantable, so it is said: the app's own warning, beside the answer.
       if broadcast.self_broadcast {
@@ -250,15 +247,13 @@ fn merge_notes(call: &Call, arguments: Value) -> ToolFuture<'_> {
             .await
             .map_err(|error| exec_error(error, capability))?;
 
-         return Ok(ToolOutput::new(value));
+         return Ok(action::preview(value, &arguments));
       }
 
       let held = call.clone();
 
       action::run(call, &arguments, async move {
-         Ok(ToolOutput::new(
-            super::tx::perform(&held, "railgun_merge_notes", capability, wanted).await?,
-         ))
+         Ok(super::tx::perform(&held, "railgun_merge_notes", capability, wanted).await?)
       })
       .await
    })
