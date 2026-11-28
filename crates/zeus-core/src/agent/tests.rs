@@ -2192,6 +2192,49 @@ fn the_activity_read_is_one_profile_newest_first() {
    );
 }
 
+/// A page hands back only the rows it covers, and still counts every entry the walk passed.
+#[test]
+fn a_page_reads_only_the_rows_it_returns() {
+   let ctx = unlocked();
+   let profile = sample_profile();
+
+   for (ts, tool) in [
+      (10, "wallet_list"),
+      (20, "tx_send"),
+      (30, "settings_set"),
+      (40, "contacts_list"),
+   ] {
+      ctx.agent_audit().record(
+         AuditEntry::new(&profile, tool, "wallet.read.history", ts)
+            .decided(&Decision::Allowed { prompt: false }),
+      );
+   }
+
+   let log = ctx.agent_audit();
+   let keep = |entry: &AuditEntry| entry.profile == profile.id;
+
+   let second = log.page(1, 2, &keep);
+   let tools: Vec<&str> = second.entries.iter().map(|entry| entry.tool.as_str()).collect();
+
+   assert_eq!(
+      tools,
+      ["settings_set", "tx_send"],
+      "the page starts after the first entry"
+   );
+   assert_eq!(
+      second.matching, 4,
+      "and the count it carries is every entry, not the page"
+   );
+
+   let past = log.page(9, 2, &keep);
+
+   assert!(
+      past.entries.is_empty(),
+      "a page past the end has nothing to draw"
+   );
+   assert_eq!(past.matching, 4, "and still counts the ring");
+}
+
 /// Two wallets the money tests of this group act for, so their actions queue behind nothing.
 fn carol() -> Address {
    Address::repeat_byte(0xa3)

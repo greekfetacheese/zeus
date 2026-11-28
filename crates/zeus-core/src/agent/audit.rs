@@ -478,6 +478,15 @@ impl AgentAuditLog {
    /// One pass: the count the ring holds for this reader comes out of the same walk as the rows, so
    /// "twenty of thirty-four" never costs a second clone of the log.
    pub fn recent(&self, limit: usize, keep: impl Fn(&AuditEntry) -> bool) -> Recent {
+      self.page(0, limit, keep)
+   }
+
+   /// One page of the entries `keep` accepts, newest first: the rows that start after the first
+   /// `offset` matching entries, and how many there are at any age.
+   ///
+   /// The walk is what counts them, and only the rows on the page are cloned, so the last page of a
+   /// full ring reads twenty entries rather than all five thousand.
+   pub fn page(&self, offset: usize, limit: usize, keep: impl Fn(&AuditEntry) -> bool) -> Recent {
       self.read(|audit| {
          let mut matching = 0;
          let mut entries = Vec::new();
@@ -489,9 +498,11 @@ impl AgentAuditLog {
 
             matching += 1;
 
-            if entries.len() < limit {
-               entries.push(entry.clone());
+            if matching <= offset || entries.len() >= limit {
+               continue;
             }
+
+            entries.push(entry.clone());
          }
 
          Recent { entries, matching }
