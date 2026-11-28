@@ -83,7 +83,9 @@ pub async fn quote(ctx: ZeusCtx, request: QuoteRequest) -> Result<SwapQuote, Exe
    .await?;
 
    if quote.amount_out.is_zero() {
-      return Err(ExecError::Failed(
+      // No route at this size is the caller's to fix — a smaller amount, another pair — not a failure of
+      // the app. INTERNAL told a model to report a bug it could simply work around.
+      return Err(ExecError::Invalid(
          "no route was found for this pair at this size".to_owned(),
       ));
    }
@@ -148,7 +150,9 @@ pub async fn swap(
    .await?;
 
    if quote.amount_out.is_zero() {
-      return Err(ExecError::Failed(
+      // No route at this size is the caller's to fix — a smaller amount, another pair — not a failure of
+      // the app. INTERNAL told a model to report a bug it could simply work around.
+      return Err(ExecError::Invalid(
          "no route was found for this pair at this size".to_owned(),
       ));
    }

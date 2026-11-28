@@ -1196,7 +1196,15 @@ fn review_sentence(review: &SimReview) -> String {
    }
 
    if parts.is_empty() {
-      return "nothing measured against a promise".to_string();
+      // A reviewed move whose numbers all came out clean has nothing to report, and that is not the same
+      // as nothing having been measured: the first is the good outcome, the second means no ceiling could
+      // be applied at all. Saying "nothing measured" for the first made every clean send and shield read
+      // as one nobody had reviewed.
+      return if review.measured {
+         "exactly what was promised".to_string()
+      } else {
+         "nothing measured against a promise".to_string()
+      };
    }
 
    parts.join(", ")
@@ -1411,6 +1419,16 @@ mod tests {
       assert_eq!(
          review_sentence(&SimReview::default()),
          "nothing measured against a promise"
+      );
+
+      // A review that ran and found nothing is not an unmeasured one: the move was checked and was clean,
+      // and saying "nothing measured" for it read as though no ceiling had been applied at all.
+      let mut clean = SimReview::default();
+      clean.measured = true;
+
+      assert_eq!(
+         review_sentence(&clean),
+         "exactly what was promised"
       );
    }
 

@@ -283,7 +283,14 @@ impl Server {
       };
 
       let outcome = match incoming.method.as_str() {
-         "initialize" => Ok(types::initialize(self.ops.as_ref())),
+         "initialize" => Ok(types::initialize(
+            self.ops.as_ref(),
+            incoming
+               .params
+               .as_ref()
+               .and_then(|params| params.get("protocolVersion"))
+               .and_then(Value::as_str),
+         )),
          "server/discover" => Ok(types::discover(self.ops.as_ref())),
          // The handshake era's keep-alive. The stateless revision removed it outright, so a modern
          // client asking for it is asking for a method this server does not have.
@@ -291,7 +298,7 @@ impl Server {
          "tools/list" => Ok(tools::list(&call.profile, modern)),
          "tools/call" => tools::call_request(&call, incoming.params.as_ref(), modern).await,
          "resources/list" => Ok(resources::list(&call, modern)),
-         "resources/templates/list" => Ok(resources::templates(modern)),
+         "resources/templates/list" => Ok(resources::templates(&call.profile, modern)),
          "resources/read" => read_resource(&call, incoming.params.as_ref(), modern),
          other => Err(ProtocolError::unknown_method(other)),
       };

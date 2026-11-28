@@ -99,11 +99,24 @@ pub fn list(call: &Call, modern: bool) -> Value {
 
 /// A resources/templates/list result.
 ///
-/// The templates are the same for every grant: which of them actually answers is decided when one is
-/// read, where the refusal can say why.
-pub fn templates(modern: bool) -> Value {
+/// A template is a promise that a URI of that shape answers, so it follows the grant like everything else:
+/// a profile that may not read a portfolio is not handed the shape that would only ever answer "unknown".
+/// The gate below is the same catalog every tool reads, so the two cannot drift.
+pub fn templates(profile: &AgentProfile, modern: bool) -> Value {
    let templates = TEMPLATES
       .iter()
+      .filter(|template| match template.uri {
+         "zeus://wallet/{address}/portfolio" => {
+            crate::tools::granted(profile, "wallet.read.portfolio")
+         }
+         "zeus://wallet/{address}/approvals" => {
+            crate::tools::granted(profile, "wallet.read.approvals")
+         }
+         "zeus://tx/{hash}" => crate::tools::granted(profile, "wallet.read.history"),
+         // A screen's switch is per screen, so the family answers while any one of them is readable.
+         "zeus://settings/{screen}" => profile.screens.values().any(|grant| grant.read),
+         _ => false,
+      })
       .map(|template| types::resource_template(template.uri, template.name, template.description))
       .collect();
 

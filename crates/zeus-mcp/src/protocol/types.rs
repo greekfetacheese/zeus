@@ -7,7 +7,7 @@
 use crate::error::ToolError;
 use crate::ops::AgentOps;
 use crate::protocol::{
-   INSTRUCTIONS, LEGACY_VERSION, LIST_TTL_MS, MODERN_VERSION, SERVER_NAME, meta,
+   INSTRUCTIONS, LEGACY_VERSION, LEGACY_VERSIONS, LIST_TTL_MS, MODERN_VERSION, SERVER_NAME, meta,
 };
 use serde_json::{Value, json};
 
@@ -161,9 +161,17 @@ pub fn call_error(error: &ToolError, modern: bool) -> Value {
 }
 
 /// The handshake's answer: the revision this client may assume, and what it can call.
-pub fn initialize(ops: &dyn AgentOps) -> Value {
+///
+/// A client that names a revision this build speaks is answered with its own. Every handshake revision is
+/// a superset of the one before it, so answering a newer number would tell a client to assume fields it
+/// never asked about; a revision this build does not know falls back to the newest one it does.
+pub fn initialize(ops: &dyn AgentOps, requested: Option<&str>) -> Value {
+   let version = requested
+      .filter(|version| LEGACY_VERSIONS.iter().any(|known| known.eq_ignore_ascii_case(version)))
+      .unwrap_or(LEGACY_VERSION);
+
    json!({
-      "protocolVersion": LEGACY_VERSION,
+      "protocolVersion": version,
       "capabilities": capabilities(),
       "serverInfo": server_info(ops),
    })

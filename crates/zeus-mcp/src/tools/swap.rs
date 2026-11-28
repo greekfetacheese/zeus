@@ -60,7 +60,6 @@ const SWAP_SCHEMA: &str = r#"{"type": "object", "properties": {
    "amount": {"type": "string", "description": "How much to sell, in whole units, as a decimal string such as 1.25. Never a JSON number."},
    "slippage_bps": {"type": "integer", "description": "How far the output may fall below the quote, in basis points: 50 is 0.5%. The grant caps this."},
    "deadline": {"type": "integer", "description": "How long the swap stays valid, in minutes: 1 to 60, 5 by default."},
-   "dry_run": {"type": "boolean", "description": "Refused for a swap: the transaction is built from the route inside the flow, and quote_swap is the read-only answer."},
    "priority": {"type": "string", "enum": ["normal", "fast", "very_fast"], "description": "The fee tier; fast by default."},
    "action_id": {"type": "string", "description": "A client-chosen id. Repeating a call with the same id and arguments replays the first answer instead of swapping twice."}
 }, "required": ["wallet", "chain", "token_out", "amount"], "additionalProperties": false}"#;

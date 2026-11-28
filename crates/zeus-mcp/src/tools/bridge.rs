@@ -25,7 +25,6 @@ pub const BRIDGE: ToolSpec = ToolSpec {
       "to_chain": {"type": "integer", "description": "The chain the money lands on."},
       "to": {"type": "string", "description": "The recipient on the destination chain, full and 0x-prefixed. A contract address is refused."},
       "amount": {"type": "string", "description": "How much to deposit, in whole units, as a decimal string such as 0.25. Never a JSON number."},
-      "dry_run": {"type": "boolean", "description": "Refused for a bridge: the deposit is built from the bridge's own fee quote, so there is nothing to simulate before the flow runs."},
       "priority": {"type": "string", "enum": ["normal", "fast", "very_fast"], "description": "The fee tier; fast by default."},
       "action_id": {"type": "string", "description": "A client-chosen id. Repeating a call with the same id and arguments replays the first answer instead of bridging twice."}
    }, "required": ["wallet", "chain", "to_chain", "to", "amount"], "additionalProperties": false}"#,

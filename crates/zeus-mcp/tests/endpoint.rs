@@ -446,6 +446,55 @@ async fn a_get_on_the_endpoint_is_method_not_allowed() {
 }
 
 #[tokio::test]
+async fn the_handshake_echoes_the_revision_the_client_asked_for() {
+   let fixture = Fixture::start(true);
+   let auth = format!("Bearer {}", fixture.token);
+
+   // Every revision this build speaks is answered with itself: they are supersets of one another, so
+   // answering the newest would tell a client to assume fields its revision never had.
+   for (id, version) in [(1u64, "2025-06-18"), (2, "2025-03-26"), (3, "2024-11-05")] {
+      let reply = request(
+         fixture.port,
+         "POST",
+         "/mcp",
+         &[("Authorization", &auth)],
+         &call(
+            id,
+            "initialize",
+            json!({"protocolVersion": version, "capabilities": {}, "clientInfo": {"name": "tests"}}),
+         ),
+         None,
+      )
+      .await;
+
+      assert_eq!(
+         reply.body.pointer("/result/protocolVersion").and_then(Value::as_str),
+         Some(version)
+      );
+   }
+
+   // A revision this build does not know falls back to the newest one it does speak.
+   let unknown = request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[("Authorization", &auth)],
+      &call(
+         9,
+         "initialize",
+         json!({"protocolVersion": "1999-01-01", "capabilities": {}, "clientInfo": {"name": "tests"}}),
+      ),
+      None,
+   )
+   .await;
+
+   assert_eq!(
+      unknown.body.pointer("/result/protocolVersion").and_then(Value::as_str),
+      Some(LEGACY_VERSION)
+   );
+}
+
+#[tokio::test]
 async fn the_legacy_handshake_then_a_tool_call_reads_the_wallets() {
    // The wallet list is a screen grant and one wallet's own row is per wallet, so a profile that reads
    // both holds the two capabilities that surface needs.
@@ -1947,7 +1996,9 @@ async fn a_resource_follows_the_grant_and_the_templates_are_published() {
       .and_then(Value::as_array)
       .expect("a template list");
 
-   assert_eq!(templates.len(), 4);
+   // A template is a promise that a URI of that shape answers, so a profile with nothing granted is not
+   // handed one it could only ever be refused from.
+   assert_eq!(templates.len(), 0, "{templates:?}");
 
    // Granted, the same URI answers the same document portfolio_get would.
    let fixture = Fixture::with(READ_CAPS, READ_SCREENS);
@@ -1993,6 +2044,28 @@ async fn a_resource_follows_the_grant_and_the_templates_are_published() {
    .await;
 
    assert_eq!(screen.status, 200);
+
+   // And with the caps in hand, every family is published again: four of the four this build serves.
+   let published = request(
+      fixture.port,
+      "POST",
+      "/mcp",
+      &[(
+         "Authorization",
+         &format!("Bearer {}", fixture.token),
+      )],
+      &call(3, "resources/templates/list", json!({})),
+      None,
+   )
+   .await;
+
+   let published = published
+      .body
+      .pointer("/result/resourceTemplates")
+      .and_then(Value::as_array)
+      .expect("a template list");
+
+   assert_eq!(published.len(), 4);
 }
 
 #[tokio::test]
