@@ -26,7 +26,8 @@ use crate::core::sim::diff::DiffProbe;
 use crate::core::{
    AgentEnv, Amount, ApproveSimulation, DecodedEvent, DiffWatch, SendTxOptions, SendTxRequest,
    SwapParams, TransactionAnalysis, TransactionRich, TxPromise, UnwrapWETHParams, WrapETHParams,
-   ZeusCtx, send_token_approve, send_transaction, signature::Permit2Info, types::Dapp,
+   ZeusCtx, send_token_approve, send_transaction, sign_message, signature::Permit2Info,
+   types::Dapp,
 };
 use crate::utils::{
    simulate::*,
@@ -2403,9 +2404,29 @@ pub(crate) async fn swap_via_ur(
       return Err(anyhow!("No tokens received from the swap"));
    };
 
-   // No permit window here: `encode_swap` signs the permit from the vault when it builds the route, so the
-   // window that used to sit here asked for a signature the flow then discarded. The consent it was meant
-   // to be is the transaction confirmation that follows, which is where the approval is shown.
+   // Prompt the user to sign a message if needed.
+   //
+   // An agent's grant stands in for the click here, exactly as it does in `confirm_tx`: the permit is
+   // signed from the vault inside `encode_swap` either way, so this window asks for a consent the flow
+   // never reads — and one an autonomous swap has nobody to give.
+   if env.authority.is_none()
+      && let Some(permit2_info) = &permit2_info_opt
+      && permit2_info.needs_new_signature
+   {
+      let msg = permit2_info.msg.clone().ok_or(anyhow!("No permit message found"))?;
+      let _sig = sign_message(
+         ctx.clone(),
+         "".to_string(),
+         chain,
+         Some(msg),
+         None,
+         None,
+      )
+      .await?;
+      SHARED_GUI.write(|gui| {
+         gui.request_repaint();
+      });
+   }
 
    SHARED_GUI.write(|gui| {
       gui.loading_window.open("Sending the transaction…");
